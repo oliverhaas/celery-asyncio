@@ -593,6 +593,10 @@ class Consumer:
         on_unknown_task = self.on_unknown_task
         on_invalid_task = self.on_invalid_task
         callbacks = self.on_task_message
+        # Capture the event loop reference for thread-safe scheduling.
+        # ack/reject are async (kombu-asyncio) but called from sync Request
+        # code that may run in a ThreadPoolExecutor.
+        loop = asyncio.get_running_loop()
 
         def on_task_received(message):
             # payload will only be set for v1 protocol, since v2
@@ -618,15 +622,16 @@ class Consumer:
             else:
                 try:
                     # ack/reject are async in kombu-asyncio but called from
-                    # sync Request code. Schedule them on the event loop.
-                    # Must accept *args because Request.acknowledge() passes
-                    # (logger, connection_errors).
+                    # sync Request code (possibly in a thread pool).
+                    # Use call_soon_threadsafe to schedule on the event loop.
                     def _ack(*args, _msg=message, **kwargs):
-                        asyncio.get_event_loop().create_task(
+                        loop.call_soon_threadsafe(
+                            loop.create_task,
                             _msg.ack_log_error(logger, self.connection_errors))
 
                     def _reject(*args, _msg=message, **kwargs):
-                        asyncio.get_event_loop().create_task(
+                        loop.call_soon_threadsafe(
+                            loop.create_task,
                             _msg.reject_log_error(logger, self.connection_errors))
 
                     strategy(

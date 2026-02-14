@@ -47,7 +47,7 @@ class Pidbox:
 
     async def start(self, c):
         self.node.channel = await c.connection.channel()
-        self.consumer = self.node.listen(callback=self.on_message)
+        self.consumer = await self.node.listen(callback=self.on_message)
         self.consumer.on_decode_error = c.on_decode_error
 
     async def stop(self, c):

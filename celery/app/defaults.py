@@ -8,7 +8,7 @@ from celery.utils.serialization import strtobool
 __all__ = ('Option', 'NAMESPACES', 'flatten', 'find')
 
 
-DEFAULT_POOL = 'threads'
+DEFAULT_POOL = 'asyncio'
 
 DEFAULT_ACCEPT_CONTENT = ('json',)
 DEFAULT_PROCESS_LOG_FMT = """

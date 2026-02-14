@@ -9,8 +9,8 @@ from kombu.utils.imports import symbol_by_name
 
 __all__ = ('get_implementation', 'get_available_pool_names',)
 
-# In asyncio mode, we only support thread-based and solo pools
 ALIASES = {
+    'asyncio': 'celery.concurrency.aio:TaskPool',
     'solo': 'celery.concurrency.solo:TaskPool',
     'threads': 'celery.concurrency.thread:TaskPool',
 }

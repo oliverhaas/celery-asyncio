@@ -142,9 +142,10 @@ class EventDispatcher:
 
     def _publish(self, event, producer, routing_key, retry=False,
                  retry_policy=None, utcoffset=utcoffset):
+        import asyncio
         exchange = self.exchange
         try:
-            producer.publish(
+            coro = producer.publish(
                 event,
                 routing_key=routing_key,
                 exchange=exchange.name,
@@ -155,6 +156,13 @@ class EventDispatcher:
                 headers=self.headers,
                 delivery_mode=self.delivery_mode,
             )
+            # producer.publish() is async in kombu-asyncio
+            if asyncio.iscoroutine(coro):
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(coro)
+                except RuntimeError:
+                    pass
         except Exception as exc:  # pylint: disable=broad-except
             if not self.buffer_while_offline:
                 raise

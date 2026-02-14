@@ -50,11 +50,19 @@ class Mingle(bootsteps.StartStopStep):
             info("mingle: all alone")
 
     async def send_hello(self, c):
-        inspect = c.app.control.inspect(timeout=1.0, connection=c.connection)
-        our_revoked = c.controller.state.revoked
-        replies = inspect.hello(c.hostname, our_revoked._data) or {}
-        replies.pop(c.hostname, None)  # delete my own response
-        return replies
+        try:
+            inspect = c.app.control.inspect(timeout=1.0, connection=c.connection)
+            our_revoked = c.controller.state.revoked
+            replies = inspect.hello(c.hostname, our_revoked._data)
+            # Handle case where broadcast returns a coroutine (async pidbox)
+            if hasattr(replies, '__await__'):
+                replies = await replies
+            replies = replies or {}
+            replies.pop(c.hostname, None)  # delete my own response
+            return replies
+        except Exception as exc:
+            exception("mingle: send_hello failed: %r", exc)
+            return {}
 
     def on_node_reply(self, c, nodename, reply):
         debug("mingle: processing reply from %s", nodename)

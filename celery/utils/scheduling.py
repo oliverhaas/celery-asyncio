@@ -309,6 +309,10 @@ class Timer:
             heapq.heappush(self._queue, entry)
         return entry
 
+    def cancel(self, entry: Entry) -> None:
+        """Cancel a scheduled entry."""
+        entry.cancel()
+
     def apply_entry(self, entry: Entry) -> float | None:
         """Apply scheduled entry."""
         if entry.cancelled:
