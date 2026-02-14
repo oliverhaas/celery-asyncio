@@ -235,12 +235,11 @@ def jsonify(obj,
             keyfilter=None,
             unknown_type_filter=None):
     """Transform object making it suitable for json serialization."""
-    from kombu.abstract import Object as KombuDictType
     _jsonify = partial(jsonify, builtin_types=builtin_types, key=key,
                        keyfilter=keyfilter,
                        unknown_type_filter=unknown_type_filter)
 
-    if isinstance(obj, KombuDictType):
+    if hasattr(obj, 'as_dict'):
         obj = obj.as_dict(recurse=True)
 
     if obj is None or isinstance(obj, builtin_types):

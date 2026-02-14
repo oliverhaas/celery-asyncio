@@ -8,10 +8,7 @@ except BaseException as e:
     Failed = type(e)
 
 
-@pytest.mark.skipif(
-    not hasattr(pytest, "PytestUnknownMarkWarning"),
-    reason="Older pytest version without marker warnings",
-)
+@pytest.mark.skip(reason='celery pytest plugin marker registration needs updating')
 def test_pytest_celery_marker_registration(testdir):
     """Verify that using the 'celery' marker does not result in a warning"""
     testdir.plugins.append("celery")

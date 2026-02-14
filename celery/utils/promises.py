@@ -97,7 +97,16 @@ class promise:
         """Execute the promise."""
         fun = self._get_fun()
         if fun is None:
-            return None
+            # No function — act as a simple "event" marker.
+            self._value = args[0] if args else None
+            self._ready = True
+            for callback, error_handler in self._callbacks:
+                try:
+                    callback(self._value)
+                except Exception as exc:
+                    if error_handler:
+                        error_handler(exc)
+            return self._value
         try:
             call_args = args if args else self.args
             call_kwargs = {**self.kwargs, **kwargs} if kwargs else self.kwargs
@@ -135,11 +144,14 @@ class promise:
             self._callbacks.append((callback, on_error))
         return self
 
-    def throw(self, exc: BaseException) -> None:
-        """Signal that the promise failed."""
+    def throw(self, exc: BaseException, tb=None) -> None:
+        """Signal that the promise failed by re-raising the exception."""
         self._failed = True
+        if tb is not None:
+            exc.__traceback__ = tb
         if self.on_error:
             self.on_error(exc)
+        raise exc
 
 
 class starpromise(promise):

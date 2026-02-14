@@ -101,14 +101,14 @@ class test_RPCBackend:
 
     def test_on_task_call(self):
         with patch('celery.backends.rpc.maybe_declare') as md:
-            with self.app.amqp.producer_pool.acquire() as prod:
-                self.b.on_task_call(prod, 'task_id'),
-                md.assert_called_with(
-                    self.b.binding(prod.channel),
-                    retry=True,
-                )
+            prod = Mock(name='producer')
+            self.b.on_task_call(prod, 'task_id')
+            md.assert_called_with(
+                self.b.binding,
+                retry=True,
+            )
 
     def test_create_exchange(self):
         ex = self.b._create_exchange('name')
         assert isinstance(ex, self.b.Exchange)
-        assert ex.name == ''
+        assert not ex.name  # None or '' depending on kombu version

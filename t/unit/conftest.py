@@ -131,11 +131,6 @@ def AAA_disable_multiprocessing():
     # so disable them completely to make sure it doesn't happen.
     stuff = [
         'multiprocessing.Process',
-        'billiard.Process',
-        'billiard.context.Process',
-        'billiard.process.Process',
-        'billiard.process.BaseProcess',
-        'multiprocessing.Process',
     ]
     ctxs = [patch(s) for s in stuff]
     [ctx.__enter__() for ctx in ctxs]

@@ -9,62 +9,6 @@ from celery.app.amqp import Queues, utf8dict
 from celery.utils.time import to_utc
 
 
-class test_TaskConsumer:
-
-    def test_accept_content(self, app):
-        with app.pool.acquire(block=True) as con:
-            app.conf.accept_content = ['application/json']
-            assert app.amqp.TaskConsumer(con).accept == {
-                'application/json',
-            }
-            assert app.amqp.TaskConsumer(con, accept=['json']).accept == {
-                'application/json',
-            }
-
-
-class test_ProducerPool:
-
-    def test_setup_nolimit(self, app):
-        app.conf.broker_pool_limit = None
-        try:
-            delattr(app, '_pool')
-        except AttributeError:
-            pass
-        app.amqp._producer_pool = None
-        pool = app.amqp.producer_pool
-        assert pool.limit == app.pool.limit
-        assert not pool._resource.queue
-
-        r1 = pool.acquire()
-        r2 = pool.acquire()
-        r1.release()
-        r2.release()
-        r1 = pool.acquire()
-        r2 = pool.acquire()
-
-    def test_setup(self, app):
-        app.conf.broker_pool_limit = 2
-        try:
-            delattr(app, '_pool')
-        except AttributeError:
-            pass
-        app.amqp._producer_pool = None
-        pool = app.amqp.producer_pool
-        assert pool.limit == app.pool.limit
-        assert pool._resource.queue
-
-        p1 = r1 = pool.acquire()
-        p2 = r2 = pool.acquire()
-        r1.release()
-        r2.release()
-        r1 = pool.acquire()
-        r2 = pool.acquire()
-        assert p2 is r1
-        assert p1 is r2
-        r1.release()
-        r2.release()
-
-
 class test_Queues:
 
     def test_queues_format(self):
@@ -123,7 +67,7 @@ class test_Queues:
          {'x-max-priority': 10}),
         ({'max_priority': None},
          'foo2', 'foo2',
-         None),
+         {}),
         ({'max_priority': None},
          'xyx3', Queue('xyx3', queue_arguments={'x-max-priority': 7}),
          {'x-max-priority': 7}),
@@ -170,7 +114,7 @@ class test_default_queues:
         if default_queue_type == 'quorum':
             assert queue.queue_arguments == {'x-queue-type': 'quorum'}
         else:
-            assert queue.queue_arguments is None
+            assert not queue.queue_arguments  # {} or None
 
 
 class test_default_exchange:

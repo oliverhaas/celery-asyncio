@@ -334,7 +334,7 @@ def filter_hidden_settings(conf):
                 return mask
             elif 'broker_url' in key.lower():
                 from kombu import Connection
-                return Connection(value).as_uri(mask=mask)
+                return Connection(value).as_uri()
             elif 'backend' in key.lower():
                 return maybe_sanitize_url(value, mask=mask)
 

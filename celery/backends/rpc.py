@@ -161,7 +161,7 @@ class RPCBackend(base.Backend, AsyncBackendMixin):
         # the message, but we skip this if running in the prefork pool
         # (task_join_will_block), as we know the queue is already declared.
         if not task_join_will_block():
-            maybe_declare(self.binding(producer.channel), retry=True)
+            maybe_declare(self.binding, retry=True)
 
     def destination_for(self, task_id, request):
         """Get the destination for result by task id.

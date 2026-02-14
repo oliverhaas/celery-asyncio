@@ -1,6 +1,6 @@
 import os
 from itertools import count
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 

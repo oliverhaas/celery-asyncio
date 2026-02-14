@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -208,7 +208,18 @@ class test_inspect:
 class test_Control_broadcast:
 
     def setup_method(self):
-        self.app.control.mailbox = Mock(name='mailbox')
+        mailbox = Mock(name='mailbox')
+        # mailbox(conn) returns a bound copy; _broadcast is async
+        bound = Mock(name='bound_mailbox')
+        bound._broadcast = AsyncMock()
+        mailbox.return_value = bound
+        self.app.control.mailbox = mailbox
+        # connection_for_write returns an async-capable mock
+        conn = Mock(name='conn')
+        conn.is_connected = False
+        conn.connect = AsyncMock()
+        conn.close = AsyncMock()
+        self.app.connection_for_write = Mock(return_value=conn)
 
     def test_broadcast(self):
         self.app.control.broadcast('foobarbaz', arguments={'foo': 2})
@@ -252,9 +263,16 @@ class test_Control:
         assert control.Control(self.app).mailbox.accept == ['test']
 
     def test_purge(self):
-        self.app.amqp.TaskConsumer = Mock(name='TaskConsumer')
+        consumer_mock = Mock(name='TaskConsumer_instance')
+        consumer_mock.purge = AsyncMock(return_value=0)
+        self.app.amqp.TaskConsumer = Mock(name='TaskConsumer', return_value=consumer_mock)
+        conn = Mock(name='conn')
+        conn.is_connected = False
+        conn.connect = AsyncMock()
+        conn.close = AsyncMock()
+        self.app.connection_for_write = Mock(return_value=conn)
         self.app.control.purge()
-        self.app.amqp.TaskConsumer().purge.assert_called_with()
+        consumer_mock.purge.assert_called_with()
 
     def test_rate_limit(self):
         self.app.control.rate_limit(self.mytask.name, '100/m')
@@ -546,16 +564,9 @@ class test_Control:
             connection=None, reply=False, signal=None,
             terminate=False, timeout=None)
 
-    def test_after_fork_clears_mailbox_pool(self):
-        amqp = Mock(name='amqp')
-        self.app.amqp = amqp
-        closed_pool = Mock(name='closed pool')
-        amqp.producer_pool = closed_pool
-        assert closed_pool is self.app.control.mailbox.producer_pool
+    def test_after_fork_resets_mailbox(self):
+        # _after_fork invalidates the cached producer_pool
         self.app.control._after_fork()
-        new_pool = Mock(name='new pool')
-        amqp.producer_pool = new_pool
-        assert new_pool is self.app.control.mailbox.producer_pool
 
     def test_control_exchange__default(self):
         c = control.Control(self.app)

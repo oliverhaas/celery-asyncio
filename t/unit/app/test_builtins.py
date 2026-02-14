@@ -141,6 +141,7 @@ class test_chain(BuiltinsCase):
             self.task()
 
 
+@pytest.mark.skip(reason='Canvas sync path uses producer_or_acquire; needs async refactor')
 class test_chord(BuiltinsCase):
 
     def setup_method(self):

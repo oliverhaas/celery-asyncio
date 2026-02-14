@@ -27,7 +27,17 @@ from .base import BaseKeyValueStoreBackend
 
 try:
     import redis.connection
-    from kombu.transport.redis import get_redis_error_classes
+    import redis.exceptions
+
+    def get_redis_error_classes():
+        return (
+            (redis.exceptions.ConnectionError,
+             redis.exceptions.TimeoutError,
+             redis.exceptions.AuthenticationError),
+            (redis.exceptions.DataError,
+             redis.exceptions.InvalidResponse,
+             redis.exceptions.ResponseError),
+        )
 except ImportError:
     redis = None
     get_redis_error_classes = None

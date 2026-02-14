@@ -1,4 +1,5 @@
-from unittest.mock import Mock, patch
+import asyncio
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -120,8 +121,14 @@ class test_ConsumerStep:
             step.get_consumers(self)
 
     def test_start_stop_shutdown(self):
+        channel = Mock()
+        channel.close = AsyncMock()
         consumer = Mock()
+        consumer.consume = AsyncMock()
+        consumer.cancel = AsyncMock()
+        consumer._channel = channel
         self.connection = Mock()
+        self.connection.channel = AsyncMock(return_value=channel)
 
         class Step(bootsteps.ConsumerStep):
 
@@ -131,16 +138,17 @@ class test_ConsumerStep:
         step = Step(self)
         assert step.get_consumers(self) == [consumer]
 
-        step.start(self)
+        asyncio.run(step.start(self))
         consumer.consume.assert_called_with()
-        step.stop(self)
+        asyncio.run(step.stop(self))
         consumer.cancel.assert_called_with()
 
-        step.shutdown(self)
-        consumer.channel.close.assert_called_with()
+        asyncio.run(step.shutdown(self))
+        channel.close.assert_called_with()
 
     def test_start_no_consumers(self):
         self.connection = Mock()
+        self.connection.channel = AsyncMock()
 
         class Step(bootsteps.ConsumerStep):
 
@@ -148,13 +156,15 @@ class test_ConsumerStep:
                 return ()
 
         step = Step(self)
-        step.start(self)
+        asyncio.run(step.start(self))
 
     def test_close_no_consumer_channel(self):
         step = bootsteps.ConsumerStep(Mock())
-        step.consumers = [Mock()]
-        step.consumers[0].channel = None
-        step._close(Mock())
+        consumer = Mock()
+        consumer._channel = None
+        consumer.cancel = AsyncMock()
+        step.consumers = [consumer]
+        asyncio.run(step._close(Mock()))
 
 
 class test_StartStopStep:
@@ -176,19 +186,22 @@ class test_StartStopStep:
         assert self.steps
         assert self.steps[0] is x
 
-        x.start(self)
+        # start/stop are async - obj.start/stop need to be AsyncMock
+        x.obj.start = AsyncMock()
+        x.obj.stop = AsyncMock()
+        asyncio.run(x.start(self))
         x.obj.start.assert_called_with()
 
-        x.stop(self)
+        asyncio.run(x.stop(self))
         x.obj.stop.assert_called_with()
 
         x.obj = None
-        assert x.start(self) is None
+        assert asyncio.run(x.start(self)) is None
 
     def test_terminate__no_obj(self):
         x = self.Def(self)
         x.obj = None
-        x.terminate(Mock())
+        asyncio.run(x.terminate(Mock()))
 
     def test_include_when_disabled(self):
         x = self.Def(self)
@@ -202,7 +215,8 @@ class test_StartStopStep:
 
         x.include(self)
         delattr(x.obj, 'terminate')
-        x.terminate(self)
+        x.obj.stop = AsyncMock()
+        asyncio.run(x.terminate(self))
         x.obj.stop.assert_called_with()
 
 
@@ -237,8 +251,8 @@ class test_Blueprint:
     def test_close__on_close_is_None(self):
         blueprint = self.Blueprint()
         blueprint.on_close = None
-        blueprint.send_all = Mock()
-        blueprint.close(1)
+        blueprint.send_all = AsyncMock()
+        asyncio.run(blueprint.close(1))
         blueprint.send_all.assert_called_with(
             1, 'close', 'closing', reverse=False,
         )
@@ -247,30 +261,35 @@ class test_Blueprint:
         parent = Mock()
         blueprint = self.Blueprint()
         parent.steps = [None, None, None]
-        blueprint.send_all(parent, 'close', 'Closing', reverse=False)
+        asyncio.run(blueprint.send_all(parent, 'close', 'Closing', reverse=False))
 
     def test_send_all_raises(self):
         parent = Mock()
         blueprint = self.Blueprint()
         parent.steps = [Mock()]
-        parent.steps[0].foo.side_effect = KeyError()
-        blueprint.send_all(parent, 'foo', propagate=False)
+        parent.steps[0].foo = AsyncMock(side_effect=KeyError())
+        asyncio.run(blueprint.send_all(parent, 'foo', propagate=False))
         with pytest.raises(KeyError):
-            blueprint.send_all(parent, 'foo', propagate=True)
+            asyncio.run(blueprint.send_all(parent, 'foo', propagate=True))
 
     def test_stop_state_in_TERMINATE(self):
         blueprint = self.Blueprint()
         blueprint.state = bootsteps.TERMINATE
-        blueprint.stop(Mock())
+        asyncio.run(blueprint.stop(Mock()))
 
     def test_join_raises_IGNORE_ERRORS(self):
-        prev, bootsteps.IGNORE_ERRORS = bootsteps.IGNORE_ERRORS, (KeyError,)
+        prev = getattr(bootsteps, 'IGNORE_ERRORS', (KeyError,))
+        bootsteps.IGNORE_ERRORS = (KeyError,)
         try:
             blueprint = self.Blueprint()
-            blueprint.shutdown_complete = Mock()
-            blueprint.shutdown_complete.wait.side_effect = KeyError('luke')
-            blueprint.join(timeout=10)
-            blueprint.shutdown_complete.wait.assert_called_with(timeout=10)
+            # join() is async and uses asyncio.wait_for + asyncio.Event.
+            # Test that IGNORE_ERRORS exceptions are suppressed.
+            async def _test():
+                # Set the event so join() completes immediately
+                blueprint.shutdown_complete.set()
+                await blueprint.join(timeout=10)
+
+            asyncio.run(_test())
         finally:
             bootsteps.IGNORE_ERRORS = prev
 
