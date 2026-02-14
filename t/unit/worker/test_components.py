@@ -3,8 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 import t.skip
-from celery.exceptions import ImproperlyConfigured
-from celery.worker.components import Beat, Hub, Pool, Timer
+from celery.worker.components import Hub, Pool, Timer
 
 # some of these are tested in test_worker, so I've only written tests
 # here to complete coverage.  Should move everything to this module at some
@@ -82,10 +81,3 @@ class test_Pool:
         assert comp.instantiate.call_args[1]['max_memory_per_child'] == 32
 
 
-class test_Beat:
-
-    def test_create__green(self):
-        w = Mock(name='w')
-        w.pool_cls.__module__ = 'foo_gevent'
-        with pytest.raises(ImproperlyConfigured):
-            Beat(w).create(w)

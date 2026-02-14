@@ -1,6 +1,5 @@
 """Async I/O backend support utilities."""
 
-import logging
 import socket
 import threading
 import time
@@ -9,38 +8,13 @@ from queue import Empty
 from time import sleep
 from weakref import WeakKeyDictionary
 
-from kombu.utils.compat import detect_environment
-
 from celery import states
 from celery.exceptions import TimeoutError
-from celery.utils.threads import THREAD_TIMEOUT_MAX
-
-E_CELERY_RESTART_REQUIRED = "Celery must be restarted because a shutdown signal was detected."
 
 __all__ = (
     'AsyncBackendMixin', 'BaseResultConsumer', 'Drainer',
     'register_drainer',
 )
-
-
-class EventletAdaptedEvent:
-    """
-    An adapted eventlet event, designed to match the API of `threading.Event` and
-    `gevent.event.Event`.
-    """
-
-    def __init__(self):
-        import eventlet
-        self.evt = eventlet.Event()
-
-    def is_set(self):
-        return self.evt.ready()
-
-    def set(self):
-        return self.evt.send()
-
-    def wait(self, timeout=None):
-        return self.evt.wait(timeout)
 
 
 drainers = {}
@@ -89,105 +63,6 @@ class Drainer:
 
     def _event(self):
         return threading.Event()
-
-
-class greenletDrainer(Drainer):
-    spawn = None
-    _exc = None
-    _g = None
-    _drain_complete_event = None    # event, sended (and recreated) after every drain_events iteration
-
-    def _send_drain_complete_event(self):
-        self._drain_complete_event.set()
-        self._drain_complete_event = self._event()
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self._started = self._event()
-        self._stopped = self._event()
-        self._shutdown = self._event()
-        self._drain_complete_event = self._event()
-
-    def run(self):
-        self._started.set()
-
-        try:
-            while not self._stopped.is_set():
-                try:
-                    self.result_consumer.drain_events(timeout=1)
-                    self._send_drain_complete_event()
-                except socket.timeout:
-                    pass
-        except Exception as e:
-            self._exc = e
-            raise
-        finally:
-            self._send_drain_complete_event()
-            try:
-                self._shutdown.set()
-            except RuntimeError as e:
-                logging.error(f"Failed to set shutdown event: {e}")
-
-    def start(self):
-        self._ensure_not_shut_down()
-
-        if not self._started.is_set():
-            self._g = self.spawn(self.run)
-            self._started.wait()
-
-    def stop(self):
-        self._stopped.set()
-        self._shutdown.wait(THREAD_TIMEOUT_MAX)
-
-    def wait_for(self, p, wait, timeout=None):
-        self.start()
-        if not p.ready:
-            self._drain_complete_event.wait(timeout=timeout)
-
-            self._ensure_not_shut_down()
-
-    def _ensure_not_shut_down(self):
-        """Currently used to ensure the drainer has not run to completion.
-
-        Raises if the shutdown event has been signaled (either due to an exception
-        or stop() being called).
-
-        The _shutdown event acts as synchronization to ensure _exc is properly
-        set before it is read from, avoiding need for locks.
-        """
-        if self._shutdown.is_set():
-            if self._exc is not None:
-                raise self._exc
-            else:
-                raise Exception(E_CELERY_RESTART_REQUIRED)
-
-
-@register_drainer('eventlet')
-class eventletDrainer(greenletDrainer):
-
-    def spawn(self, func):
-        from eventlet import sleep, spawn
-        g = spawn(func)
-        sleep(0)
-        return g
-
-    def _event(self):
-        return EventletAdaptedEvent()
-
-
-@register_drainer('gevent')
-class geventDrainer(greenletDrainer):
-
-    def spawn(self, func):
-        import gevent
-        g = gevent.spawn(func)
-        gevent.sleep(0)
-        return g
-
-    def _event(self):
-        from gevent.event import Event
-        return Event()
 
 
 class AsyncBackendMixin:
@@ -293,7 +168,7 @@ class BaseResultConsumer:
         self._pending_messages = pending_messages
         self.on_message = None
         self.buckets = WeakKeyDictionary()
-        self.drainer = drainers[detect_environment()](self)
+        self.drainer = drainers['default'](self)
 
     def start(self, initial_task_id, **kwargs):
         raise NotImplementedError()

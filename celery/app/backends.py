@@ -26,7 +26,6 @@ BACKEND_ALIASES = {
     'couchbase': 'celery.backends.couchbase:CouchbaseBackend',
     'couchdb': 'celery.backends.couchdb:CouchBackend',
     'cosmosdbsql': 'celery.backends.cosmosdbsql:CosmosDBSQLBackend',
-    'riak': 'celery.backends.riak:RiakBackend',
     'file': 'celery.backends.filesystem:FilesystemBackend',
     'disabled': 'celery.backends.base:DisabledBackend',
     'consul': 'celery.backends.consul:ConsulBackend',

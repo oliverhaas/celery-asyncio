@@ -1,8 +1,6 @@
-import importlib
 import os
-import sys
 from itertools import count
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -160,29 +158,10 @@ class test_BasePool:
 
 class test_get_available_pool_names:
 
-    def test_no_concurrent_futures__returns_no_threads_pool_name(self):
+    def test_returns_asyncio_pool_names(self):
         expected_pool_names = (
-            'prefork',
-            'eventlet',
-            'gevent',
+            'asyncio',
             'solo',
-            'processes',
-            'custom',
-        )
-        with patch.dict(sys.modules, {'concurrent.futures': None}):
-            importlib.reload(concurrency)
-            assert concurrency.get_available_pool_names() == expected_pool_names
-
-    def test_concurrent_futures__returns_threads_pool_name(self):
-        expected_pool_names = (
-            'prefork',
-            'eventlet',
-            'gevent',
-            'solo',
-            'processes',
             'threads',
-            'custom',
         )
-        with patch.dict(sys.modules, {'concurrent.futures': Mock()}):
-            importlib.reload(concurrency)
-            assert concurrency.get_available_pool_names() == expected_pool_names
+        assert concurrency.get_available_pool_names() == expected_pool_names

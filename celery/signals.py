@@ -22,9 +22,7 @@ __all__ = (
     'worker_process_init', 'worker_process_shutdown', 'worker_ready',
     'worker_shutdown', 'worker_shutting_down', 'setup_logging',
     'after_setup_logger', 'after_setup_task_logger', 'beat_init',
-    'beat_embedded_init', 'heartbeat_sent', 'eventlet_pool_started',
-    'eventlet_pool_preshutdown', 'eventlet_pool_postshutdown',
-    'eventlet_pool_apply',
+    'beat_embedded_init', 'heartbeat_sent',
 )
 
 # - Task
@@ -137,15 +135,6 @@ after_setup_task_logger = Signal(
 # - Beat
 beat_init = Signal(name='beat_init')
 beat_embedded_init = Signal(name='beat_embedded_init')
-
-# - Eventlet
-eventlet_pool_started = Signal(name='eventlet_pool_started')
-eventlet_pool_preshutdown = Signal(name='eventlet_pool_preshutdown')
-eventlet_pool_postshutdown = Signal(name='eventlet_pool_postshutdown')
-eventlet_pool_apply = Signal(
-    name='eventlet_pool_apply',
-    providing_args={'target', 'args', 'kwargs'},
-)
 
 # - Programs
 user_preload_options = Signal(

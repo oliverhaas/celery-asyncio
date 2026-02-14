@@ -495,7 +495,6 @@ def install_rdb_handler(envvar='CELERY_RDBSIG',
         with in_sighandler():
             from celery.contrib.rdb import _frame, set_trace
 
-            # gevent does not pass standard signal handler args
             frame = args[1] if args else _frame().f_back
             set_trace(frame)
     if os.environ.get(envvar):

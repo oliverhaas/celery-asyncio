@@ -65,13 +65,6 @@ class test_Consumer(ConsumerTestCase):
         c = self.get_consumer(amqheartbeat=None)
         assert c.amqheartbeat == 20
 
-    def test_gevent_bug_disables_connection_timeout(self):
-        with patch('celery.worker.consumer.consumer._detect_environment') as d:
-            d.return_value = 'gevent'
-            self.app.conf.broker_connection_timeout = 33.33
-            self.get_consumer()
-            assert self.app.conf.broker_connection_timeout is None
-
     def test_limit_moved_to_pool(self):
         with patch('celery.worker.consumer.consumer.task_reserved') as task_reserved:
             c = self.get_consumer()

@@ -224,8 +224,7 @@ class Inspect:
             * ``processes`` - List of PIDs (or thread-id’s).
             * ``put-guarded-by-semaphore`` - Internal
             * ``timeouts`` - Default values for time limits.
-            * ``writes`` - Specific to the prefork pool, this shows the distribution
-              of writes to each process in the pool when using async I/O.
+            * ``writes`` - Distribution of writes to each worker.
         * ``prefetch_count`` - Current prefetch count value for the task consumer.
         * ``rusage`` - System usage statistics. The fields available may be different on your platform.
           From :manpage:`getrusage(2)`:
