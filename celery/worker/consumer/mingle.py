@@ -1,10 +1,10 @@
-"""Worker <-> Worker Sync at startup (Bootstep)."""
+"""Worker <-> Worker Sync at startup (Bootstep) - async implementation."""
 from celery import bootsteps
 from celery.utils.log import get_logger
 
 from .events import Events
 
-__all__ = ('Mingle',)
+__all__ = ("Mingle",)
 
 logger = get_logger(__name__)
 debug, info, exception = logger.debug, logger.info, logger.exception
@@ -20,9 +20,9 @@ class Mingle(bootsteps.StartStopStep):
 
     """
 
-    label = 'Mingle'
+    label = "Mingle"
     requires = (Events,)
-    compatible_transports = {'amqp', 'redis', 'gcpubsub'}
+    compatible_transports = {"amqp", "redis", "gcpubsub"}
 
     def __init__(self, c, without_mingle=False, **kwargs):
         self.enabled = not without_mingle and self.compatible_transport(c.app)
@@ -30,25 +30,26 @@ class Mingle(bootsteps.StartStopStep):
             c, without_mingle=without_mingle, **kwargs)
 
     def compatible_transport(self, app):
-        with app.connection_for_read() as conn:
-            return conn.transport.driver_type in self.compatible_transports
+        conninfo = app.connection_for_read()
+        driver_type = conninfo.transport.driver_type if conninfo.transport else conninfo._scheme
+        return driver_type in self.compatible_transports
 
-    def start(self, c):
-        self.sync(c)
+    async def start(self, c):
+        await self.sync(c)
 
-    def sync(self, c):
-        info('mingle: searching for neighbors')
-        replies = self.send_hello(c)
+    async def sync(self, c):
+        info("mingle: searching for neighbors")
+        replies = await self.send_hello(c)
         if replies:
-            info('mingle: sync with %s nodes',
+            info("mingle: sync with %s nodes",
                  len([reply for reply, value in replies.items() if value]))
             [self.on_node_reply(c, nodename, reply)
              for nodename, reply in replies.items() if reply]
-            info('mingle: sync complete')
+            info("mingle: sync complete")
         else:
-            info('mingle: all alone')
+            info("mingle: all alone")
 
-    def send_hello(self, c):
+    async def send_hello(self, c):
         inspect = c.app.control.inspect(timeout=1.0, connection=c.connection)
         our_revoked = c.controller.state.revoked
         replies = inspect.hello(c.hostname, our_revoked._data) or {}
@@ -56,13 +57,13 @@ class Mingle(bootsteps.StartStopStep):
         return replies
 
     def on_node_reply(self, c, nodename, reply):
-        debug('mingle: processing reply from %s', nodename)
+        debug("mingle: processing reply from %s", nodename)
         try:
             self.sync_with_node(c, **reply)
         except MemoryError:
             raise
-        except Exception as exc:  # pylint: disable=broad-except
-            exception('mingle: sync with %s failed: %r', nodename, exc)
+        except Exception as exc:
+            exception("mingle: sync with %s failed: %r", nodename, exc)
 
     def sync_with_node(self, c, clock=None, revoked=None, **kwargs):
         self.on_clock_event(c, clock)

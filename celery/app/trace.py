@@ -479,9 +479,19 @@ def build_tracer(name, task, loader=None, hostname=None, store_errors=True,
 
                     R = retval = fun(*args, **kwargs)
                     # Handle async task functions - if run() returns a coroutine,
-                    # execute it with asyncio.run() for backwards compatibility
+                    # we need to execute it. If we're inside a running event loop
+                    # (async worker), we can't use asyncio.run(), so we run it
+                    # in a thread with its own event loop.
                     if asyncio.iscoroutine(retval):
-                        R = retval = asyncio.run(retval)
+                        try:
+                            asyncio.get_running_loop()
+                            # Inside running loop - run coroutine in a thread
+                            import concurrent.futures
+                            with concurrent.futures.ThreadPoolExecutor(1) as pool:
+                                R = retval = pool.submit(asyncio.run, retval).result()
+                        except RuntimeError:
+                            # No running loop - use asyncio.run() directly
+                            R = retval = asyncio.run(retval)
                     state = SUCCESS
                 except Reject as exc:
                     I, R = Info(REJECTED, exc), ExceptionInfo(internal=True)

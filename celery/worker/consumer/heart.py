@@ -4,7 +4,7 @@ from celery.worker import heartbeat
 
 from .events import Events
 
-__all__ = ('Heart',)
+__all__ = ("Heart",)
 
 
 class Heart(bootsteps.StartStopStep):
@@ -25,12 +25,15 @@ class Heart(bootsteps.StartStopStep):
         c.heart = None
         super().__init__(c, **kwargs)
 
-    def start(self, c):
+    async def start(self, c):
         c.heart = heartbeat.Heart(
             c.timer, c.event_dispatcher, self.heartbeat_interval,
         )
         c.heart.start()
 
-    def stop(self, c):
-        c.heart = c.heart and c.heart.stop()
+    async def stop(self, c):
+        if c.heart:
+            c.heart.stop()
+            c.heart = None
+
     shutdown = stop

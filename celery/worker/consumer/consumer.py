@@ -1,18 +1,17 @@
-"""Worker Consumer Blueprint.
+"""Worker Consumer Blueprint - async implementation.
 
 This module contains the components responsible for consuming messages
 from the broker, processing the messages and keeping the broker connections
-up and running.
+up and running. All lifecycle methods are async.
 """
+import asyncio
 import errno
 import logging
 import os
-import threading
 import time
 import warnings
 from collections import defaultdict
 from functools import partial
-from time import sleep
 
 from kombu.exceptions import ContentDisallowed, DecodeError
 from kombu.utils.encoding import safe_repr
@@ -20,84 +19,14 @@ from kombu.utils.limits import TokenBucket
 
 from celery import bootsteps, signals
 from celery.app.trace import build_tracer
-from celery.exceptions import (CPendingDeprecationWarning, InvalidTaskError, NotRegistered, RestartFreqExceeded,
-                               WorkerShutdown, WorkerTerminate)
-
-
-class DummyLock:
-    """Dummy lock that does nothing."""
-
-    def acquire(self, blocking=True, timeout=-1):
-        return True
-
-    def release(self):
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass
-
-
-class _RestartState:
-    """Track restart frequency."""
-
-    def __init__(self, maxR=100, maxT=100):
-        self.maxR = maxR
-        self.maxT = maxT
-        self.R = 0
-        self.T = None
-
-    def step(self, now=None):
-        now = now or time.time()
-        if self.T is None:
-            self.T = now
-        self.R += 1
-        if self.R >= self.maxR:
-            if now - self.T < self.maxT:
-                raise RestartFreqExceeded(f"Max restarts ({self.maxR}) exceeded in {self.maxT}s")
-            self.R = 0
-            self.T = now
-
-
-def restart_state(maxR=100, maxT=100):
-    """Create a restart state tracker."""
-    return _RestartState(maxR, maxT)
-
-
-# Simplified promise/partial - just use functools.partial
-ppartial = partial
-
-
-class promise:
-    """Simple promise for callback chaining."""
-
-    def __init__(self, fun, args=None, kwargs=None, on_error=None):
-        self.fun = fun
-        self.args = args or ()
-        self.kwargs = kwargs or {}
-        self.on_error = on_error
-        self._then_callbacks = []
-
-    def __call__(self):
-        try:
-            result = self.fun(*self.args, **self.kwargs)
-            for callback, error_handler in self._then_callbacks:
-                try:
-                    callback()
-                except Exception as exc:
-                    if error_handler:
-                        error_handler(exc)
-            return result
-        except Exception as exc:
-            if self.on_error:
-                self.on_error(exc)
-            raise
-
-    def then(self, callback, on_error=None):
-        self._then_callbacks.append((callback, on_error))
-        return self
+from celery.exceptions import (
+    CPendingDeprecationWarning,
+    InvalidTaskError,
+    NotRegistered,
+    RestartFreqExceeded,
+    WorkerShutdown,
+    WorkerTerminate,
+)
 from celery.utils.functional import noop
 from celery.utils.log import get_logger
 from celery.utils.nodenames import gethostname
@@ -107,7 +36,7 @@ from celery.utils.time import humanize_seconds, rate
 from celery.worker import loops
 from celery.worker.state import active_requests, maybe_shutdown, requests, reserved_requests, task_reserved
 
-__all__ = ('Consumer', 'Evloop', 'dump_body')
+__all__ = ("Consumer", "Evloop", "dump_body")
 
 CLOSE = bootsteps.CLOSE
 TERMINATE = bootsteps.TERMINATE
@@ -205,12 +134,37 @@ def dump_body(m, body):
     """Format message body for debugging purposes."""
     # v2 protocol does not deserialize body
     body = m.body if body is None else body
-    return '{} ({}b)'.format(truncate(safe_repr(body), 1024),
-                             len(m.body))
+    return f"{truncate(safe_repr(body), 1024)} ({len(m.body)}b)"
+
+
+class _RestartState:
+    """Track restart frequency."""
+
+    def __init__(self, maxR=100, maxT=100):
+        self.maxR = maxR
+        self.maxT = maxT
+        self.R = 0
+        self.T = None
+
+    def step(self, now=None):
+        now = now or time.time()
+        if self.T is None:
+            self.T = now
+        self.R += 1
+        if self.maxR <= self.R:
+            if now - self.T < self.maxT:
+                raise RestartFreqExceeded(f"Max restarts ({self.maxR}) exceeded in {self.maxT}s")
+            self.R = 0
+            self.T = now
+
+
+def restart_state(maxR=100, maxT=100):
+    """Create a restart state tracker."""
+    return _RestartState(maxR, maxT)
 
 
 class Consumer:
-    """Consumer blueprint."""
+    """Consumer blueprint - async implementation."""
 
     Strategies = dict
 
@@ -238,27 +192,25 @@ class Consumer:
     class Blueprint(bootsteps.Blueprint):
         """Consumer blueprint."""
 
-        name = 'Consumer'
+        name = "Consumer"
         default_steps = [
-            'celery.worker.consumer.connection:Connection',
-            'celery.worker.consumer.mingle:Mingle',
-            'celery.worker.consumer.events:Events',
-            'celery.worker.consumer.gossip:Gossip',
-            'celery.worker.consumer.heart:Heart',
-            'celery.worker.consumer.control:Control',
-            'celery.worker.consumer.tasks:Tasks',
-            'celery.worker.consumer.delayed_delivery:DelayedDelivery',
-            'celery.worker.consumer.consumer:Evloop',
-            'celery.worker.consumer.agent:Agent',
+            "celery.worker.consumer.connection:Connection",
+            "celery.worker.consumer.mingle:Mingle",
+            "celery.worker.consumer.events:Events",
+            "celery.worker.consumer.gossip:Gossip",
+            "celery.worker.consumer.heart:Heart",
+            "celery.worker.consumer.control:Control",
+            "celery.worker.consumer.tasks:Tasks",
+            "celery.worker.consumer.consumer:Evloop",
         ]
 
-        def shutdown(self, parent):
-            self.send_all(parent, 'shutdown')
+        async def shutdown(self, parent):
+            await self.send_all(parent, "shutdown")
 
     def __init__(self, on_task_request,
                  init_callback=noop, hostname=None,
                  pool=None, app=None,
-                 timer=None, controller=None, hub=None, amqheartbeat=None,
+                 timer=None, controller=None, amqheartbeat=None,
                  worker_options=None, disable_rate_limits=False,
                  initial_prefetch_count=2, prefetch_multiplier=1, **kwargs):
         self.app = app
@@ -289,43 +241,30 @@ class Consumer:
         self.task_buckets = defaultdict(lambda: None)
         self.reset_rate_limits()
 
-        self.hub = hub
-        if self.hub or getattr(self.pool, 'is_green', False):
-            self.amqheartbeat = amqheartbeat
-            if self.amqheartbeat is None:
-                self.amqheartbeat = self.app.conf.broker_heartbeat
-        else:
-            self.amqheartbeat = 0
+        self.amqheartbeat = amqheartbeat
+        if self.amqheartbeat is None:
+            self.amqheartbeat = self.app.conf.broker_heartbeat
 
-        if not hasattr(self, 'loop'):
-            self.loop = loops.asynloop if hub else loops.synloop
+        self.loop = loops.asynloop
 
         self._pending_operations = []
 
         self.steps = []
         self.blueprint = self.Blueprint(
-            steps=self.app.steps['consumer'],
+            steps=self.app.steps["consumer"],
             on_close=self.on_close,
         )
         self.blueprint.apply(self, **dict(worker_options or {}, **kwargs))
 
-    def call_soon(self, p, *args, **kwargs):
-        p = ppartial(p, *args, **kwargs)
-        if self.hub:
-            return self.hub.call_soon(p)
-        self._pending_operations.append(p)
-        return p
-
     def perform_pending_operations(self):
-        if not self.hub:
-            while self._pending_operations:
-                try:
-                    self._pending_operations.pop()()
-                except Exception as exc:  # pylint: disable=broad-except
-                    logger.exception('Pending callback raised: %r', exc)
+        while self._pending_operations:
+            try:
+                self._pending_operations.pop()()
+            except Exception as exc:
+                logger.exception("Pending callback raised: %r", exc)
 
     def bucket_for_task(self, type):
-        limit = rate(getattr(type, 'rate_limit', None))
+        limit = rate(getattr(type, "rate_limit", None))
         return TokenBucket(limit, capacity=1) if limit else None
 
     def reset_rate_limits(self):
@@ -334,19 +273,10 @@ class Consumer:
         )
 
     def _update_prefetch_count(self, index=0):
-        """Update prefetch count after pool/shrink grow operations.
-
-        Index must be the change in number of processes as a positive
-        (increasing) or negative (decreasing) number.
-
-        Note:
-            Currently pool grow operations will end up with an offset
-            of +1 if the initial size of the pool was 0 (e.g.
-            :option:`--autoscale=1,0 <celery worker --autoscale>`).
-        """
+        """Update prefetch count after pool grow/shrink operations."""
         num_processes = self.pool.num_processes
         if not self.initial_prefetch_count or not num_processes:
-            return  # prefetch disabled
+            return None  # prefetch disabled
         self.initial_prefetch_count = (
             self.pool.num_processes * self.prefetch_multiplier
         )
@@ -366,24 +296,19 @@ class Consumer:
             try:
                 request, tokens = bucket.pop()
             except IndexError:
-                # no request, break
                 break
 
             if bucket.can_consume(tokens):
                 self._limit_move_to_pool(request)
                 continue
-            else:
-                # requeue to head, keep the order.
-                bucket.contents.appendleft((request, tokens))
-
-                pri = self._limit_order = (self._limit_order + 1) % 10
-                hold = bucket.expected_time(tokens)
-                self.timer.call_after(
-                    hold, self._schedule_bucket_request, (bucket,),
-                    priority=pri,
-                )
-                # no tokens, break
-                break
+            bucket.contents.appendleft((request, tokens))
+            pri = self._limit_order = (self._limit_order + 1) % 10
+            hold = bucket.expected_time(tokens)
+            self.timer.call_after(
+                hold, self._schedule_bucket_request, (bucket,),
+                priority=pri,
+            )
+            break
 
     def _limit_task(self, request, bucket, tokens):
         bucket.add((request, tokens))
@@ -394,7 +319,7 @@ class Consumer:
         bucket.add((request, tokens))
         return self._schedule_bucket_request(bucket)
 
-    def start(self):
+    async def start(self):
         blueprint = self.blueprint
         while blueprint.state not in STOP_CONDITIONS:
             maybe_shutdown()
@@ -402,18 +327,16 @@ class Consumer:
                 try:
                     self._restart_state.step()
                 except RestartFreqExceeded as exc:
-                    crit('Frequent restarts detected: %r', exc, exc_info=1)
-                    sleep(1)
+                    crit("Frequent restarts detected: %r", exc, exc_info=1)
+                    await asyncio.sleep(1)
             self.restart_count += 1
             if self.app.conf.broker_channel_error_retry:
                 recoverable_errors = (self.connection_errors + self.channel_errors)
             else:
                 recoverable_errors = self.connection_errors
             try:
-                blueprint.start(self)
+                await blueprint.start(self)
             except recoverable_errors as exc:
-                # If we're not retrying connections, we need to properly shutdown or terminate
-                # the Celery main process instead of abruptly aborting the process without any cleanup.
                 is_connection_loss_on_startup = self.first_connection_attempt
                 self.first_connection_attempt = False
                 connection_retry_type = self._get_connection_retry_type(is_connection_loss_on_startup)
@@ -435,24 +358,20 @@ class Consumer:
                     else:
                         self.on_connection_error_before_connected(exc)
                     self.on_close()
-                    blueprint.restart(self)
+                    await blueprint.restart(self)
 
     def _get_connection_retry_type(self, is_connection_loss_on_startup):
-        return ('broker_connection_retry_on_startup'
+        return ("broker_connection_retry_on_startup"
                 if (is_connection_loss_on_startup
                     and self.app.conf.broker_connection_retry_on_startup is not None)
-                else 'broker_connection_retry')
+                else "broker_connection_retry")
 
     def on_connection_error_before_connected(self, exc):
         error(CONNECTION_ERROR, self.conninfo.as_uri(), exc,
-              'Trying to reconnect...')
+              "Trying to reconnect...")
 
     def on_connection_error_after_connected(self, exc):
         warn(CONNECTION_RETRY, exc_info=True)
-        try:
-            self.connection.collect()
-        except Exception:  # pylint: disable=broad-except
-            pass
 
         if self.app.conf.worker_cancel_long_running_tasks_on_connection_loss:
             for request in tuple(active_requests):
@@ -478,18 +397,15 @@ class Consumer:
                     "complete processing."
                 )
 
-    def register_with_event_loop(self, hub):
-        self.blueprint.send_all(
-            self, 'register_with_event_loop', args=(hub,),
-            description='Hub.register',
-        )
-
-    def shutdown(self):
+    async def shutdown(self):
         self.perform_pending_operations()
-        self.blueprint.shutdown(self)
+        await self.blueprint.shutdown(self)
 
-    def stop(self):
-        self.blueprint.stop(self)
+    async def stop(self):
+        await self.blueprint.stop(self)
+
+    async def close(self):
+        await self.blueprint.stop(self, close=True)
 
     def on_ready(self):
         callback, self.init_callback = self.init_callback, None
@@ -498,19 +414,11 @@ class Consumer:
 
     def loop_args(self):
         return (self, self.connection, self.task_consumer,
-                self.blueprint, self.hub, self.qos, self.amqheartbeat,
+                self.blueprint, self.qos, self.amqheartbeat,
                 self.app.clock, self.amqheartbeat_rate)
 
     def on_decode_error(self, message, exc):
-        """Callback called if an error occurs while decoding a message.
-
-        Simply logs the error and acknowledges the message so it
-        doesn't enter a loop.
-
-        Arguments:
-            message (kombu.Message): The message received.
-            exc (Exception): The exception being handled.
-        """
+        """Callback called if an error occurs while decoding a message."""
         crit(MESSAGE_DECODE_ERROR,
              exc, message.content_type, message.content_encoding,
              safe_repr(message.headers), dump_body(message, message.body),
@@ -519,10 +427,6 @@ class Consumer:
 
     def on_close(self):
         # Clear internal queues to get rid of old messages.
-        # They can't be acked anyway, as a delivery tag is specific
-        # to the current channel.
-        if self.controller and self.controller.semaphore:
-            self.controller.semaphore.clear()
         if self.timer:
             self.timer.clear()
         for bucket in self.task_buckets.values():
@@ -535,52 +439,36 @@ class Consumer:
         if self.pool and self.pool.flush:
             self.pool.flush()
 
-    def connect(self):
-        """Establish the broker connection used for consuming tasks.
-
-        Retries establishing the connection if the
-        :setting:`broker_connection_retry` setting is enabled
-        """
-        conn = self.connection_for_read(heartbeat=self.amqheartbeat)
-        if self.hub:
-            conn.transport.register_with_event_loop(conn.connection, self.hub)
+    async def connect(self):
+        """Establish the broker connection used for consuming tasks."""
+        conn = await self.connection_for_read(heartbeat=self.amqheartbeat)
         return conn
 
-    def connection_for_read(self, heartbeat=None):
-        return self.ensure_connected(
+    async def connection_for_read(self, heartbeat=None):
+        return await self.ensure_connected(
             self.app.connection_for_read(heartbeat=heartbeat))
 
-    def connection_for_write(self, url=None, heartbeat=None):
-        return self.ensure_connected(
+    async def connection_for_write(self, url=None, heartbeat=None):
+        return await self.ensure_connected(
             self.app.connection_for_write(url=url, heartbeat=heartbeat))
 
-    def ensure_connected(self, conn):
-        # Callback called for each retry while the connection
-        # can't be established.
+    async def ensure_connected(self, conn):
+        """Ensure the connection is established, with retries."""
         def _error_handler(exc, interval, next_step=CONNECTION_RETRY_STEP):
-            if getattr(conn, 'alt', None) and interval == 0:
+            if getattr(conn, "alt", None) and interval == 0:
                 next_step = CONNECTION_FAILOVER
             elif interval > 0:
                 self.broker_connection_retry_attempt += 1
             next_step = next_step.format(
-                when=humanize_seconds(interval, 'in', ' '),
+                when=humanize_seconds(interval, "in", " "),
                 retries=self.broker_connection_retry_attempt,
                 max_retries=self.app.conf.broker_connection_max_retries)
             error(CONNECTION_ERROR, conn.as_uri(), exc, next_step)
 
-        # Remember that the connection is lazy, it won't establish
-        # until needed.
-
-        # TODO: Rely only on broker_connection_retry_on_startup to determine whether connection retries are disabled.
-        #       We will make the switch in Celery 6.0.
-
         retry_disabled = False
 
         if self.app.conf.broker_connection_retry_on_startup is None:
-            # If broker_connection_retry_on_startup is not set, revert to broker_connection_retry
-            # to determine whether connection retries are disabled.
             retry_disabled = not self.app.conf.broker_connection_retry
-
             if retry_disabled:
                 warnings.warn(
                     CPendingDeprecationWarning(
@@ -589,19 +477,17 @@ class Consumer:
                         "If you wish to refrain from retrying connections on startup,\n"
                         "you should set broker_connection_retry_on_startup to False instead.")
                 )
+        elif self.first_connection_attempt:
+            retry_disabled = not self.app.conf.broker_connection_retry_on_startup
         else:
-            if self.first_connection_attempt:
-                retry_disabled = not self.app.conf.broker_connection_retry_on_startup
-            else:
-                retry_disabled = not self.app.conf.broker_connection_retry
+            retry_disabled = not self.app.conf.broker_connection_retry
 
         if retry_disabled:
-            # Retry disabled, just call connect directly.
-            conn.connect()
+            await conn.connect()
             self.first_connection_attempt = False
             return conn
 
-        conn = conn.ensure_connection(
+        conn = await conn.ensure_connection(
             _error_handler, self.app.conf.broker_connection_max_retries,
             callback=maybe_shutdown,
         )
@@ -613,22 +499,15 @@ class Consumer:
         if self.event_dispatcher:
             self.event_dispatcher.flush()
 
-    def on_send_event_buffered(self):
-        if self.hub:
-            self.hub._ready.add(self._flush_events)
-
-    def add_task_queue(self, queue, exchange=None, exchange_type=None,
-                       routing_key=None, **options):
+    async def add_task_queue(self, queue, exchange=None, exchange_type=None,
+                             routing_key=None, **options):
         cset = self.task_consumer
         queues = self.app.amqp.queues
-        # Must use in' here, as __missing__ will automatically
-        # create queues when :setting:`task_create_missing_queues` is enabled.
-        # (Issue #1079)
         if queue in queues:
             q = queues[queue]
         else:
             exchange = queue if exchange is None else exchange
-            exchange_type = ('direct' if exchange_type is None
+            exchange_type = ("direct" if exchange_type is None
                              else exchange_type)
             q = queues.select_add(queue,
                                   exchange=exchange,
@@ -636,11 +515,11 @@ class Consumer:
                                   routing_key=routing_key, **options)
         if not cset.consuming_from(queue):
             cset.add_queue(q)
-            cset.consume()
-            info('Started consuming from %s', queue)
+            await cset.consume()
+            info("Started consuming from %s", queue)
 
     def cancel_task_queue(self, queue):
-        info('Canceling queue %s', queue)
+        info("Canceling queue %s", queue)
         self.app.amqp.queues.deselect(queue)
         self.task_consumer.cancel_by_queue(queue)
 
@@ -670,16 +549,16 @@ class Consumer:
               message.delivery_info,
               exc_info=True)
         try:
-            id_, name = message.headers['id'], message.headers['task']
-            root_id = message.headers.get('root_id')
+            id_, name = message.headers["id"], message.headers["task"]
+            root_id = message.headers.get("root_id")
         except KeyError:  # proto1
             payload = message.payload
-            id_, name = payload['id'], payload['task']
+            id_, name = payload["id"], payload["task"]
             root_id = None
         request = Bunch(
             name=name, chord=None, root_id=root_id,
-            correlation_id=message.properties.get('correlation_id'),
-            reply_to=message.properties.get('reply_to'),
+            correlation_id=message.properties.get("correlation_id"),
+            reply_to=message.properties.get("reply_to"),
             errbacks=None,
         )
         message.reject_log_error(logger, self.connection_errors)
@@ -688,8 +567,8 @@ class Consumer:
         )
         if self.event_dispatcher:
             self.event_dispatcher.send(
-                'task-failed', uuid=id_,
-                exception=f'NotRegistered({name!r})',
+                "task-failed", uuid=id_,
+                exception=f"NotRegistered({name!r})",
             )
         signals.task_unknown.send(
             sender=self, message=message, exc=exc, name=name, id=id_,
@@ -708,29 +587,28 @@ class Consumer:
             task.__trace__ = build_tracer(name, task, loader, self.hostname,
                                           app=self.app)
 
-    def create_task_handler(self, promise=promise):
+    def create_task_handler(self):
         strategies = self.strategies
         on_unknown_message = self.on_unknown_message
         on_unknown_task = self.on_unknown_task
         on_invalid_task = self.on_invalid_task
         callbacks = self.on_task_message
-        call_soon = self.call_soon
 
         def on_task_received(message):
             # payload will only be set for v1 protocol, since v2
             # will defer deserializing the message body to the pool.
             payload = None
             try:
-                type_ = message.headers['task']  # protocol v2
+                type_ = message.headers["task"]  # protocol v2
             except TypeError:
                 return on_unknown_message(None, message)
             except KeyError:
                 try:
                     payload = message.decode()
-                except Exception as exc:  # pylint: disable=broad-except
+                except Exception as exc:
                     return self.on_decode_error(message, exc)
                 try:
-                    type_, payload = payload['task'], payload  # protocol v1
+                    type_, payload = payload["task"], payload  # protocol v1
                 except (TypeError, KeyError):
                     return on_unknown_message(payload, message)
             try:
@@ -739,31 +617,22 @@ class Consumer:
                 return on_unknown_task(None, message, exc)
             else:
                 try:
-                    ack_log_error_promise = promise(
-                        call_soon,
-                        (message.ack_log_error,),
-                        on_error=self._restore_prefetch_count_after_connection_restart,
-                    )
-                    reject_log_error_promise = promise(
-                        call_soon,
-                        (message.reject_log_error,),
-                        on_error=self._restore_prefetch_count_after_connection_restart,
-                    )
+                    # ack/reject are async in kombu-asyncio but called from
+                    # sync Request code. Schedule them on the event loop.
+                    # Must accept *args because Request.acknowledge() passes
+                    # (logger, connection_errors).
+                    def _ack(*args, _msg=message, **kwargs):
+                        asyncio.get_event_loop().create_task(
+                            _msg.ack_log_error(logger, self.connection_errors))
 
-                    if (
-                        not self._maximum_prefetch_restored
-                        and self.restart_count > 0
-                        and self._new_prefetch_count <= self.max_prefetch_count
-                    ):
-                        ack_log_error_promise.then(self._restore_prefetch_count_after_connection_restart,
-                                                   on_error=self._restore_prefetch_count_after_connection_restart)
-                        reject_log_error_promise.then(self._restore_prefetch_count_after_connection_restart,
-                                                      on_error=self._restore_prefetch_count_after_connection_restart)
+                    def _reject(*args, _msg=message, **kwargs):
+                        asyncio.get_event_loop().create_task(
+                            _msg.reject_log_error(logger, self.connection_errors))
 
                     strategy(
                         message, payload,
-                        ack_log_error_promise,
-                        reject_log_error_promise,
+                        _ack,
+                        _reject,
                         callbacks,
                     )
                 except (InvalidTaskError, ContentDisallowed) as exc:
@@ -773,57 +642,23 @@ class Consumer:
 
         return on_task_received
 
-    def _restore_prefetch_count_after_connection_restart(self, p, *args):
-        with self.qos._mutex:
-            if any((
-                not self.app.conf.worker_enable_prefetch_count_reduction,
-                self._maximum_prefetch_restored,
-            )):
-                return
-
-            new_prefetch_count = min(self.max_prefetch_count, self._new_prefetch_count)
-            self.qos.value = self.initial_prefetch_count = new_prefetch_count
-            self.qos.set(self.qos.value)
-
-            already_restored = self._maximum_prefetch_restored
-            self._maximum_prefetch_restored = new_prefetch_count == self.max_prefetch_count
-
-            if already_restored is False and self._maximum_prefetch_restored is True:
-                logger.info(
-                    "Resuming normal operations following a restart.\n"
-                    f"Prefetch count has been restored to the maximum of {self.max_prefetch_count}"
-                )
-
     @property
     def max_prefetch_count(self):
         return self.pool.num_processes * self.prefetch_multiplier
 
-    @property
-    def _new_prefetch_count(self):
-        return self.qos.value + self.prefetch_multiplier
-
     def __repr__(self):
         """``repr(self)``."""
-        return '<Consumer: {self.hostname} ({state})>'.format(
-            self=self, state=self.blueprint.human_state(),
-        )
+        return f"<Consumer: {self.hostname} ({self.blueprint.human_state()})>"
 
     def cancel_all_unacked_requests(self):
-        """Cancel all active requests that either do not require late acknowledgments or,
-        if they do, have not been acknowledged yet.
-        """
+        """Cancel all active requests that have not been acknowledged."""
 
         def should_cancel(request):
             if not request.task.acks_late:
-                # Task does not require late acknowledgment, cancel it.
                 return True
-
             if not request.acknowledged:
-                # Task is late acknowledged, but it has not been acknowledged yet, cancel it.
                 return True
-
-            # Task is late acknowledged, but it has already been acknowledged.
-            return False  # Do not cancel and allow it to gracefully finish as it has already been acknowledged.
+            return False
 
         requests_to_cancel = tuple(filter(should_cancel, active_requests))
 
@@ -839,12 +674,8 @@ class Evloop(bootsteps.StartStopStep):
         This is always started last.
     """
 
-    label = 'event loop'
+    label = "event loop"
     last = True
 
-    def start(self, c):
-        self.patch_all(c)
-        c.loop(*c.loop_args())
-
-    def patch_all(self, c):
-        c.qos._mutex = DummyLock()
+    async def start(self, c):
+        await c.loop(*c.loop_args())
