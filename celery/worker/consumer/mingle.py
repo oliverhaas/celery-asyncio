@@ -53,10 +53,9 @@ class Mingle(bootsteps.StartStopStep):
         try:
             inspect = c.app.control.inspect(timeout=1.0, connection=c.connection)
             our_revoked = c.controller.state.revoked
-            replies = inspect.hello(c.hostname, our_revoked._data)
-            # Handle case where broadcast returns a coroutine (async pidbox)
-            if hasattr(replies, '__await__'):
-                replies = await replies
+            replies = await inspect._arequest(
+                'hello', from_node=c.hostname, revoked=our_revoked._data,
+            )
             replies = replies or {}
             replies.pop(c.hostname, None)  # delete my own response
             return replies

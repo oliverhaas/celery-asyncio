@@ -1,4 +1,6 @@
 """Worker Pidbox (remote control) - async implementation."""
+import asyncio
+
 from kombu.utils.encoding import safe_str
 
 from celery.utils.collections import AttributeDict
@@ -33,34 +35,37 @@ class Pidbox:
         )
         self._forward_clock = self.c.app.clock.forward
 
-    def on_message(self, body, message):
-        # just increase clock as clients usually don't
-        # have a valid clock to adjust with.
+    async def on_message(self, body, message):
+        """Handle incoming control messages (async).
+
+        This is an async callback - kombu's Consumer detects the returned
+        coroutine and schedules it as a task.
+        """
         self._forward_clock()
         try:
-            self.node.handle_message(body, message)
+            result = self.node.handle_message(body, message)
+            if asyncio.iscoroutine(result):
+                await result
         except KeyError as exc:
             error("No such control command: %s", exc)
         except Exception as exc:
             error("Control command error: %r", exc, exc_info=True)
-            self.reset()
+            await self._async_reset()
 
     async def start(self, c):
-        self.node.channel = await c.connection.channel()
+        # Use the default channel so pidbox messages are delivered
+        # by the same drain_events loop as task messages.
+        self.node.channel = await c.connection.default_channel()
         self.consumer = await self.node.listen(callback=self.on_message)
         self.consumer.on_decode_error = c.on_decode_error
 
     async def stop(self, c):
-        if self.node and self.node.channel:
+        # Don't close the default channel - it's shared.
+        if self.consumer:
             try:
-                await self.node.channel.close()
+                await self.consumer.cancel()
             except Exception:
                 pass
-
-    def reset(self):
-        import asyncio
-        loop = asyncio.get_event_loop()
-        loop.create_task(self._async_reset())
 
     async def _async_reset(self):
         await self.stop(self.c)

@@ -24,7 +24,13 @@ def result(ctx, task_id, task, traceback):
 
     result_cls = app.tasks[task].AsyncResult if task else app.AsyncResult
     task_result = result_cls(task_id)
-    value = task_result.traceback if traceback else task_result.get()
+    if traceback:
+        value = task_result.traceback
+    else:
+        # Fetch result meta directly (polling) - avoids the async
+        # event-driven drainer path which requires a running event loop.
+        meta = task_result.backend.get_task_meta(task_result.id)
+        task_result._maybe_set_cache(meta)
+        value = task_result.result
 
-    # TODO: Prettify result
     ctx.obj.echo(value)

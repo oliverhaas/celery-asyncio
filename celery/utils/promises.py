@@ -80,6 +80,11 @@ class promise:
         self._ready = False
         self._failed = False
 
+    @property
+    def ready(self) -> bool:
+        """Whether this promise has been fulfilled."""
+        return self._ready
+
     def _get_fun(self) -> Callable | None:
         """Get the function, dereferencing if weak."""
         if self._fun is None:

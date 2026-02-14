@@ -11,6 +11,7 @@ There are two types of remote control commands:
 * Control commands: Performs side effects, like adding a new queue to consume from.
   Commands are accessible via :class:`Control` class.
 """
+import asyncio
 import warnings
 
 # Signal name constant
@@ -105,6 +106,19 @@ class Inspect:
 
     def _request(self, command, **kwargs):
         return self._prepare(self.app.control.broadcast(
+            command,
+            arguments=kwargs,
+            destination=self.destination,
+            callback=self.callback,
+            connection=self.connection,
+            limit=self.limit,
+            timeout=self.timeout, reply=True,
+            pattern=self.pattern, matcher=self.matcher,
+        ))
+
+    async def _arequest(self, command, **kwargs):
+        """Async version of _request."""
+        return self._prepare(await self.app.control.abroadcast(
             command,
             arguments=kwargs,
             destination=self.destination,
@@ -466,14 +480,26 @@ class Control:
 
         Arguments:
             connection (kombu.Connection): Optional specific connection
-                instance to use.  If not provided a connection will
-                be acquired from the connection pool.
+                instance to use.  If not provided a new connection
+                will be created.
 
         Returns:
             int: the number of tasks discarded.
         """
-        with self.app.connection_or_acquire(connection) as conn:
-            return self.app.amqp.TaskConsumer(conn).purge()
+        return asyncio.run(self._apurge(connection))
+
+    async def _apurge(self, connection=None):
+        """Async implementation of purge."""
+        own_connection = connection is None
+        conn = connection or self.app.connection_for_write()
+        try:
+            if not conn.is_connected:
+                await conn.connect()
+            return await self.app.amqp.TaskConsumer(conn).purge()
+        finally:
+            if own_connection:
+                await conn.close()
+
     discard_all = purge
 
     def election(self, id, topic, action=None, connection=None):
@@ -757,13 +783,17 @@ class Control:
                   **extra_kwargs):
         """Broadcast a control command to the celery workers.
 
+        Sync wrapper around :meth:`abroadcast`. For use from CLI
+        and other non-async contexts. If called from within a running
+        event loop, raises RuntimeError - use :meth:`abroadcast` instead.
+
         Arguments:
             command (str): Name of command to send.
             arguments (Dict): Keyword arguments for the command.
             destination (List): If set, a list of the hosts to send the
                 command to, when empty broadcast to all workers.
             connection (kombu.Connection): Custom broker connection to use,
-                if not set, a connection will be acquired from the pool.
+                if not set, a new connection will be created.
             reply (bool): Wait for and return the reply.
             timeout (float): Timeout in seconds to wait for the reply.
             limit (int): Limit number of replies.
@@ -772,18 +802,34 @@ class Control:
             pattern (str): Custom pattern string to match
             matcher (Callable): Custom matcher to run the pattern to match
         """
-        with self.app.connection_or_acquire(connection) as conn:
+        return asyncio.run(self.abroadcast(
+            command, arguments, destination, connection,
+            reply, timeout, limit, callback, channel,
+            pattern, matcher, **extra_kwargs,
+        ))
+
+    async def abroadcast(self, command, arguments=None, destination=None,
+                         connection=None, reply=False, timeout=1.0, limit=None,
+                         callback=None, channel=None, pattern=None, matcher=None,
+                         **extra_kwargs):
+        """Async broadcast a control command to the celery workers."""
+        own_connection = connection is None
+        conn = connection or self.app.connection_for_write()
+        try:
+            if not conn.is_connected:
+                await conn.connect()
             arguments = dict(arguments or {}, **extra_kwargs)
             if pattern and matcher:
-                # tests pass easier without requiring pattern/matcher to
-                # always be sent in
-                return self.mailbox(conn)._broadcast(
+                return await self.mailbox(conn)._broadcast(
                     command, arguments, destination, reply, timeout,
                     limit, callback, channel=channel,
                     pattern=pattern, matcher=matcher,
                 )
             else:
-                return self.mailbox(conn)._broadcast(
+                return await self.mailbox(conn)._broadcast(
                     command, arguments, destination, reply, timeout,
                     limit, callback, channel=channel,
                 )
+        finally:
+            if own_connection:
+                await conn.close()
