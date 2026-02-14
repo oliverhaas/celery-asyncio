@@ -394,33 +394,9 @@ def on_cold_shutdown(worker: Worker):
     Registered for SIGQUIT and SIGINT (Ctrl+C) signals. If REMAP_SIGTERM is set to "SIGQUIT", this handler will also
     be registered for SIGTERM.
 
-    This handler will initiate the cold (and soft if enabled) shutdown procesdure for the worker.
-
-    Worker running with N tasks:
-        - SIGTERM:
-            -The worker will initiate the warm shutdown process until all tasks are finished. Additional.
-            SIGTERM signals will be ignored. SIGQUIT will transition to the cold shutdown process described below.
-        - SIGQUIT:
-            - The worker will initiate the cold shutdown process.
-            - If the soft shutdown is enabled, the worker will wait for the tasks to finish up to the soft
-            shutdown timeout (practically having a limited warm shutdown just before the cold shutdown).
-            - Cancel all tasks (from the MainProcess) and allow the worker to complete the cold shutdown
-            process gracefully.
-
-    Caveats:
-        - SIGINT (Ctrl+C) signal is defined to replace itself with the cold shutdown (SIGQUIT) after first use,
-        and to emit a message to the user to hit Ctrl+C again to initiate the cold shutdown process. But, most
-        important, it will also be caught in WorkController.start() to initiate the warm shutdown process.
-        - SIGTERM will also be handled in WorkController.start() to initiate the warm shutdown process (the same).
-        - If REMAP_SIGTERM is set to "SIGQUIT", the SIGTERM signal will be remapped to SIGQUIT, and the cold
-        shutdown process will be initiated instead of the warm shutdown process using SIGTERM.
-        - If SIGQUIT is received (also via SIGINT) during the cold/soft shutdown process, the handler will cancel all
-        unacked requests but still wait for the soft shutdown process to finish before terminating the worker
-        gracefully. The next time the signal is received though, the worker will terminate immediately by force.
-
-    So, the purpose of this handler is to allow waiting for the soft shutdown timeout, then cancel all tasks from
-    the MainProcess and let the WorkController.terminate() to terminate the worker naturally. If the soft shutdown
-    is disabled, it will immediately cancel all tasks let the cold shutdown finish normally.
+    This handler initiates the cold shutdown procedure. The soft shutdown wait
+    and pool cleanup happen in the async shutdown path (WorkController.stop/terminate),
+    which is triggered by setting state.should_terminate.
 
     Args:
         worker (Worker): The worker that received the signal.
@@ -432,16 +408,14 @@ def on_cold_shutdown(worker: Worker):
     install_worker_term_hard_handler(worker, sig='SIGQUIT', callback=during_soft_shutdown)
     if REMAP_SIGTERM == "SIGQUIT":
         install_worker_term_hard_handler(worker, sig='SIGTERM', callback=during_soft_shutdown)
-    # else, SIGTERM will print the _shutdown_handler's message and do nothing, every time it is received..
-
-    # Initiate soft shutdown process (if enabled and tasks are running)
-    worker.wait_for_soft_shutdown()
 
     # Cancel all unacked requests and allow the worker to terminate naturally
-    worker.consumer.cancel_all_unacked_requests()
+    if hasattr(worker, 'consumer') and worker.consumer:
+        worker.consumer.cancel_all_unacked_requests()
 
-    # Stop the pool to allow successful tasks call on_success()
-    worker.consumer.pool.stop()
+    # Stop the pool to allow successful tasks to call on_success()
+    if hasattr(worker, 'consumer') and worker.consumer and worker.consumer.pool:
+        worker.consumer.pool.stop()
 
 
 # Allow SIGTERM to be remapped to SIGQUIT to initiate cold shutdown instead of warm shutdown using SIGTERM

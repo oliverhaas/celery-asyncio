@@ -12,7 +12,6 @@ from click_plugins import with_plugins
 
 from celery import VERSION_BANNER
 from celery.app.utils import find_app
-from celery.bin.amqp import amqp
 from celery.bin.base import CeleryCommand, CeleryOption, CLIContext
 from celery.bin.beat import beat
 from celery.bin.call import call
@@ -186,7 +185,11 @@ celery.add_command(control)
 celery.add_command(graph)
 celery.add_command(upgrade)
 celery.add_command(logtool)
-celery.add_command(amqp)
+try:
+    from celery.bin.amqp import amqp
+    celery.add_command(amqp)
+except ImportError:
+    pass  # amqp module not available
 celery.add_command(shell)
 celery.add_command(multi)
 

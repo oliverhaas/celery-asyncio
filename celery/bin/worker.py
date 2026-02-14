@@ -1,5 +1,6 @@
 """Program used to start a Celery worker instance."""
 
+import asyncio
 import os
 import sys
 
@@ -196,7 +197,7 @@ def detach(path, argv, logfile=None, pidfile=None, uid=None,
                    " on your system.")
 @click.option('-P',
               '--pool',
-              default='threads',
+              default='asyncio',
               type=WORKERS_POOL,
               cls=CeleryOption,
               help_group="Pool Options",
@@ -356,7 +357,7 @@ def worker(ctx, hostname=None, pool_cls=None, app=None, uid=None, gid=None,
             no_color=ctx.obj.no_color,
             quiet=ctx.obj.quiet,
             **kwargs)
-        worker.start()
+        asyncio.run(worker.start())
         ctx.exit(worker.exitcode)
     except SecurityError as e:
         ctx.obj.error(e.args[0])
