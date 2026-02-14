@@ -59,10 +59,10 @@ class promise:
     def __init__(
         self,
         fun: Callable[..., Any] | None = None,
-        args: tuple[Any, ...] | None = None,
-        kwargs: dict[str, Any] | None = None,
+        *args: Any,
         on_error: Callable[[Exception], Any] | None = None,
         weak: bool = False,
+        **kwargs: Any,
     ) -> None:
         if fun is not None and weak:
             try:
@@ -72,8 +72,8 @@ class promise:
                 pass
         self._fun = fun
         self._weak = weak
-        self.args = args or ()
-        self.kwargs = kwargs or {}
+        self.args = args
+        self.kwargs = kwargs
         self.on_error = on_error
         self._callbacks: list[tuple[Callable, Callable | None]] = []
         self._value: Any = None

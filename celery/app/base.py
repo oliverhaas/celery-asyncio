@@ -884,8 +884,9 @@ class Celery:
         options = router.route(
             options, route_name or name, args, kwargs, task_type)
 
-        # Get driver type from the async connection
-        driver_type = self.async_connection.transport.driver_type
+        # Get driver type from the async connection (may not be connected yet)
+        conn = self.async_connection
+        driver_type = conn.transport.driver_type if conn.transport else conn._scheme
 
         if (eta or countdown) and detect_quorum_queues(self, driver_type)[0]:
 

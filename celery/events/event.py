@@ -55,7 +55,8 @@ def get_exchange(conn, name=EVENT_EXCHANGE_NAME):
         (from topic -> fanout).
     """
     ex = copy(event_exchange)
-    if conn.transport.driver_type in {'redis', 'gcpubsub'}:
+    driver_type = conn.transport.driver_type if conn.transport else getattr(conn, '_scheme', '')
+    if driver_type in {'redis', 'gcpubsub'}:
         # quick hack for Issue #436
         ex.type = 'fanout'
     if name != ex.name:

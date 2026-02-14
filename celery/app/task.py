@@ -434,7 +434,8 @@ class Task:
         """Async version of the task body.
 
         Override this method to define an async task. If not overridden,
-        this will delegate to :meth:`run` using sync_to_async.
+        this will delegate to :meth:`run` - calling it directly if it's
+        async, or wrapping with sync_to_async if it's sync.
 
         Example:
             .. code-block:: python
@@ -444,6 +445,8 @@ class Task:
                         result = await some_async_operation(x, y)
                         return result
         """
+        if asyncio.iscoroutinefunction(self.run):
+            return await self.run(*args, **kwargs)
         return await sync_to_async(self.run, thread_sensitive=False)(*args, **kwargs)
 
     def start_strategy(self, app, consumer, **kwargs):
@@ -650,21 +653,15 @@ class Task:
         )
 
         if app.conf.task_always_eager:
-            with app.producer_or_acquire(producer) as eager_producer:
-                serializer = options.get('serializer')
-                if serializer is None:
-                    if eager_producer.serializer:
-                        serializer = eager_producer.serializer
-                    else:
-                        serializer = app.conf.task_serializer
-                body = args, kwargs
-                content_type, content_encoding, data = serialization.dumps(
-                    body, serializer,
-                )
-                args, kwargs = serialization.loads(
-                    data, content_type, content_encoding,
-                    accept=[content_type]
-                )
+            serializer = options.get('serializer') or app.conf.task_serializer
+            body = args, kwargs
+            content_type, content_encoding, data = serialization.dumps(
+                body, serializer,
+            )
+            args, kwargs = serialization.loads(
+                data, content_type, content_encoding,
+                accept=[content_type]
+            )
             with denied_join_result():
                 return self.apply(args, kwargs, task_id=task_id or uuid(),
                                   link=link, link_error=link_error, **options)
@@ -695,25 +692,15 @@ class Task:
         )
 
         if app.conf.task_always_eager:
-            # Eager mode: wrap the I/O parts (producer acquisition, serialization check)
-            def _eager_apply():
-                with app.producer_or_acquire(producer) as eager_producer:
-                    serializer = options.get('serializer')
-                    if serializer is None:
-                        if eager_producer.serializer:
-                            serializer = eager_producer.serializer
-                        else:
-                            serializer = app.conf.task_serializer
-                    body = args, kwargs
-                    content_type, content_encoding, data = serialization.dumps(
-                        body, serializer,
-                    )
-                    return serialization.loads(
-                        data, content_type, content_encoding,
-                        accept=[content_type]
-                    )
-
-            eager_args, eager_kwargs = await sync_to_async(_eager_apply, thread_sensitive=False)()
+            serializer = options.get('serializer') or app.conf.task_serializer
+            body = args, kwargs
+            content_type, content_encoding, data = serialization.dumps(
+                body, serializer,
+            )
+            eager_args, eager_kwargs = serialization.loads(
+                data, content_type, content_encoding,
+                accept=[content_type]
+            )
             with denied_join_result():
                 # Use aapply() which uses the async tracer - this properly handles
                 # async task functions without blocking the event loop
