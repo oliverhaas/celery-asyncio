@@ -42,7 +42,7 @@ Source = "https://github.com/oliverhaas/celery/tree/main-asyncio"
 Tracker = "https://github.com/oliverhaas/celery/issues"
 
 [project.scripts]
-celery-asyncio = "celery.__main__:main"
+celery = "celery.__main__:main"
 
 [project.optional-dependencies]
 # Serializers

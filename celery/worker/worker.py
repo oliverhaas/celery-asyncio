@@ -336,7 +336,9 @@ class WorkController:
                        max_tasks_per_child=None,
                        prefetch_multiplier=None, disable_rate_limits=None,
                        worker_lost_wait=None,
-                       max_memory_per_child=None, **_kw):
+                       max_memory_per_child=None,
+                       loop_workers=None, loop_concurrency=None,
+                       sync_workers=None, **_kw):
         either = self.app.either
         self.loglevel = loglevel
         self.logfile = logfile
@@ -376,6 +378,9 @@ class WorkController:
             "worker_disable_rate_limits", disable_rate_limits,
         )
         self.worker_lost_wait = either("worker_lost_wait", worker_lost_wait)
+        self.loop_workers = either("worker_loop_workers", loop_workers)
+        self.loop_concurrency = either("worker_loop_concurrency", loop_concurrency)
+        self.sync_workers = either("worker_sync_workers", sync_workers)
 
     async def wait_for_soft_shutdown(self):
         """Wait worker_soft_shutdown_timeout if soft shutdown is enabled."""

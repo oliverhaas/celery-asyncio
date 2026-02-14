@@ -68,6 +68,9 @@ class Pool(bootsteps.StartStopStep):
             max_memory_per_child=w.max_memory_per_child,
             timeout=w.time_limit,
             soft_timeout=w.soft_time_limit,
+            loop_workers=w.loop_workers,
+            loop_concurrency=w.loop_concurrency,
+            sync_workers=w.sync_workers,
             app=w.app,
         )
         _set_task_join_will_block(pool.task_join_will_block)

@@ -33,3 +33,18 @@ class test_Pool:
         comp.create(w)
 
         assert comp.instantiate.call_args[1]['max_memory_per_child'] == 32
+
+    def test_create_passes_pool_params(self):
+        w = Mock()
+        comp = Pool(w)
+        comp.instantiate = Mock()
+        w.loop_workers = 3
+        w.loop_concurrency = 20
+        w.sync_workers = 4
+
+        comp.create(w)
+
+        kwargs = comp.instantiate.call_args[1]
+        assert kwargs['loop_workers'] == 3
+        assert kwargs['loop_concurrency'] == 20
+        assert kwargs['sync_workers'] == 4

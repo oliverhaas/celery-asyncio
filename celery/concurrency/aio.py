@@ -1,7 +1,12 @@
-"""Hybrid asyncio + thread pool for celery-asyncio.
+"""Multi-loop asyncio + thread pool for celery-asyncio.
 
-Async tasks run directly on the event loop (zero overhead).
-Sync tasks run in a ThreadPoolExecutor (true parallelism with 3.14t free-threading).
+Architecture:
+  - N "loop worker" threads, each running its own asyncio event loop
+    with a Semaphore(P) limiting concurrent async tasks per loop.
+  - M "sync worker" threads via ThreadPoolExecutor for sync tasks.
+  - Main thread owns the broker connection and dispatches tasks.
+
+With Python 3.14t free-threading, all threads run with true parallelism.
 
 This is the default pool for celery-asyncio workers.
 """
@@ -9,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -28,13 +35,12 @@ if TYPE_CHECKING:
 class ApplyResult:
     """Wrapper around a Future that provides a .get() method."""
 
-    def __init__(self, future: Future | asyncio.Task) -> None:
+    def __init__(self, future: Future | asyncio.Task | None) -> None:
         self.f = future
 
     def get(self, timeout: float | None = None) -> Any:
         if isinstance(self.f, Future):
             return self.f.result(timeout)
-        # asyncio.Task - can't block on it from sync code
         return None
 
     def wait(self, timeout: float | None = None) -> None:
@@ -43,37 +49,143 @@ class ApplyResult:
             wait([self.f], timeout)
 
 
+class LoopWorker:
+    """A worker thread running its own asyncio event loop.
+
+    Each LoopWorker runs an independent event loop on a daemon thread.
+    A semaphore limits the number of concurrent async tasks to
+    ``concurrency``.
+    """
+
+    def __init__(self, concurrency: int, app: Any, index: int) -> None:
+        self._concurrency = concurrency
+        self._app = app
+        self._index = index
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._semaphore: asyncio.Semaphore | None = None
+        self._active_count = 0
+        self._ready = threading.Event()
+
+    def start(self) -> None:
+        """Start the loop worker thread and wait until the loop is running."""
+        self._thread = threading.Thread(
+            target=self._run_loop,
+            name=f'celery-loop-worker-{self._index}',
+            daemon=True,
+        )
+        self._thread.start()
+        self._ready.wait()
+
+    def _run_loop(self) -> None:
+        """Thread target: create and run an event loop forever."""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._semaphore = asyncio.Semaphore(self._concurrency)
+        self._app.set_current()
+        self._ready.set()
+        self._loop.run_forever()
+
+    def submit(self, coro_factory: Callable, *args: Any) -> None:
+        """Submit a coroutine to this loop worker (thread-safe).
+
+        The coroutine will be wrapped with the semaphore to limit
+        concurrent execution.
+        """
+        self._active_count += 1
+        # We need to create the coroutine from inside the target loop.
+        # call_soon_threadsafe schedules a regular callback, so we
+        # use it to create_task the semaphore-wrapped coroutine.
+        self._loop.call_soon_threadsafe(
+            self._schedule_task, coro_factory, args
+        )
+
+    def _schedule_task(self, coro_factory: Callable, args: tuple) -> None:
+        """Create and schedule the task on this loop (called from loop thread)."""
+        self._loop.create_task(
+            self._run_with_semaphore(coro_factory, args)
+        )
+
+    async def _run_with_semaphore(self, coro_factory: Callable, args: tuple) -> None:
+        """Acquire semaphore, run the coroutine, then release."""
+        async with self._semaphore:
+            try:
+                await coro_factory(*args)
+            finally:
+                self._active_count -= 1
+
+    def stop(self) -> None:
+        """Stop the event loop and join the thread."""
+        if self._loop:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._thread:
+            self._thread.join(timeout=5)
+
+
 class TaskPool(BasePool):
-    """Hybrid asyncio + thread pool.
+    """Multi-loop asyncio + thread pool.
 
-    - Async tasks: executed directly on the asyncio event loop
-    - Sync tasks: dispatched to a ThreadPoolExecutor
+    - Async tasks: dispatched round-robin to N loop worker threads,
+      each with its own event loop and Semaphore(P) concurrency limit.
+    - Sync tasks: dispatched to a ThreadPoolExecutor with M workers.
 
-    With Python 3.14t free-threading, sync tasks in threads run
-    with true parallelism (no GIL).
+    With Python 3.14t free-threading, all threads run truly parallel.
     """
 
     body_can_be_buffer = True
     signal_safe = False
     task_join_will_block = False
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any,
+                 loop_workers: int = 1,
+                 loop_concurrency: int = 10,
+                 sync_workers: int = 1,
+                 **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self._loop_worker_count = loop_workers
+        self._loop_concurrency = loop_concurrency
+        self._sync_worker_count = sync_workers
+        self._loop_workers: list[LoopWorker] = []
         self._executor: ThreadPoolExecutor | None = None
-        self._loop: asyncio.AbstractEventLoop | None = None
 
     def on_start(self) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=self.limit)
-        try:
-            self._loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self._loop = None
+        # Start N loop worker threads
+        for i in range(self._loop_worker_count):
+            w = LoopWorker(self._loop_concurrency, self.app, i)
+            w.start()
+            self._loop_workers.append(w)
+        # Start M sync worker threads
+        self._executor = ThreadPoolExecutor(max_workers=self._sync_worker_count)
+        logger.info(
+            'Pool started: %d loop workers (concurrency=%d each), '
+            '%d sync workers',
+            self._loop_worker_count, self._loop_concurrency,
+            self._sync_worker_count,
+        )
         signals.worker_process_init.send(sender=None)
 
     def on_stop(self) -> None:
+        for w in self._loop_workers:
+            w.stop()
+        self._loop_workers.clear()
         if self._executor:
             self._executor.shutdown(wait=False)
             self._executor = None
+
+    def _is_async_task(self, args: tuple) -> bool:
+        """Check if the task referenced by args[0] is an async coroutine."""
+        if self.app and args:
+            task_name = args[0]
+            try:
+                task = self.app.tasks[task_name]
+                return asyncio.iscoroutinefunction(task.run)
+            except (KeyError, AttributeError):
+                pass
+        return False
+
+    def _pick_loop_worker(self) -> LoopWorker:
+        """Pick the loop worker with the fewest active tasks."""
+        return min(self._loop_workers, key=lambda w: w._active_count)
 
     def on_apply(
         self,
@@ -87,41 +199,17 @@ class TaskPool(BasePool):
         args = args or ()
         kwargs = kwargs or {}
 
-        # Check if this task is async.
-        # args[0] is the task name (from trace_task_ret / fast_trace_task).
-        is_async = False
-        if self.app and args:
-            task_name = args[0]
-            try:
-                task = self.app.tasks[task_name]
-                import asyncio as _aio
-                is_async = _aio.iscoroutinefunction(task.run)
-            except (KeyError, AttributeError):
-                pass
-
-        if is_async and self._loop and self._loop.is_running():
-            return self._apply_async_task(
-                target, args, kwargs, callback, accept_callback, **options
+        if self._is_async_task(args) and self._loop_workers:
+            worker = self._pick_loop_worker()
+            worker.submit(
+                self._run_async_task,
+                target, args, kwargs, callback, accept_callback,
             )
+            return ApplyResult(None)
         else:
             return self._apply_sync_task(
                 target, args, kwargs, callback, accept_callback, **options
             )
-
-    def _apply_async_task(
-        self,
-        target: Callable,
-        args: tuple,
-        kwargs: dict,
-        callback: Callable | None,
-        accept_callback: Callable | None,
-        **options: Any,
-    ) -> ApplyResult:
-        """Run an async task directly on the event loop."""
-        task = self._loop.create_task(
-            self._run_async_task(target, args, kwargs, callback, accept_callback)
-        )
-        return ApplyResult(task)
 
     async def _run_async_task(
         self,
@@ -132,11 +220,7 @@ class TaskPool(BasePool):
         accept_callback: Callable | None,
     ) -> None:
         """Execute an async task using the async tracer."""
-        import time
-        from celery.app.trace import (
-            build_async_tracer,
-            trace_task,
-        )
+        from celery.app.trace import build_async_tracer
         from kombu.serialization import loads as loads_message, prepare_accept_content
 
         # Unpack args: (task_name, uuid, request, body, content_type, content_encoding)
@@ -164,7 +248,6 @@ class TaskPool(BasePool):
 
             task_obj = app.tasks[task_name]
 
-            # Build the async tracer and execute
             tracer = build_async_tracer(
                 task_name, task_obj, app=app,
             )
@@ -187,11 +270,7 @@ class TaskPool(BasePool):
         accept_callback: Callable | None,
         **options: Any,
     ) -> ApplyResult:
-        """Run a sync task in the thread pool.
-
-        Sets the celery app context in the thread so trace_task_ret
-        can find the app and its registered tasks.
-        """
+        """Run a sync task in the thread pool."""
         app = self.app
         f = self._executor.submit(
             self._run_in_thread, app, target, args, kwargs,
@@ -215,8 +294,10 @@ class TaskPool(BasePool):
     def _get_info(self) -> dict[str, Any]:
         info = super()._get_info()
         info.update({
-            'max-concurrency': self.limit,
-            'threads': len(self._executor._threads) if self._executor else 0,
             'implementation': 'asyncio+threads',
+            'loop-workers': self._loop_worker_count,
+            'loop-concurrency': self._loop_concurrency,
+            'sync-workers': self._sync_worker_count,
+            'loop-active': [w._active_count for w in self._loop_workers],
         })
         return info

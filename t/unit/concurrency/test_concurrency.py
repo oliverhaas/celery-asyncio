@@ -1,10 +1,14 @@
+import asyncio
 import os
+import threading
+import time
 from itertools import count
 from unittest.mock import Mock, patch
 
 import pytest
 
 from celery import concurrency
+from celery.concurrency.aio import ApplyResult, LoopWorker, TaskPool
 from celery.concurrency.base import BasePool, apply_target
 from celery.exceptions import WorkerShutdown, WorkerTerminate
 
@@ -165,3 +169,226 @@ class test_get_available_pool_names:
             'threads',
         )
         assert concurrency.get_available_pool_names() == expected_pool_names
+
+
+class test_LoopWorker:
+
+    def test_start_and_stop(self):
+        app = Mock()
+        w = LoopWorker(concurrency=5, app=app, index=0)
+        w.start()
+        try:
+            assert w._loop is not None
+            assert w._loop.is_running()
+            assert w._semaphore is not None
+            assert w._thread.is_alive()
+            assert w._thread.name == 'celery-loop-worker-0'
+            app.set_current.assert_called_once()
+        finally:
+            w.stop()
+        assert not w._thread.is_alive()
+
+    def test_submit_runs_coroutine(self):
+        app = Mock()
+        w = LoopWorker(concurrency=5, app=app, index=0)
+        w.start()
+        try:
+            result = []
+            done = threading.Event()
+
+            async def coro():
+                result.append(42)
+                done.set()
+
+            w.submit(coro)
+            assert done.wait(timeout=5)
+            assert result == [42]
+        finally:
+            w.stop()
+
+    def test_semaphore_limits_concurrency(self):
+        app = Mock()
+        concurrency_limit = 2
+        w = LoopWorker(concurrency=concurrency_limit, app=app, index=0)
+        w.start()
+        try:
+            running = threading.Event()
+            max_concurrent = []
+            current_count = [0]
+            lock = threading.Lock()
+            all_done = threading.Event()
+            total = 4
+
+            async def coro():
+                with lock:
+                    current_count[0] += 1
+                    max_concurrent.append(current_count[0])
+                await asyncio.sleep(0.1)
+                with lock:
+                    current_count[0] -= 1
+                    if len(max_concurrent) >= total * 2 - 1:
+                        # Approximation: we've recorded enough
+                        pass
+
+            done_count = [0]
+            done_lock = threading.Lock()
+
+            async def coro_with_done():
+                with lock:
+                    current_count[0] += 1
+                    max_concurrent.append(current_count[0])
+                await asyncio.sleep(0.1)
+                with lock:
+                    current_count[0] -= 1
+                with done_lock:
+                    done_count[0] += 1
+                    if done_count[0] == total:
+                        all_done.set()
+
+            for _ in range(total):
+                w.submit(coro_with_done)
+
+            assert all_done.wait(timeout=5)
+            # The max concurrent should never exceed the semaphore limit
+            assert max(max_concurrent) <= concurrency_limit
+        finally:
+            w.stop()
+
+    def test_active_count_tracking(self):
+        app = Mock()
+        w = LoopWorker(concurrency=10, app=app, index=0)
+        w.start()
+        try:
+            started = threading.Event()
+            release = threading.Event()
+
+            async def coro():
+                started.set()
+                # Wait for release signal - poll since threading.Event
+                # can't be awaited
+                while not release.is_set():
+                    await asyncio.sleep(0.01)
+
+            w.submit(coro)
+            assert started.wait(timeout=5)
+            # While task is running, active_count should be >= 1
+            assert w._active_count >= 1
+            release.set()
+            # Give time for cleanup
+            time.sleep(0.1)
+            assert w._active_count == 0
+        finally:
+            w.stop()
+
+
+class test_TaskPool:
+
+    def test_init_defaults(self):
+        pool = TaskPool(10, app=Mock())
+        assert pool._loop_worker_count == 1
+        assert pool._loop_concurrency == 10
+        assert pool._sync_worker_count == 1
+
+    def test_init_custom(self):
+        pool = TaskPool(10, app=Mock(),
+                        loop_workers=3, loop_concurrency=20,
+                        sync_workers=4)
+        assert pool._loop_worker_count == 3
+        assert pool._loop_concurrency == 20
+        assert pool._sync_worker_count == 4
+
+    def test_start_stop(self):
+        app = Mock()
+        pool = TaskPool(10, app=app,
+                        loop_workers=2, loop_concurrency=5,
+                        sync_workers=2)
+        pool.on_start()
+        try:
+            assert len(pool._loop_workers) == 2
+            assert pool._executor is not None
+            for w in pool._loop_workers:
+                assert w._loop.is_running()
+                assert w._thread.is_alive()
+        finally:
+            pool.on_stop()
+        assert len(pool._loop_workers) == 0
+        assert pool._executor is None
+
+    def test_least_loaded_dispatch(self):
+        pool = TaskPool(10, app=Mock(), loop_workers=3)
+        w0 = Mock(_active_count=5)
+        w1 = Mock(_active_count=2)
+        w2 = Mock(_active_count=8)
+        pool._loop_workers = [w0, w1, w2]
+
+        # Should pick w1 (lowest active count)
+        assert pool._pick_loop_worker() is w1
+
+        # After w1 gets more load, should pick w0
+        w1._active_count = 7
+        assert pool._pick_loop_worker() is w0
+
+        # All equal — picks first (stable min)
+        w0._active_count = 3
+        w1._active_count = 3
+        w2._active_count = 3
+        assert pool._pick_loop_worker() is w0
+
+    def test_is_async_task(self):
+        app = Mock()
+        pool = TaskPool(10, app=app)
+
+        # Async task
+        async def async_run():
+            pass
+        task = Mock()
+        task.run = async_run
+        app.tasks.__getitem__ = Mock(return_value=task)
+        assert pool._is_async_task(('my.task',))
+
+        # Sync task
+        def sync_run():
+            pass
+        task.run = sync_run
+        assert not pool._is_async_task(('my.task',))
+
+        # No args
+        assert not pool._is_async_task(())
+
+        # Unknown task
+        app.tasks.__getitem__ = Mock(side_effect=KeyError)
+        assert not pool._is_async_task(('unknown.task',))
+
+    def test_sync_task_dispatch(self):
+        app = Mock()
+        pool = TaskPool(10, app=app, sync_workers=1)
+        pool.on_start()
+        try:
+            result_holder = []
+            done = threading.Event()
+
+            def target(*args, **kwargs):
+                result_holder.append('executed')
+                done.set()
+                return (0, 'ok', 0.1)
+
+            result = pool._apply_sync_task(
+                target, ('my.task', 'uuid', {}, b'body', None, None), {},
+                callback=None, accept_callback=None,
+            )
+            assert isinstance(result, ApplyResult)
+        finally:
+            pool.on_stop()
+
+    def test_get_info(self):
+        app = Mock()
+        pool = TaskPool(10, app=app,
+                        loop_workers=2, loop_concurrency=5,
+                        sync_workers=3)
+        pool._loop_workers = [Mock(_active_count=1), Mock(_active_count=2)]
+        info = pool._get_info()
+        assert info['implementation'] == 'asyncio+threads'
+        assert info['loop-workers'] == 2
+        assert info['loop-concurrency'] == 5
+        assert info['sync-workers'] == 3
+        assert info['loop-active'] == [1, 2]
