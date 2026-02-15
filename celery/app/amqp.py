@@ -2,7 +2,7 @@
 import numbers
 from collections import namedtuple
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from weakref import WeakValueDictionary
 
 from kombu import Connection, Consumer, Exchange, Producer, Queue
@@ -19,6 +19,41 @@ from celery.utils.time import maybe_make_aware
 from . import routes as _routes
 
 __all__ = ("AMQP", "Queues", "task_message")
+
+# -- Signal handler for native delayed delivery (Redis transport) -----------
+# Mirrors celery-redis-plus/signals.py: converts headers.eta (ISO datetime
+# string) to properties.eta (Unix timestamp float) so the Redis transport can
+# use it for sorted-set delayed delivery without importing celery itself.
+
+_eta_signal_connected = False
+
+
+def _convert_eta_to_properties(body, properties, **kwargs):
+    """Convert headers.eta to properties.eta for Redis native delayed delivery."""
+    headers = kwargs.get("headers", {})
+    if not headers:
+        return
+
+    eta_value = headers.get("eta")
+    if eta_value is None:
+        return
+
+    if isinstance(eta_value, str):
+        try:
+            if eta_value.endswith("Z"):
+                eta_value = eta_value[:-1] + "+00:00"
+            eta_dt = datetime.fromisoformat(eta_value)
+            if eta_dt.tzinfo is None:
+                eta_dt = eta_dt.replace(tzinfo=UTC)
+            properties["eta"] = eta_dt.timestamp()
+        except (ValueError, TypeError):
+            pass
+    elif isinstance(eta_value, datetime):
+        if eta_value.tzinfo is None:
+            eta_value = eta_value.replace(tzinfo=UTC)
+        properties["eta"] = eta_value.timestamp()
+    elif isinstance(eta_value, (int, float)):
+        properties["eta"] = float(eta_value)
 
 #: earliest date supported by time.mktime.
 INT_MIN = -2147483648
@@ -255,6 +290,12 @@ class AMQP:
             2: self.as_task_v2,
         }
         self.app._conf.bind_to(self._handle_conf_update)
+
+        # Register ETA signal handler (once, idempotent)
+        global _eta_signal_connected
+        if not _eta_signal_connected:
+            signals.before_task_publish.connect(_convert_eta_to_properties)
+            _eta_signal_connected = True
 
     @cached_property
     def create_task_message(self):

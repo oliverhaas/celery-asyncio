@@ -21,16 +21,19 @@ from kombu.common import oid_from
 from kombu.utils.compat import register_after_fork
 
 
-# Note: native_delayed_delivery is not yet available in kombu-asyncio
-# This is a RabbitMQ-specific feature for quorum queues
+# Note: RabbitMQ-style native delayed delivery (quorum queue exchange routing)
+# is not available in kombu-asyncio. Redis native delayed delivery uses a
+# different mechanism (sorted set scores) handled by the transport directly.
 def calculate_routing_key(countdown, routing_key):
-    """Stub for native delayed delivery routing key calculation.
+    """Stub for RabbitMQ native delayed delivery routing key calculation.
 
-    This feature is not yet implemented in kombu-asyncio.
+    This is a RabbitMQ/quorum-queue specific feature not available in kombu-asyncio.
+    Redis native delayed delivery uses sorted set scores instead.
     """
     raise NotImplementedError(
-        "native_delayed_delivery is not available in kombu-asyncio. "
-        "Use standard countdown/eta instead."
+        "RabbitMQ native_delayed_delivery (quorum queues) is not available "
+        "in kombu-asyncio. Redis native delayed delivery is handled by the "
+        "transport via properties.eta."
     )
 from kombu.utils.objects import cached_property
 from kombu.utils.uuid import uuid
