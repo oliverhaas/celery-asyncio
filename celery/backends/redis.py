@@ -861,6 +861,10 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
         return all_results
 
+    async def _aset_with_state(self, key, value, state):
+        """Async version of _set_with_state using native async Redis client."""
+        return await self._aset(key, value)
+
     def __reduce__(self, args=(), kwargs=None):
         kwargs = {} if not kwargs else kwargs
         return super().__reduce__(

@@ -5,6 +5,7 @@
 - :class:`KeyValueStoreBackend` is a common base class
     using K/V semantics like _get and _put.
 """
+import asyncio
 import sys
 import time
 import warnings
@@ -810,6 +811,96 @@ class Backend:
             thread_sensitive=False
         )()
 
+    async def astore_result(self, task_id, result, state,
+                            traceback=None, request=None, **kwargs):
+        """Async version of store_result."""
+        result = self.encode_result(result, state)
+        retries = 0
+        while True:
+            try:
+                await self._astore_result(task_id, result, state, traceback,
+                                          request=request, **kwargs)
+                return result
+            except Exception as exc:
+                if self.always_retry and self.exception_safe_to_retry(exc):
+                    if retries < self.max_retries:
+                        retries += 1
+                        sleep_amount = get_exponential_backoff_interval(
+                            self.base_sleep_between_retries_ms, retries,
+                            self.max_sleep_between_retries_ms, True) / 1000
+                        await asyncio.sleep(sleep_amount)
+                    else:
+                        raise_with_context(
+                            BackendStoreError(
+                                "failed to store result on the backend",
+                                task_id=task_id, state=state),
+                        )
+                else:
+                    raise
+
+    async def _astore_result(self, task_id, result, state,
+                             traceback=None, request=None, **kwargs):
+        """Async version of _store_result. Default uses sync_to_async."""
+        return await sync_to_async(self._store_result, thread_sensitive=False)(
+            task_id, result, state, traceback, request=request, **kwargs)
+
+    async def amark_as_done(self, task_id, result,
+                            request=None, store_result=True, state=states.SUCCESS):
+        """Async version of mark_as_done."""
+        if store_result and not _is_request_ignore_result(request):
+            await self.astore_result(task_id, result, state, request=request)
+        if request and request.chord:
+            self.on_chord_part_return(request, state, result)
+
+    async def amark_as_failure(self, task_id, exc,
+                               traceback=None, request=None,
+                               store_result=True, call_errbacks=True,
+                               state=states.FAILURE):
+        """Async version of mark_as_failure."""
+        if store_result:
+            await self.astore_result(task_id, exc, state,
+                                     traceback=traceback, request=request)
+        if request:
+            if request.chord:
+                self.on_chord_part_return(request, state, exc)
+            try:
+                chain_data = iter(request.chain)
+            except (AttributeError, TypeError):
+                chain_data = tuple()
+            for chain_elem in chain_data:
+                chain_elem_ctx = Context(chain_elem)
+                chain_elem_ctx.update(chain_elem_ctx.options)
+                chain_elem_ctx.id = chain_elem_ctx.options.get('task_id')
+                chain_elem_ctx.group = chain_elem_ctx.options.get('group_id')
+                if (
+                    store_result and state in states.PROPAGATE_STATES and
+                    chain_elem_ctx.task_id is not None
+                ):
+                    await self.astore_result(
+                        chain_elem_ctx.task_id, exc, state,
+                        traceback=traceback, request=chain_elem_ctx,
+                    )
+                if 'chord' in chain_elem_ctx.options:
+                    self.on_chord_part_return(chain_elem_ctx, state, exc)
+            if call_errbacks and request.errbacks:
+                self._call_task_errbacks(request, exc, traceback)
+
+    async def amark_as_retry(self, task_id, exc, traceback=None,
+                             request=None, store_result=True, state=states.RETRY):
+        """Async version of mark_as_retry."""
+        return await self.astore_result(task_id, exc, state,
+                                        traceback=traceback, request=request)
+
+    async def amark_as_revoked(self, task_id, reason='',
+                               request=None, store_result=True, state=states.REVOKED):
+        """Async version of mark_as_revoked."""
+        exc = TaskRevokedError(reason)
+        if store_result:
+            await self.astore_result(task_id, exc, state,
+                                     traceback=None, request=request)
+        if request and request.chord:
+            self.on_chord_part_return(request, state, exc)
+
     def cleanup(self):
         """Backend cleanup."""
 
@@ -1129,6 +1220,37 @@ class BaseKeyValueStoreBackend(Backend):
             raise BackendStoreError(str(ex), state=state, task_id=task_id) from ex
 
         return result
+
+    async def _astore_result(self, task_id, result, state,
+                             traceback=None, request=None, **kwargs):
+        """Async version of _store_result for KV stores."""
+        meta = self._get_result_meta(result=result, state=state,
+                                     traceback=traceback, request=request)
+        meta['task_id'] = bytes_to_str(task_id)
+
+        current_meta = await self._aget_task_meta_for(task_id)
+        if current_meta['status'] == states.SUCCESS:
+            return result
+
+        try:
+            await self._aset_with_state(
+                self.get_key_for_task(task_id), self.encode(meta), state)
+        except BackendStoreError as ex:
+            raise BackendStoreError(str(ex), state=state, task_id=task_id) from ex
+
+        return result
+
+    async def _aset_with_state(self, key, value, state):
+        """Async version of _set_with_state."""
+        return await self.aset(key, value)
+
+    async def aset(self, key, value):
+        """Async version of set. Default uses sync_to_async."""
+        return await sync_to_async(self.set, thread_sensitive=False)(key, value)
+
+    async def _aget_task_meta_for(self, task_id):
+        """Async version of _get_task_meta_for. Default uses sync_to_async."""
+        return await sync_to_async(self._get_task_meta_for, thread_sensitive=False)(task_id)
 
     def _save_group(self, group_id, result):
         self._set_with_state(self.get_key_for_group(group_id),

@@ -258,6 +258,79 @@ class TraceInfo:
             if tb_ref is not None:
                 del tb_ref
 
+    async def ahandle_error_state(self, task, req,
+                                  eager=False, call_errbacks=True):
+        """Async version of handle_error_state."""
+        if task.ignore_result:
+            store_errors = task.store_errors_even_if_ignored
+        elif eager and task.store_eager_result:
+            store_errors = True
+        else:
+            store_errors = not eager
+
+        return await {
+            RETRY: self.ahandle_retry,
+            FAILURE: self.ahandle_failure,
+        }[self.state](task, req,
+                      store_errors=store_errors,
+                      call_errbacks=call_errbacks)
+
+    async def ahandle_retry(self, task, req, store_errors=True, **kwargs):
+        """Async version of handle_retry."""
+        type_, _, tb = sys.exc_info()
+        einfo = None
+        try:
+            reason = self.retval
+            einfo = ExceptionInfo((type_, reason, tb))
+            if store_errors:
+                await task.backend.amark_as_retry(
+                    req.id, reason.exc, einfo.traceback, request=req,
+                )
+            task.on_retry(reason.exc, req.id, req.args, req.kwargs, einfo)
+            signals.task_retry.send(sender=task, request=req,
+                                    reason=reason, einfo=einfo)
+            info(LOG_RETRY, {
+                'id': req.id,
+                'name': get_task_name(req, task.name),
+                'exc': str(reason),
+            })
+            traceback_clear(einfo.exception)
+            return einfo
+        finally:
+            if tb is not None:
+                del tb
+
+    async def ahandle_failure(self, task, req, store_errors=True, call_errbacks=True):
+        """Async version of handle_failure."""
+        orig_exc = self.retval
+        tb_ref = None
+        try:
+            exc = get_pickleable_exception(orig_exc)
+            if exc.__traceback__ is None:
+                _, _, tb_ref = sys.exc_info()
+                exc.__traceback__ = tb_ref
+            exc_type = get_pickleable_etype(type(orig_exc))
+            einfo = ExceptionInfo(exc_info=(exc_type, exc, exc.__traceback__))
+
+            await task.backend.amark_as_failure(
+                req.id, exc, einfo.traceback,
+                request=req, store_result=store_errors,
+                call_errbacks=call_errbacks,
+            )
+
+            task.on_failure(exc, req.id, req.args, req.kwargs, einfo)
+            signals.task_failure.send(sender=task, task_id=req.id,
+                                      exception=exc, args=req.args,
+                                      kwargs=req.kwargs,
+                                      traceback=exc.__traceback__,
+                                      einfo=einfo)
+            self._log_error(task, req, einfo)
+            traceback_clear(exc)
+            return einfo
+        finally:
+            if tb_ref is not None:
+                del tb_ref
+
     def _log_error(self, task, req, einfo):
         eobj = einfo.exception = get_pickled_exception(einfo.exception)
         if isinstance(eobj, ExceptionWithTraceback):
@@ -684,11 +757,11 @@ def build_async_tracer(name, task, loader=None, hostname=None, store_errors=True
     from celery import canvas
     signature = canvas.maybe_signature
 
-    def on_error(request, exc, state=FAILURE, call_errbacks=True):
+    async def on_error(request, exc, state=FAILURE, call_errbacks=True):
         if propagate:
             raise
         I = Info(state, exc)
-        R = I.handle_error_state(
+        R = await I.ahandle_error_state(
             task, request, eager=eager, call_errbacks=call_errbacks,
         )
         return I, R, I.state, I.retval
@@ -740,7 +813,7 @@ def build_async_tracer(name, task, loader=None, hostname=None, store_errors=True
                                 args=args, kwargs=kwargs)
                 loader_task_init(uuid, task)
                 if track_started:
-                    task.backend.store_result(
+                    await task.backend.astore_result(
                         uuid, {'pid': pid, 'hostname': hostname}, STARTED,
                         request=task_request,
                     )
@@ -766,11 +839,11 @@ def build_async_tracer(name, task, loader=None, hostname=None, store_errors=True
                     I.handle_ignore(task, task_request)
                     traceback_clear(exc)
                 except Retry as exc:
-                    I, R, state, retval = on_error(
+                    I, R, state, retval = await on_error(
                         task_request, exc, RETRY, call_errbacks=False)
                     traceback_clear(exc)
                 except Exception as exc:
-                    I, R, state, retval = on_error(task_request, exc)
+                    I, R, state, retval = await on_error(task_request, exc)
                     traceback_clear(exc)
                 except BaseException:
                     raise
@@ -815,11 +888,11 @@ def build_async_tracer(name, task, loader=None, hostname=None, store_errors=True
                                 parent_id=uuid, root_id=root_id,
                                 priority=task_priority
                             )
-                        task.backend.mark_as_done(
+                        await task.backend.amark_as_done(
                             uuid, retval, task_request, publish_result,
                         )
                     except EncodeError as exc:
-                        I, R, state, retval = on_error(task_request, exc)
+                        I, R, state, retval = await on_error(task_request, exc)
                         traceback_clear(exc)
                     else:
                         Rstr = saferepr(R, resultrepr_maxsize)
@@ -870,7 +943,7 @@ def build_async_tracer(name, task, loader=None, hostname=None, store_errors=True
                 raise
             R = report_internal_error(task, exc)
             if task_request is not None:
-                I, _, _, _ = on_error(task_request, exc)
+                I, _, _, _ = await on_error(task_request, exc)
         return trace_ok_t(R, I, T, Rstr)
 
     return trace_task_async
