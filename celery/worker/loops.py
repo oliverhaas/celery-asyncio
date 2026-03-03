@@ -8,6 +8,7 @@ import time
 from celery.platforms import EX_OK
 from celery.utils.log import get_logger
 from celery.worker import state
+from celery.worker.state import maybe_shutdown
 
 logger = get_logger(__name__)
 
@@ -17,9 +18,17 @@ _MEMORY_CHECK_INTERVAL = 5.0
 # Module-level state for throttled checks.
 _last_memory_check = 0.0
 
+# Guard: only register the atexit restart handler once.
+_restart_registered = False
+
 
 def _get_rss_kib() -> int:
-    """Return current process RSS in KiB."""
+    """Return current process RSS in KiB (best effort).
+
+    Uses /proc/self/status on Linux (accurate current RSS).
+    Falls back to resource.getrusage ru_maxrss which is *peak* RSS
+    (high-water mark), so the fallback may over-estimate.
+    """
     try:
         with open("/proc/self/status") as f:
             for line in f:
@@ -33,20 +42,26 @@ def _get_rss_kib() -> int:
 
         rusage = resource.getrusage(resource.RUSAGE_SELF)
         if sys.platform == "darwin":
-            return rusage.ru_maxrss // 1024  # bytes -> KiB
-        return rusage.ru_maxrss  # already KiB on Linux
+            return rusage.ru_maxrss // 1024  # bytes -> KiB (peak RSS)
+        return rusage.ru_maxrss  # KiB on Linux (peak RSS)
     except Exception:
         return 0
 
 
 def _trigger_restart(reason: str) -> None:
     """Register os.execv atexit handler and set should_stop."""
+    global _restart_registered
+
+    if _restart_registered:
+        return
+
     import atexit
 
     from celery.apps.worker import _reload_current_worker
 
     logger.info("Worker restart: %s", reason)
     atexit.register(_reload_current_worker)
+    _restart_registered = True
     state.should_stop = EX_OK
 
 
@@ -79,23 +94,30 @@ async def _enter_draining(consumer, reason: str) -> None:
             pass
 
 
-def _check_restart_conditions(obj, consumer, pool) -> bool:
-    """Check if the worker should restart. Returns True if draining was initiated."""
+def _check_restart_conditions(obj, consumer, pool) -> str | None:
+    """Check if the worker should restart.
+
+    Returns a reason string if draining should be initiated (or restart
+    triggered), or None if nothing to do.
+    """
     global _last_memory_check
 
     app = obj.app
     now = time.monotonic()
 
+    # If already draining, check if all active tasks finished → restart.
+    if state.is_draining:
+        if not tuple(state.active_requests):
+            _trigger_restart("all tasks finished during drain")
+        return None
+
+    # Build reason parts for conditions that require draining + restart.
+    reason_parts = []
+
     # --- max_tasks_per_child ---
     max_tasks = app.conf.worker_max_tasks_per_child
     if max_tasks and state.all_total_count[0] >= max_tasks:
-        if not state.is_draining:
-            return True  # signal caller to enter draining
-        if not tuple(state.active_requests):
-            _trigger_restart(
-                f"max tasks per child ({max_tasks}) reached"
-            )
-            return False
+        reason_parts.append(f"max tasks per child ({max_tasks}) reached")
 
     # --- max_memory_per_child ---
     max_memory = app.conf.worker_max_memory_per_child
@@ -103,23 +125,15 @@ def _check_restart_conditions(obj, consumer, pool) -> bool:
         _last_memory_check = now
         rss = _get_rss_kib()
         if rss > max_memory:
-            if not state.is_draining:
-                return True  # signal caller to enter draining
-            if not tuple(state.active_requests):
-                _trigger_restart(
-                    f"memory limit exceeded (RSS {rss} KiB > {max_memory} KiB)"
-                )
-                return False
+            reason_parts.append(
+                f"memory limit exceeded (RSS {rss} KiB > {max_memory} KiB)"
+            )
 
     # --- stuck threads ---
     if pool and getattr(pool, "_stuck_thread_count", 0) > 0:
-        if not state.is_draining:
-            return True  # signal caller to enter draining
-        if not tuple(state.active_requests):
-            _trigger_restart("stuck thread(s) detected after hard timeout")
-            return False
+        reason_parts.append("stuck thread(s) detected after hard timeout")
 
-    return False
+    return "; ".join(reason_parts) if reason_parts else None
 
 
 async def asynloop(
@@ -151,6 +165,8 @@ async def asynloop(
     pool = getattr(obj, "pool", None)
 
     while blueprint.state == 1:  # RUN
+        maybe_shutdown()
+
         try:
             await connection.drain_events(timeout=1.0)
         except TimeoutError:
@@ -159,17 +175,6 @@ async def asynloop(
             break
 
         # Check restart conditions (max_tasks, max_memory, stuck threads).
-        should_drain = _check_restart_conditions(obj, consumer, pool)
-        if should_drain and not state.is_draining:
-            reason_parts = []
-            max_tasks = obj.app.conf.worker_max_tasks_per_child
-            if max_tasks and state.all_total_count[0] >= max_tasks:
-                reason_parts.append(f"max tasks per child ({max_tasks}) reached")
-            max_memory = obj.app.conf.worker_max_memory_per_child
-            if max_memory:
-                rss = _get_rss_kib()
-                if rss > max_memory:
-                    reason_parts.append(f"memory limit exceeded (RSS {rss} KiB > {max_memory} KiB)")
-            if pool and getattr(pool, "_stuck_thread_count", 0) > 0:
-                reason_parts.append("stuck thread(s) detected")
-            await _enter_draining(consumer, "; ".join(reason_parts) or "limit reached")
+        drain_reason = _check_restart_conditions(obj, consumer, pool)
+        if drain_reason and not state.is_draining:
+            await _enter_draining(consumer, drain_reason)

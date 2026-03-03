@@ -19,6 +19,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from threading import Lock
 from typing import Any
 
 from celery import signals
@@ -29,6 +30,10 @@ from .base import BasePool, apply_target
 __all__ = ("TaskPool",)
 
 logger = get_logger("celery.pool")
+
+# Sentinel returned by _run_tracer_with_timeouts when hard timeout fires
+# (on_timeout already handled reporting, so _run_async_task should skip callback).
+_HARD_TIMEOUT = object()
 
 
 class ApplyResult:
@@ -74,6 +79,7 @@ class LoopWorker:
         self._thread: threading.Thread | None = None
         self._semaphore: asyncio.Semaphore | None = None
         self._active_count = 0
+        self._active_count_lock = Lock()
         self._ready = threading.Event()
         self._tasks: set[asyncio.Task] = set()
 
@@ -102,7 +108,8 @@ class LoopWorker:
         The coroutine will be wrapped with the semaphore to limit
         concurrent execution.
         """
-        self._active_count += 1
+        with self._active_count_lock:
+            self._active_count += 1
         # We need to create the coroutine from inside the target loop.
         # call_soon_threadsafe schedules a regular callback, so we
         # use it to create_task the semaphore-wrapped coroutine.
@@ -120,7 +127,8 @@ class LoopWorker:
             try:
                 await coro_factory(*args)
             finally:
-                self._active_count -= 1
+                with self._active_count_lock:
+                    self._active_count -= 1
 
     def cancel_all(self) -> None:
         """Cancel all running async tasks on this loop (must be called from loop thread)."""
@@ -161,6 +169,7 @@ class TaskPool(BasePool):
         self._executor: ThreadPoolExecutor | None = None
         self._active_futures: set[Future] = set()
         self._stuck_thread_count = 0
+        self._stuck_lock = Lock()
 
     def on_start(self) -> None:
         # Start N loop worker threads
@@ -302,12 +311,19 @@ class TaskPool(BasePool):
                 app=app,
             )
 
-            R, I, T, Rstr = await self._run_tracer_with_timeouts(
+            tracer_result = await self._run_tracer_with_timeouts(
                 tracer, uuid, task_args, task_kwargs, request,
                 soft_timeout=soft_timeout,
                 timeout=timeout,
                 timeout_callback=timeout_callback,
             )
+
+            # Hard timeout returns _HARD_TIMEOUT sentinel —
+            # on_timeout already handled reporting.
+            if tracer_result is _HARD_TIMEOUT:
+                return
+
+            R, I, T, Rstr = tracer_result
 
             result = (1, R, T) if I else (0, Rstr, T)
             if callback:
@@ -317,12 +333,12 @@ class TaskPool(BasePool):
 
             if callback:
                 exc = Terminated("cancelled")
-                callback(ExceptionInfo((type(exc), exc, None)))
+                callback((1, ExceptionInfo((type(exc), exc, None)), 0))
         except Exception:
             from celery.exceptions import ExceptionInfo
 
             if callback:
-                callback(ExceptionInfo())
+                callback((1, ExceptionInfo(), 0))
 
     async def _run_tracer_with_timeouts(
         self,
@@ -337,20 +353,42 @@ class TaskPool(BasePool):
     ) -> tuple:
         """Run the async tracer with soft and hard timeout support.
 
-        Soft timeout: raises SoftTimeLimitExceeded inside the task (catchable).
+        Soft timeout: cancels the asyncio Task; the CancelledError is caught
+        and converted to SoftTimeLimitExceeded so it's reported correctly.
+        The user's task code sees CancelledError at the await point (asyncio
+        limitation), but if it propagates uncaught it becomes
+        SoftTimeLimitExceeded for backend recording.
+
         Hard timeout: cancels the task and reports failure via timeout_callback.
         """
         from celery.exceptions import SoftTimeLimitExceeded
 
+        _soft_timed_out = False
+        _soft_handle = None
+
         async def _run_with_soft_timeout() -> tuple:
+            nonlocal _soft_timed_out, _soft_handle
+
             if soft_timeout:
-                try:
-                    async with asyncio.timeout(soft_timeout):
-                        return await tracer(uuid, task_args, task_kwargs, request)
-                except TimeoutError:
-                    raise SoftTimeLimitExceeded(soft_timeout)
-            else:
+                current = asyncio.current_task()
+
+                def _fire_soft_timeout():
+                    nonlocal _soft_timed_out
+                    _soft_timed_out = True
+                    current.cancel()
+
+                loop = asyncio.get_event_loop()
+                _soft_handle = loop.call_later(soft_timeout, _fire_soft_timeout)
+
+            try:
                 return await tracer(uuid, task_args, task_kwargs, request)
+            except asyncio.CancelledError:
+                if _soft_timed_out:
+                    raise SoftTimeLimitExceeded(soft_timeout) from None
+                raise
+            finally:
+                if _soft_handle is not None:
+                    _soft_handle.cancel()
 
         if timeout:
             try:
@@ -361,7 +399,8 @@ class TaskPool(BasePool):
             except asyncio.TimeoutError:
                 if timeout_callback:
                     timeout_callback(False, timeout)
-                raise asyncio.CancelledError(f"hard time limit ({timeout}s) exceeded")
+                # Don't raise — on_timeout already handled task_ready + mark_as_failure.
+                return _HARD_TIMEOUT
         else:
             return await _run_with_soft_timeout()
 
@@ -412,7 +451,8 @@ class TaskPool(BasePool):
                 )
                 if timeout_callback:
                     timeout_callback(False, timeout)
-                self._stuck_thread_count += 1
+                with self._stuck_lock:
+                    self._stuck_thread_count += 1
         timer = threading.Timer(timeout, _check_timeout)
         timer.daemon = True
         timer.start()
