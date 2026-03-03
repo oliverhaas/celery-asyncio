@@ -1,9 +1,10 @@
 """Loader base class."""
+
 import importlib
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from kombu.utils import json
 from kombu.utils.objects import cached_property
@@ -14,7 +15,7 @@ from celery.utils.collections import DictAttribute, force_mapping
 from celery.utils.functional import maybe_list
 from celery.utils.imports import NotAPackage, find_module, import_from_cwd, symbol_by_name
 
-__all__ = ('BaseLoader',)
+__all__ = ("BaseLoader",)
 
 _RACE_PROTECTION = False
 
@@ -23,9 +24,12 @@ Error: Module '{module}' doesn't exist, or it's not a valid \
 Python module name.
 """
 
-CONFIG_WITH_SUFFIX = CONFIG_INVALID_NAME + """\
+CONFIG_WITH_SUFFIX = (
+    CONFIG_INVALID_NAME
+    + """\
 Did you mean '{suggest}'?
 """
+)
 
 unconfigured = object()
 
@@ -62,7 +66,7 @@ class BaseLoader:
 
     def now(self, utc=True):
         if utc:
-            return datetime.now(timezone.utc)
+            return datetime.now(UTC)
         return datetime.now()
 
     def on_task_init(self, task_id, task):
@@ -125,13 +129,13 @@ class BaseLoader:
                     return False
                 raise
         self._conf = force_mapping(obj)
-        if self._conf.get('override_backends') is not None:
-            self.override_backends = self._conf['override_backends']
+        if self._conf.get("override_backends") is not None:
+            self.override_backends = self._conf["override_backends"]
         return True
 
     def _smart_import(self, path, imp=None):
         imp = self.import_module if imp is None else imp
-        if ':' in path:
+        if ":" in path:
             # Path includes attribute so can just jump
             # here (e.g., ``os.path:abspath``).
             return symbol_by_name(path, imp=imp)
@@ -148,9 +152,12 @@ class BaseLoader:
         try:
             self.find_module(name)
         except NotAPackage as exc:
-            if name.endswith('.py'):
-                reraise(NotAPackage, NotAPackage(CONFIG_WITH_SUFFIX.format(
-                        module=name, suggest=name[:-3])), sys.exc_info()[2])
+            if name.endswith(".py"):
+                reraise(
+                    NotAPackage,
+                    NotAPackage(CONFIG_WITH_SUFFIX.format(module=name, suggest=name[:-3])),
+                    sys.exc_info()[2],
+                )
             raise NotAPackage(CONFIG_INVALID_NAME.format(module=name)) from exc
         else:
             return self.import_from_cwd(name)
@@ -158,17 +165,13 @@ class BaseLoader:
     def find_module(self, module):
         return find_module(module)
 
-    def cmdline_config_parser(self, args, namespace='celery',
-                              re_type=re.compile(r'\((\w+)\)'),
-                              extra_types=None,
-                              override_types=None):
-        extra_types = extra_types if extra_types else {'json': json.loads}
-        override_types = override_types if override_types else {
-            'tuple': 'json',
-            'list': 'json',
-            'dict': 'json'
-        }
+    def cmdline_config_parser(
+        self, args, namespace="celery", re_type=re.compile(r"\((\w+)\)"), extra_types=None, override_types=None
+    ):
+        extra_types = extra_types or {"json": json.loads}
+        override_types = override_types or {"tuple": "json", "list": "json", "dict": "json"}
         from celery.app.defaults import NAMESPACES, Option
+
         namespace = namespace and namespace.lower()
         typemap = dict(Option.typemap, **extra_types)
 
@@ -176,36 +179,37 @@ class BaseLoader:
             """Parse single configuration from command-line."""
             # ## find key/value
             # ns.key=value|ns_key=value (case insensitive)
-            key, value = arg.split('=', 1)
-            key = key.lower().replace('.', '_')
+            key, value = arg.split("=", 1)
+            key = key.lower().replace(".", "_")
 
             # ## find name-space.
             # .key=value|_key=value expands to default name-space.
-            if key[0] == '_':
+            if key[0] == "_":
                 ns, key = namespace, key[1:]
             else:
                 # find name-space part of key
-                ns, key = key.split('_', 1)
+                ns, key = key.split("_", 1)
 
-            ns_key = (ns and ns + '_' or '') + key
+            ns_key = ((ns and ns + "_") or "") + key
 
             # (type)value makes cast to custom type.
             cast = re_type.match(value)
             if cast:
                 type_ = cast.groups()[0]
                 type_ = override_types.get(type_, type_)
-                value = value[len(cast.group()):]
+                value = value[len(cast.group()) :]
                 value = typemap[type_](value)
             else:
                 try:
                     value = NAMESPACES[ns.lower()][key].to_python(value)
                 except ValueError as exc:
                     # display key name in error message.
-                    raise ValueError(f'{ns_key!r}: {exc}')
+                    raise ValueError(f"{ns_key!r}: {exc}")
             return ns_key, value
+
         return dict(getarg(arg) for arg in args)
 
-    def read_configuration(self, env='CELERY_CONFIG_MODULE'):
+    def read_configuration(self, env="CELERY_CONFIG_MODULE"):
         try:
             custom_config = os.environ[env]
         except KeyError:
@@ -215,17 +219,15 @@ class BaseLoader:
                 usercfg = self._import_config_module(custom_config)
                 return DictAttribute(usercfg)
 
-    def autodiscover_tasks(self, packages, related_name='tasks'):
-        self.task_modules.update(
-            mod.__name__ for mod in autodiscover_tasks(packages or (),
-                                                       related_name) if mod)
+    def autodiscover_tasks(self, packages, related_name="tasks"):
+        self.task_modules.update(mod.__name__ for mod in autodiscover_tasks(packages or (), related_name) if mod)
 
     @cached_property
     def default_modules(self):
         return (
-            tuple(self.builtin_modules) +
-            tuple(maybe_list(self.app.conf.imports)) +
-            tuple(maybe_list(self.app.conf.include))
+            tuple(self.builtin_modules)
+            + tuple(maybe_list(self.app.conf.imports))
+            + tuple(maybe_list(self.app.conf.include))
         )
 
     @property
@@ -236,7 +238,7 @@ class BaseLoader:
         return self._conf
 
 
-def autodiscover_tasks(packages, related_name='tasks'):
+def autodiscover_tasks(packages, related_name="tasks"):
     global _RACE_PROTECTION
 
     if _RACE_PROTECTION:
@@ -259,20 +261,20 @@ def find_related_module(package, related_name):
             return module
     except ModuleNotFoundError:
         # On import error, try to walk package up one level.
-        package, _, _ = package.rpartition('.')
+        package, _, _ = package.rpartition(".")
         if not package:
             raise
 
-    module_name = f'{package}.{related_name}'
+    module_name = f"{package}.{related_name}"
 
     try:
         # Try to find related_name under package.
         return importlib.import_module(module_name)
     except ModuleNotFoundError as e:
-        import_exc_name = getattr(e, 'name', None)
+        import_exc_name = getattr(e, "name", None)
         # If candidate does not exist, then return None.
         if import_exc_name and module_name == import_exc_name:
-            return
+            return None
 
         # Otherwise, raise because error probably originated from a nested import.
         raise e

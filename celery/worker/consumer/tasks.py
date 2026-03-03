@@ -31,7 +31,8 @@ class Tasks(bootsteps.StartStopStep):
 
         # Create task consumer
         c.task_consumer = c.app.amqp.TaskConsumer(
-            c.connection, on_decode_error=c.on_decode_error,
+            c.connection,
+            on_decode_error=c.on_decode_error,
         )
 
         # Set up QoS (prefetch count management)
@@ -40,7 +41,8 @@ class Tasks(bootsteps.StartStopStep):
             pass
 
         c.qos = QoS(
-            set_prefetch_count, c.initial_prefetch_count,
+            set_prefetch_count,
+            c.initial_prefetch_count,
         )
 
     async def stop(self, c):

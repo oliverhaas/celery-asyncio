@@ -1,18 +1,22 @@
 """Creating events, and event exchange definition."""
+
 import time
 from copy import copy
 
 from kombu import Exchange
 
 __all__ = (
-    'Event', 'event_exchange', 'get_exchange', 'group_from',
+    "Event",
+    "event_exchange",
+    "get_exchange",
+    "group_from",
 )
 
-EVENT_EXCHANGE_NAME = 'celeryev'
+EVENT_EXCHANGE_NAME = "celeryev"
 #: Exchange used to send events on.
 #: Note: Use :func:`get_exchange` instead, as the type of
 #: exchange will vary depending on the broker connection.
-event_exchange = Exchange(EVENT_EXCHANGE_NAME, type='topic')
+event_exchange = Exchange(EVENT_EXCHANGE_NAME, type="topic")
 
 
 def Event(type, _fields=None, __dict__=dict, __now__=time.time, **fields):
@@ -23,10 +27,10 @@ def Event(type, _fields=None, __dict__=dict, __now__=time.time, **fields):
         A ``timestamp`` field will be set to the current time if not provided.
     """
     event = __dict__(_fields, **fields) if _fields else fields
-    if 'timestamp' not in event:
+    if "timestamp" not in event:
         event.update(timestamp=__now__(), type=type)
     else:
-        event['type'] = type
+        event["type"] = type
     return event
 
 
@@ -40,7 +44,7 @@ def group_from(type):
         >>> group_from('custom-my-event')
         'custom'
     """
-    return type.split('-', 1)[0]
+    return type.split("-", 1)[0]
 
 
 def get_exchange(conn, name=EVENT_EXCHANGE_NAME):
@@ -55,10 +59,10 @@ def get_exchange(conn, name=EVENT_EXCHANGE_NAME):
         (from topic -> fanout).
     """
     ex = copy(event_exchange)
-    driver_type = conn.transport.driver_type if conn.transport else getattr(conn, '_scheme', '')
-    if driver_type in {'redis', 'gcpubsub'}:
+    driver_type = conn.transport.driver_type if conn.transport else getattr(conn, "_scheme", "")
+    if driver_type in {"redis", "gcpubsub"}:
         # quick hack for Issue #436
-        ex.type = 'fanout'
+        ex.type = "fanout"
     if name != ex.name:
         ex.name = name
     return ex

@@ -8,7 +8,7 @@ def detect_quorum_queues(app, driver_type: str) -> tuple[bool, str]:
         tuple[bool, str]: A tuple containing a boolean indicating if any of the queues are quorum queues
         and the name of the first quorum queue found or an empty string if no quorum queues were found.
     """
-    is_rabbitmq_broker = driver_type == 'amqp'
+    is_rabbitmq_broker = driver_type == "amqp"
 
     if is_rabbitmq_broker:
         queues = app.amqp.queues

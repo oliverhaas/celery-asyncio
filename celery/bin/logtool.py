@@ -1,4 +1,5 @@
 """The ``celery logtool`` command."""
+
 import re
 from collections import Counter
 from fileinput import FileInput
@@ -7,13 +8,13 @@ import click
 
 from celery.bin.base import CeleryCommand, handle_preload_options
 
-__all__ = ('logtool',)
+__all__ = ("logtool",)
 
-RE_LOG_START = re.compile(r'^\[\d\d\d\d\-\d\d-\d\d ')
-RE_TASK_RECEIVED = re.compile(r'.+?\] Received')
-RE_TASK_READY = re.compile(r'.+?\] Task')
-RE_TASK_INFO = re.compile(r'.+?([\w\.]+)\[(.+?)\].+')
-RE_TASK_RESULT = re.compile(r'.+?[\w\.]+\[.+?\] (.+)')
+RE_LOG_START = re.compile(r"^\[\d\d\d\d\-\d\d-\d\d ")
+RE_TASK_RECEIVED = re.compile(r".+?\] Received")
+RE_TASK_READY = re.compile(r".+?\] Task")
+RE_TASK_INFO = re.compile(r".+?([\w\.]+)\[(.+?)\].+")
+RE_TASK_RESULT = re.compile(r".+?[\w\.]+\[.+?\] (.+)")
 
 REPORT_FORMAT = """
 Report
@@ -29,10 +30,9 @@ Tasks
 
 
 class _task_counts(list):
-
     @property
     def format(self):
-        return '\n'.join('{}: {}'.format(*i) for i in self)
+        return "\n".join("{}: {}".format(*i) for i in self)
 
 
 def task_info(line):
@@ -41,7 +41,6 @@ def task_info(line):
 
 
 class Audit:
-
     def __init__(self, on_task_error=None, on_trace=None, on_debug=None):
         self.ids = set()
         self.names = {}
@@ -67,7 +66,7 @@ class Audit:
     def task_ready(self, line, task_name, task_id, result):
         self.ready.add(task_id)
         self.results[task_id] = result
-        if 'succeeded' not in result:
+        if "succeeded" not in result:
             self.task_error(line, task_name, task_id, result)
 
     def task_error(self, line, task_name, task_id, result):
@@ -84,15 +83,14 @@ class Audit:
                 task_name, task_id = task_info(line)
                 result = RE_TASK_RESULT.match(line)
                 if result:
-                    result, = result.groups()
+                    (result,) = result.groups()
                 self.task_ready(line, task_name, task_id, result)
-            else:
-                if self.on_debug:
-                    self.on_debug(line)
+            elif self.on_debug:
+                self.on_debug(line)
             self.prev_line = line
         else:
             if self.on_trace:
-                self.on_trace('\n'.join(filter(None, [self.prev_line, line])))
+                self.on_trace("\n".join(filter(None, [self.prev_line, line])))
             self.prev_line = None
 
     def incomplete_tasks(self):
@@ -100,12 +98,12 @@ class Audit:
 
     def report(self):
         return {
-            'task': {
-                'types': _task_counts(self.task_types.most_common()),
-                'total': len(self.ids),
-                'errors': self.task_errors,
-                'completed': len(self.ready),
-                'succeeded': len(self.ready) - self.task_errors,
+            "task": {
+                "types": _task_counts(self.task_types.most_common()),
+                "total": len(self.ids),
+                "errors": self.task_errors,
+                "completed": len(self.ready),
+                "succeeded": len(self.ready) - self.task_errors,
             }
         }
 
@@ -118,40 +116,38 @@ def logtool(ctx):
 
 
 @logtool.command(cls=CeleryCommand)
-@click.argument('files', nargs=-1)
+@click.argument("files", nargs=-1)
 @click.pass_context
 def stats(ctx, files):
-    ctx.obj.echo(REPORT_FORMAT.format(
-        **Audit().run(files).report()
-    ))
+    ctx.obj.echo(REPORT_FORMAT.format(**Audit().run(files).report()))
 
 
 @logtool.command(cls=CeleryCommand)
-@click.argument('files', nargs=-1)
+@click.argument("files", nargs=-1)
 @click.pass_context
 def traces(ctx, files):
     Audit(on_trace=ctx.obj.echo).run(files)
 
 
 @logtool.command(cls=CeleryCommand)
-@click.argument('files', nargs=-1)
+@click.argument("files", nargs=-1)
 @click.pass_context
 def errors(ctx, files):
     Audit(on_task_error=lambda line, *_: ctx.obj.echo(line)).run(files)
 
 
 @logtool.command(cls=CeleryCommand)
-@click.argument('files', nargs=-1)
+@click.argument("files", nargs=-1)
 @click.pass_context
 def incomplete(ctx, files):
     audit = Audit()
     audit.run(files)
     for task_id in audit.incomplete_tasks():
-        ctx.obj.echo(f'Did not complete: {task_id}')
+        ctx.obj.echo(f"Did not complete: {task_id}")
 
 
 @logtool.command(cls=CeleryCommand)
-@click.argument('files', nargs=-1)
+@click.argument("files", nargs=-1)
 @click.pass_context
 def debug(ctx, files):
     Audit(on_debug=ctx.obj.echo).run(files)

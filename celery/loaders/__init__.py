@@ -3,13 +3,14 @@
 Loaders define how configuration is read, what happens
 when workers start, when tasks are executed and so on.
 """
+
 from celery.utils.imports import import_from_cwd, symbol_by_name
 
-__all__ = ('get_loader_cls',)
+__all__ = ("get_loader_cls",)
 
 LOADER_ALIASES = {
-    'app': 'celery.loaders.app:AppLoader',
-    'default': 'celery.loaders.default:Loader',
+    "app": "celery.loaders.app:AppLoader",
+    "default": "celery.loaders.default:Loader",
 }
 
 

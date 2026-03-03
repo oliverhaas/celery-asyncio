@@ -1,4 +1,5 @@
 """Worker <-> Worker Sync at startup (Bootstep) - async implementation."""
+
 from celery import bootsteps
 from celery.utils.log import get_logger
 
@@ -26,8 +27,7 @@ class Mingle(bootsteps.StartStopStep):
 
     def __init__(self, c, without_mingle=False, **kwargs):
         self.enabled = not without_mingle and self.compatible_transport(c.app)
-        super().__init__(
-            c, without_mingle=without_mingle, **kwargs)
+        super().__init__(c, without_mingle=without_mingle, **kwargs)
 
     def compatible_transport(self, app):
         conninfo = app.connection_for_read()
@@ -41,10 +41,8 @@ class Mingle(bootsteps.StartStopStep):
         info("mingle: searching for neighbors")
         replies = await self.send_hello(c)
         if replies:
-            info("mingle: sync with %s nodes",
-                 len([reply for reply, value in replies.items() if value]))
-            [self.on_node_reply(c, nodename, reply)
-             for nodename, reply in replies.items() if reply]
+            info("mingle: sync with %s nodes", len([reply for reply, value in replies.items() if value]))
+            [self.on_node_reply(c, nodename, reply) for nodename, reply in replies.items() if reply]
             info("mingle: sync complete")
         else:
             info("mingle: all alone")
@@ -54,7 +52,9 @@ class Mingle(bootsteps.StartStopStep):
             inspect = c.app.control.inspect(timeout=1.0, connection=c.connection)
             our_revoked = c.controller.state.revoked
             replies = await inspect._arequest(
-                'hello', from_node=c.hostname, revoked=our_revoked._data,
+                "hello",
+                from_node=c.hostname,
+                revoked=our_revoked._data,
             )
             replies = replies or {}
             replies.pop(c.hostname, None)  # delete my own response

@@ -17,7 +17,7 @@ try:
 except ImportError:
     py_arango_connection = AQLQueryError = None
 
-__all__ = ('ArangoDbBackend',)
+__all__ = ("ArangoDbBackend",)
 
 
 class ArangoDbBackend(KeyValueStoreBackend):
@@ -38,14 +38,14 @@ class ArangoDbBackend(KeyValueStoreBackend):
 
     """
 
-    host = '127.0.0.1'
-    port = '8529'
-    database = 'celery'
-    collection = 'celery'
+    host = "127.0.0.1"
+    port = "8529"
+    database = "celery"
+    collection = "celery"
     username = None
     password = None
     # protocol is not supported in backend url (http is taken as default)
-    http_protocol = 'http'
+    http_protocol = "http"
     verify = False
 
     # Use str as arangodb key not bytes
@@ -57,8 +57,7 @@ class ArangoDbBackend(KeyValueStoreBackend):
 
         if py_arango_connection is None:
             raise ImproperlyConfigured(
-                'You need to install the pyArango library to use the '
-                'ArangoDb backend.',
+                "You need to install the pyArango library to use the ArangoDb backend.",
             )
 
         self.url = url
@@ -66,36 +65,30 @@ class ArangoDbBackend(KeyValueStoreBackend):
         if url is None:
             host = port = database = collection = username = password = None
         else:
-            (
-                _schema, host, port, username, password,
-                database_collection, _query
-            ) = _parse_url(url)
+            (_schema, host, port, username, password, database_collection, _query) = _parse_url(url)
             if database_collection is None:
                 database = collection = None
             else:
-                database, collection = database_collection.split('/')
+                database, collection = database_collection.split("/")
 
-        config = self.app.conf.get('arangodb_backend_settings', None)
+        config = self.app.conf.get("arangodb_backend_settings", None)
         if config is not None:
             if not isinstance(config, dict):
                 raise ImproperlyConfigured(
-                    'ArangoDb backend settings should be grouped in a dict',
+                    "ArangoDb backend settings should be grouped in a dict",
                 )
         else:
             config = {}
 
-        self.host = host or config.get('host', self.host)
-        self.port = int(port or config.get('port', self.port))
-        self.http_protocol = config.get('http_protocol', self.http_protocol)
-        self.verify = config.get('verify', self.verify)
-        self.database = database or config.get('database', self.database)
-        self.collection = \
-            collection or config.get('collection', self.collection)
-        self.username = username or config.get('username', self.username)
-        self.password = password or config.get('password', self.password)
-        self.arangodb_url = "{http_protocol}://{host}:{port}".format(
-            http_protocol=self.http_protocol, host=self.host, port=self.port
-        )
+        self.host = host or config.get("host", self.host)
+        self.port = int(port or config.get("port", self.port))
+        self.http_protocol = config.get("http_protocol", self.http_protocol)
+        self.verify = config.get("verify", self.verify)
+        self.database = database or config.get("database", self.database)
+        self.collection = collection or config.get("collection", self.collection)
+        self.username = username or config.get("username", self.username)
+        self.password = password or config.get("password", self.password)
+        self.arangodb_url = f"{self.http_protocol}://{self.host}:{self.port}"
         self._connection = None
 
     @property
@@ -103,8 +96,7 @@ class ArangoDbBackend(KeyValueStoreBackend):
         """Connect to the arangodb server."""
         if self._connection is None:
             self._connection = py_arango_connection.Connection(
-                arangoURL=self.arangodb_url, username=self.username,
-                password=self.password, verify=self.verify
+                arangoURL=self.arangodb_url, username=self.username, password=self.password, verify=self.verify
             )
         return self._connection
 

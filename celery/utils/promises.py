@@ -3,6 +3,7 @@
 Simple promise implementations for celery-asyncio. These provide callback
 chaining without the full vine dependency.
 """
+
 from __future__ import annotations
 
 import weakref
@@ -27,7 +28,7 @@ class Thenable(ABC):
     """
 
     @abstractmethod
-    def then(self, callback: Callable, on_error: Callable | None = None) -> "Thenable":
+    def then(self, callback: Callable, on_error: Callable | None = None) -> Thenable:
         """Add callback to be called when promise is fulfilled."""
         raise NotImplementedError()
 
@@ -38,13 +39,16 @@ class Thenable(ABC):
         ABC.register(cls, subclass)
         return subclass
 
+
 # Fix the ABC.register call - it's actually an instance method on ABCMeta
 _original_abc_register = ABC.register.__func__
+
 
 def _thenable_register(cls, subclass: type) -> type:
     """Register a virtual subclass and return it for decorator use."""
     _original_abc_register(cls, subclass)
     return subclass
+
 
 Thenable.register = classmethod(_thenable_register)
 
@@ -108,7 +112,7 @@ class promise:
                         error_handler(exc)
             return self._value
         try:
-            call_args = args if args else self.args
+            call_args = args or self.args
             call_kwargs = {**self.kwargs, **kwargs} if kwargs else self.kwargs
             result = fun(*call_args, **call_kwargs)
             self._value = result
@@ -131,7 +135,7 @@ class promise:
         self,
         callback: Callable,
         on_error: Callable | None = None,
-    ) -> "promise":
+    ) -> promise:
         """Add callback to be called when this promise is fulfilled."""
         if self._ready:
             # Already fulfilled, call immediately
@@ -195,7 +199,7 @@ class barrier:
             return self._callback(self._values)
         return self._values
 
-    def then(self, callback: Callable, on_error: Callable | None = None) -> "barrier":
+    def then(self, callback: Callable, on_error: Callable | None = None) -> barrier:
         """Set callback to be called when all results are ready."""
         self._callback = callback
         if self._ready:

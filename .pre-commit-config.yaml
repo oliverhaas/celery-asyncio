@@ -4,16 +4,21 @@ default_install_hook_types:
   - pre-push
 fail_fast: false
 
+default_language_version:
+  python: python3.13
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      - id: check-ast
       - id: check-case-conflict
       - id: check-json
       - id: check-merge-conflict
       - id: check-symlinks
       - id: check-toml
       - id: check-yaml
+      - id: debug-statements
       - id: detect-private-key
       - id: end-of-file-fixer
         stages: [pre-commit]
@@ -49,3 +54,20 @@ repos:
         entry: uv run ruff format
         language: system
         pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        language: system
+        entry: uv run mypy celery/
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+      - id: ty
+        name: ty
+        language: system
+        entry: uv run ty check celery/
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

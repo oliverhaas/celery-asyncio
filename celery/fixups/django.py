@@ -1,11 +1,12 @@
 """Django-specific customization."""
+
 import contextlib
 import os
 import sys
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib import import_module
-from typing import IO, TYPE_CHECKING, Any, List, Optional, cast
+from typing import IO, TYPE_CHECKING, Any, Optional, cast
 
 from kombu.utils.imports import symbol_by_name
 from kombu.utils.objects import cached_property
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
         connections: ConnectionHandler
 
 
-__all__ = ('DjangoFixup', 'fixup')
+__all__ = ("DjangoFixup", "fixup")
 
 ERR_NOT_INSTALLED = """\
 Environment variable DJANGO_SETTINGS_MODULE is defined
@@ -45,17 +46,17 @@ def _maybe_close_fd(fh: IO) -> None:
 
 def _verify_django_version(django: "ModuleType") -> None:
     if django.VERSION < (1, 11):
-        raise ImproperlyConfigured('Celery 5.x requires Django 1.11 or later.')
+        raise ImproperlyConfigured("Celery 5.x requires Django 1.11 or later.")
 
 
-def fixup(app: "Celery", env: str = 'DJANGO_SETTINGS_MODULE') -> Optional["DjangoFixup"]:
+def fixup(app: "Celery", env: str = "DJANGO_SETTINGS_MODULE") -> Optional["DjangoFixup"]:
     """Install Django fixup if settings module environment is set."""
     SETTINGS_MODULE = os.environ.get(env)
-    if SETTINGS_MODULE and 'django' not in app.loader_cls.lower():
+    if SETTINGS_MODULE and "django" not in app.loader_cls.lower():
         try:
             import django
         except ImportError:
-            warnings.warn(FixupWarning(ERR_NOT_INSTALLED))
+            warnings.warn(FixupWarning(ERR_NOT_INSTALLED), stacklevel=2)
         else:
             _verify_django_version(django)
             return DjangoFixup(app).install()
@@ -69,7 +70,7 @@ class DjangoFixup:
         self.app = app
         if _state.default_app is None:
             self.app.set_default()
-        self._worker_fixup: Optional["DjangoWorkerFixup"] = None
+        self._worker_fixup: DjangoWorkerFixup | None = None
 
     def install(self) -> "DjangoFixup":
         # Need to add project directory to path.
@@ -77,11 +78,11 @@ class DjangoFixup:
         # so we prepend it to the path.
         sys.path.insert(0, os.getcwd())
 
-        self._settings = symbol_by_name('django.conf:settings')
+        self._settings = symbol_by_name("django.conf:settings")
         self.app.loader.now = self.now
 
         if not self.app._custom_task_cls_used:
-            self.app.task_cls = 'celery.contrib.django.task:DjangoTask'
+            self.app.task_cls = "celery.contrib.django.task:DjangoTask"
 
         signals.import_modules.connect(self.on_import_modules)
         signals.worker_init.connect(self.on_worker_init)
@@ -105,15 +106,16 @@ class DjangoFixup:
         self.worker_fixup.install()
 
     def now(self, utc: bool = False) -> datetime:
-        return datetime.now(timezone.utc) if utc else self._now()
+        return datetime.now(UTC) if utc else self._now()
 
-    def autodiscover_tasks(self) -> List[str]:
+    def autodiscover_tasks(self) -> list[str]:
         from django.apps import apps
+
         return [config.name for config in apps.get_app_configs()]
 
     @cached_property
     def _now(self) -> datetime:
-        return symbol_by_name('django.utils.timezone:now')
+        return symbol_by_name("django.utils.timezone:now")
 
 
 class DjangoWorkerFixup:
@@ -121,24 +123,24 @@ class DjangoWorkerFixup:
 
     def __init__(self, app: "Celery") -> None:
         self.app = app
-        self.db_reuse_max = self.app.conf.get('CELERY_DB_REUSE_MAX', None)
-        self._db = cast("DjangoDBModule", import_module('django.db'))
-        self._cache = import_module('django.core.cache')
-        self._settings = symbol_by_name('django.conf:settings')
+        self.db_reuse_max = self.app.conf.get("CELERY_DB_REUSE_MAX", None)
+        self._db = cast("DjangoDBModule", import_module("django.db"))
+        self._cache = import_module("django.core.cache")
+        self._settings = symbol_by_name("django.conf:settings")
 
-        self.interface_errors = (
-            symbol_by_name('django.db.utils.InterfaceError'),
-        )
-        self.DatabaseError = symbol_by_name('django.db:DatabaseError')
+        self.interface_errors = (symbol_by_name("django.db.utils.InterfaceError"),)
+        self.DatabaseError = symbol_by_name("django.db:DatabaseError")
 
     def django_setup(self) -> None:
         import django
+
         django.setup()
 
     def validate_models(self) -> None:
         from django.core.checks import run_checks
+
         self.django_setup()
-        if not os.environ.get('CELERY_SKIP_CHECKS'):
+        if not os.environ.get("CELERY_SKIP_CHECKS"):
             run_checks()
 
     def install(self) -> "DjangoWorkerFixup":
@@ -153,7 +155,7 @@ class DjangoWorkerFixup:
     def on_worker_process_init(self, **kwargs: Any) -> None:
         # Child process must validate models again if on Windows,
         # or if they were started using execv.
-        if os.environ.get('FORKED_BY_MULTIPROCESSING'):
+        if os.environ.get("FORKED_BY_MULTIPROCESSING"):
             self.validate_models()
 
         # close connections:
@@ -181,12 +183,12 @@ class DjangoWorkerFixup:
 
     def on_task_prerun(self, sender: "Task", **kwargs: Any) -> None:
         """Called before every task."""
-        if not getattr(sender.request, 'is_eager', False):
+        if not getattr(sender.request, "is_eager", False):
             self.close_database()
 
     def on_task_postrun(self, sender: "Task", **kwargs: Any) -> None:
         # See https://groups.google.com/group/django-users/browse_thread/thread/78200863d0c07c6d/
-        if not getattr(sender.request, 'is_eager', False):
+        if not getattr(sender.request, "is_eager", False):
             self.close_database()
             self.close_cache()
 
@@ -210,7 +212,7 @@ class DjangoWorkerFixup:
                 pass
             except self.DatabaseError as exc:
                 str_exc = str(exc)
-                if 'closed' not in str_exc and 'not connected' not in str_exc:
+                if "closed" not in str_exc and "not connected" not in str_exc:
                     raise
 
     def close_cache(self) -> None:

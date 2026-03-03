@@ -8,9 +8,6 @@ from inspect import isclass
 
 def is_none_type(value: typing.Any) -> bool:
     """Check if the given value is a NoneType."""
-    if sys.version_info < (3, 10):
-        # raise Exception('below 3.10', value, type(None))
-        return value is type(None)
     return value == types.NoneType  # type: ignore[no-any-return]
 
 

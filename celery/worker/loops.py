@@ -5,9 +5,9 @@ The old Hub-based asynloop and blocking synloop are removed.
 """
 
 
-async def asynloop(obj, connection, consumer, blueprint,
-                   qos=None, amqheartbeat=None, clock=None,
-                   amqheartbeat_rate=None, **kwargs):
+async def asynloop(
+    obj, connection, consumer, blueprint, qos=None, amqheartbeat=None, clock=None, amqheartbeat_rate=None, **kwargs
+):
     """Async consumer event loop.
 
     Drains events from the broker connection using native asyncio.

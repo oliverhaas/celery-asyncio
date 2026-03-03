@@ -1,4 +1,5 @@
 """Start/stop/manage workers."""
+
 import errno
 import os
 import shlex
@@ -16,25 +17,25 @@ from celery.platforms import IS_WINDOWS, Pidfile, signal_name
 from celery.utils.nodenames import gethostname, host_format, node_format, nodesplit
 from celery.utils.saferepr import saferepr
 
-__all__ = ('Cluster', 'Node')
+__all__ = ("Cluster", "Node")
 
-CELERY_EXE = 'celery'
+CELERY_EXE = "celery"
 
 
 def celery_exe(*args):
-    return ' '.join((CELERY_EXE,) + args)
+    return " ".join((CELERY_EXE,) + args)
 
 
 def build_nodename(name, prefix, suffix):
     hostname = suffix
-    if '@' in name:
+    if "@" in name:
         nodename = host_format(name)
         shortname, hostname = nodesplit(nodename)
         name = shortname
     else:
-        shortname = f'{prefix}{name}'
+        shortname = f"{prefix}{name}"
         nodename = host_format(
-            f'{shortname}@{hostname}',
+            f"{shortname}@{hostname}",
         )
     return name, nodename, hostname
 
@@ -46,50 +47,45 @@ def build_expander(nodename, shortname, hostname):
         N=shortname,
         d=hostname,
         h=nodename,
-        i='%i',
-        I='%I',
+        i="%i",
+        I="%I",
     )
 
 
 def format_opt(opt, value):
     if not value:
         return opt
-    if opt.startswith('--'):
-        return f'{opt}={value}'
-    return f'{opt} {value}'
+    if opt.startswith("--"):
+        return f"{opt}={value}"
+    return f"{opt} {value}"
 
 
 def _kwargs_to_command_line(kwargs):
-    return {
-        ('--{}'.format(k.replace('_', '-'))
-         if len(k) > 1 else f'-{k}'): f'{v}'
-        for k, v in kwargs.items()
-    }
+    return {("--{}".format(k.replace("_", "-")) if len(k) > 1 else f"-{k}"): f"{v}" for k, v in kwargs.items()}
 
 
 class NamespacedOptionParser:
-
     def __init__(self, args):
         self.args = args
         self.options = OrderedDict()
         self.values = []
-        self.passthrough = ''
-        self.namespaces = defaultdict(lambda: OrderedDict())
+        self.passthrough = ""
+        self.namespaces = defaultdict(OrderedDict)
 
     def parse(self):
         rargs = [arg for arg in self.args if arg]
         pos = 0
         while pos < len(rargs):
             arg = rargs[pos]
-            if arg == '--':
-                self.passthrough = ' '.join(rargs[pos:])
+            if arg == "--":
+                self.passthrough = " ".join(rargs[pos:])
                 break
-            elif arg[0] == '-':
-                if arg[1] == '-':
+            if arg[0] == "-":
+                if arg[1] == "-":
                     self.process_long_opt(arg[2:])
                 else:
                     value = None
-                    if len(rargs) > pos + 1 and rargs[pos + 1][0] != '-':
+                    if len(rargs) > pos + 1 and rargs[pos + 1][0] != "-":
                         value = rargs[pos + 1]
                         pos += 1
                     self.process_short_opt(arg[1:], value)
@@ -98,8 +94,8 @@ class NamespacedOptionParser:
             pos += 1
 
     def process_long_opt(self, arg, value=None):
-        if '=' in arg:
-            arg, value = arg.split('=', 1)
+        if "=" in arg:
+            arg, value = arg.split("=", 1)
         self.add_option(arg, value, short=False)
 
     def process_short_opt(self, arg, value=None):
@@ -111,10 +107,10 @@ class NamespacedOptionParser:
         return OrderedDict(defaults, **self.namespaces[ns])
 
     def add_option(self, name, value, short=False, ns=None):
-        prefix = short and '-' or '--'
+        prefix = (short and "-") or "--"
         dest = self.options
-        if ':' in name:
-            name, ns = name.split(':')
+        if ":" in name:
+            name, ns = name.split(":")
             dest = self.namespaces[ns]
         dest[prefix + name] = value
 
@@ -122,23 +118,21 @@ class NamespacedOptionParser:
 class Node:
     """Represents a node in a cluster."""
 
-    def __init__(self, name,
-                 cmd=None, append=None, options=None, extra_args=None):
+    def __init__(self, name, cmd=None, append=None, options=None, extra_args=None):
         self.name = name
         self.cmd = cmd or f"-m {celery_exe('worker', '--detach')}"
         self.append = append
-        self.extra_args = extra_args or ''
-        self.options = self._annotate_with_default_opts(
-            options or OrderedDict())
+        self.extra_args = extra_args or ""
+        self.options = self._annotate_with_default_opts(options or OrderedDict())
         self.expander = self._prepare_expander()
         self.argv = self._prepare_argv()
         self._pid = None
 
     def _annotate_with_default_opts(self, options):
-        options['-n'] = self.name
-        self._setdefaultopt(options, ['--pidfile', '-p'], '/var/run/celery/%n.pid')
-        self._setdefaultopt(options, ['--logfile', '-f'], '/var/log/celery/%n%I.log')
-        self._setdefaultopt(options, ['--executable'], sys.executable)
+        options["-n"] = self.name
+        self._setdefaultopt(options, ["--pidfile", "-p"], "/var/run/celery/%n.pid")
+        self._setdefaultopt(options, ["--logfile", "-f"], "/var/log/celery/%n%I.log")
+        self._setdefaultopt(options, ["--executable"], sys.executable)
         return options
 
     def _setdefaultopt(self, d, alt, value):
@@ -154,36 +148,36 @@ class Node:
         return value
 
     def _prepare_expander(self):
-        shortname, hostname = self.name.split('@', 1)
-        return build_expander(
-            self.name, shortname, hostname)
+        shortname, hostname = self.name.split("@", 1)
+        return build_expander(self.name, shortname, hostname)
 
     def _prepare_argv(self):
-        cmd = self.expander(self.cmd).split(' ')
-        i = cmd.index('celery') + 1
+        cmd = self.expander(self.cmd).split(" ")
+        i = cmd.index("celery") + 1
 
         options = self.options.copy()
         for opt, value in self.options.items():
             if opt in (
-                '-A', '--app',
-                '-b', '--broker',
-                '--result-backend',
-                '--loader',
-                '--config',
-                '--workdir',
-                '-C', '--no-color',
-                '-q', '--quiet',
+                "-A",
+                "--app",
+                "-b",
+                "--broker",
+                "--result-backend",
+                "--loader",
+                "--config",
+                "--workdir",
+                "-C",
+                "--no-color",
+                "-q",
+                "--quiet",
             ):
                 cmd.insert(i, format_opt(opt, self.expander(value)))
 
                 options.pop(opt)
 
-        cmd = [' '.join(cmd)]
+        cmd = [" ".join(cmd)]
         argv = tuple(
-            cmd +
-            [format_opt(opt, self.expander(value))
-             for opt, value in options.items()] +
-            [self.extra_args]
+            cmd + [format_opt(opt, self.expander(value)) for opt, value in options.items()] + [self.extra_args]
         )
         if self.append:
             argv += (self.expander(self.append),)
@@ -206,13 +200,11 @@ class Node:
         maybe_call(on_error, self)
 
     def start(self, env=None, **kwargs):
-        return self._waitexec(
-            self.argv, path=self.executable, env=env, **kwargs)
+        return self._waitexec(self.argv, path=self.executable, env=env, **kwargs)
 
-    def _waitexec(self, argv, path=sys.executable, env=None,
-                  on_spawn=None, on_signalled=None, on_failure=None):
+    def _waitexec(self, argv, path=sys.executable, env=None, on_spawn=None, on_signalled=None, on_failure=None):
         argstr = self.prepare_argv(argv, path)
-        maybe_call(on_spawn, self, argstr=' '.join(argstr), env=env)
+        maybe_call(on_spawn, self, argstr=" ".join(argstr), env=env)
         pipe = Popen(argstr, env=env)
         return self.handle_process_exit(
             pipe.wait(),
@@ -229,7 +221,7 @@ class Node:
         return retcode
 
     def prepare_argv(self, argv, path):
-        args = ' '.join([path] + list(argv))
+        args = " ".join([path] + list(argv))
         return shlex.split(from_utf8(args), posix=not IS_WINDOWS)
 
     def getopt(self, *alt):
@@ -241,15 +233,15 @@ class Node:
         raise KeyError(alt[0])
 
     def __repr__(self):
-        return f'<{type(self).__name__}: {self.name}>'
+        return f"<{type(self).__name__}: {self.name}>"
 
     @cached_property
     def pidfile(self):
-        return self.expander(self.getopt('--pidfile', '-p'))
+        return self.expander(self.getopt("--pidfile", "-p"))
 
     @cached_property
     def logfile(self):
-        return self.expander(self.getopt('--logfile', '-f'))
+        return self.expander(self.getopt("--logfile", "-f"))
 
     @property
     def pid(self):
@@ -266,7 +258,7 @@ class Node:
 
     @cached_property
     def executable(self):
-        return self.options['--executable']
+        return self.options["--executable"]
 
     @cached_property
     def argv_with_executable(self):
@@ -285,9 +277,7 @@ def maybe_call(fun, *args, **kwargs):
 class MultiParser:
     Node = Node
 
-    def __init__(self, cmd='celery worker',
-                 append='', prefix='', suffix='',
-                 range_prefix='celery'):
+    def __init__(self, cmd="celery worker", append="", prefix="", suffix="", range_prefix="celery"):
         self.cmd = cmd
         self.append = append
         self.prefix = prefix
@@ -299,13 +289,13 @@ class MultiParser:
         options = dict(p.options)
         ranges = len(names) == 1
         prefix = self.prefix
-        cmd = options.pop('--cmd', self.cmd)
-        append = options.pop('--append', self.append)
-        hostname = options.pop('--hostname', options.pop('-n', gethostname()))
-        prefix = options.pop('--prefix', prefix) or ''
-        suffix = options.pop('--suffix', self.suffix) or hostname
-        suffix = '' if suffix in ('""', "''") else suffix
-        range_prefix = options.pop('--range-prefix', '') or self.range_prefix
+        cmd = options.pop("--cmd", self.cmd)
+        append = options.pop("--append", self.append)
+        hostname = options.pop("--hostname", options.pop("-n", gethostname()))
+        prefix = options.pop("--prefix", prefix) or ""
+        suffix = options.pop("--suffix", self.suffix) or hostname
+        suffix = "" if suffix in ('""', "''") else suffix
+        range_prefix = options.pop("--range-prefix", "") or self.range_prefix
         if ranges:
             try:
                 names, prefix = self._get_ranges(names), range_prefix
@@ -314,18 +304,12 @@ class MultiParser:
         self._update_ns_opts(p, names)
         self._update_ns_ranges(p, ranges)
 
-        return (
-            self._node_from_options(
-                p, name, prefix, suffix, cmd, append, options)
-            for name in names
-        )
+        return (self._node_from_options(p, name, prefix, suffix, cmd, append, options) for name in names)
 
-    def _node_from_options(self, p, name, prefix,
-                           suffix, cmd, append, options):
+    def _node_from_options(self, p, name, prefix, suffix, cmd, append, options):
         namespace, nodename, _ = build_nodename(name, prefix, suffix)
         namespace = nodename if nodename in p.namespaces else namespace
-        return Node(nodename, cmd, append,
-                    p.optmerge(namespace, options), p.passthrough)
+        return Node(nodename, cmd, append, p.optmerge(namespace, options), p.passthrough)
 
     def _get_ranges(self, names):
         noderange = int(names[0])
@@ -338,27 +322,25 @@ class MultiParser:
             if ns_name.isdigit():
                 ns_index = int(ns_name) - 1
                 if ns_index < 0:
-                    raise KeyError(f'Indexes start at 1 got: {ns_name!r}')
+                    raise KeyError(f"Indexes start at 1 got: {ns_name!r}")
                 try:
                     p.namespaces[names[ns_index]].update(ns_opts)
                 except IndexError:
-                    raise KeyError(f'No node at index {ns_name!r}')
+                    raise KeyError(f"No node at index {ns_name!r}")
 
     def _update_ns_ranges(self, p, ranges):
         for ns_name, ns_opts in list(p.namespaces.items()):
-            if ',' in ns_name or (ranges and '-' in ns_name):
+            if "," in ns_name or (ranges and "-" in ns_name):
                 for subns in self._parse_ns_range(ns_name, ranges):
                     p.namespaces[subns].update(ns_opts)
                 p.namespaces.pop(ns_name)
 
     def _parse_ns_range(self, ns, ranges=False):
         ret = []
-        for space in ',' in ns and ns.split(',') or [ns]:
-            if ranges and '-' in space:
-                start, stop = space.split('-')
-                ret.extend(
-                    str(n) for n in range(int(start), int(stop) + 1)
-                )
+        for space in ("," in ns and ns.split(",")) or [ns]:
+            if ranges and "-" in space:
+                start, stop = space.split("-")
+                ret.extend(str(n) for n in range(int(start), int(stop) + 1))
             else:
                 ret.append(space)
         return ret
@@ -367,24 +349,29 @@ class MultiParser:
 class Cluster(UserList):
     """Represent a cluster of workers."""
 
-    def __init__(self, nodes, cmd=None, env=None,
-                 on_stopping_preamble=None,
-                 on_send_signal=None,
-                 on_still_waiting_for=None,
-                 on_still_waiting_progress=None,
-                 on_still_waiting_end=None,
-                 on_node_start=None,
-                 on_node_restart=None,
-                 on_node_shutdown_ok=None,
-                 on_node_status=None,
-                 on_node_signal=None,
-                 on_node_signal_dead=None,
-                 on_node_down=None,
-                 on_child_spawn=None,
-                 on_child_signalled=None,
-                 on_child_failure=None):
+    def __init__(
+        self,
+        nodes,
+        cmd=None,
+        env=None,
+        on_stopping_preamble=None,
+        on_send_signal=None,
+        on_still_waiting_for=None,
+        on_still_waiting_progress=None,
+        on_still_waiting_end=None,
+        on_node_start=None,
+        on_node_restart=None,
+        on_node_shutdown_ok=None,
+        on_node_status=None,
+        on_node_signal=None,
+        on_node_signal_dead=None,
+        on_node_down=None,
+        on_child_spawn=None,
+        on_child_signalled=None,
+        on_child_failure=None,
+    ):
         self.nodes = nodes
-        self.cmd = cmd or celery_exe('worker')
+        self.cmd = cmd or celery_exe("worker")
         self.env = env
 
         self.on_stopping_preamble = on_stopping_preamble
@@ -496,10 +483,7 @@ class Cluster(UserList):
                 maybe_call(on_down, node)
 
     def __repr__(self):
-        return '<{name}({0}): {1}>'.format(
-            len(self), saferepr([n.name for n in self]),
-            name=type(self).__name__,
-        )
+        return f"<{type(self).__name__}({len(self)}): {saferepr([n.name for n in self])}>"
 
     @property
     def data(self):

@@ -19,6 +19,7 @@ class Timer(bootsteps.Step):
 
     def create(self, w):
         from celery.utils.scheduling import Timer as _Timer
+
         w.timer = _Timer(max_interval=10.0)
 
 
@@ -62,7 +63,8 @@ class Pool(bootsteps.StartStopStep):
         procs = w.min_concurrency
         w.process_task = w._process_task
         pool = w.pool = self.instantiate(
-            w.pool_cls, procs,
+            w.pool_cls,
+            procs,
             initargs=(w.app, w.hostname),
             maxtasksperchild=w.max_tasks_per_child,
             max_memory_per_child=w.max_memory_per_child,
@@ -96,9 +98,8 @@ class Beat(bootsteps.StartStopStep):
 
     def create(self, w):
         from celery.beat import EmbeddedService
-        b = w.beat = EmbeddedService(w.app,
-                                     schedule_filename=w.schedule_filename,
-                                     scheduler_cls=w.scheduler)
+
+        b = w.beat = EmbeddedService(w.app, schedule_filename=w.schedule_filename, scheduler_cls=w.scheduler)
         return b
 
 
@@ -126,7 +127,8 @@ class Consumer(bootsteps.StartStopStep):
         else:
             prefetch_count = w.concurrency * w.prefetch_multiplier
         c = w.consumer = self.instantiate(
-            w.consumer_cls, w.process_task,
+            w.consumer_cls,
+            w.process_task,
             hostname=w.hostname,
             task_events=w.task_events,
             init_callback=w.ready_callback,

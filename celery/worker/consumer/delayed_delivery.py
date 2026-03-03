@@ -5,6 +5,7 @@ of native delayed delivery functionality when using quorum queues.
 
 NOTE: Currently disabled in celery-asyncio - requires AMQP transport with quorum queues.
 """
+
 from celery import bootsteps
 
 from .tasks import Tasks

@@ -4,6 +4,7 @@ This module contains the components responsible for consuming messages
 from the broker, processing the messages and keeping the broker connections
 up and running. All lifecycle methods are async.
 """
+
 import asyncio
 import errno
 import logging
@@ -11,7 +12,6 @@ import os
 import time
 import warnings
 from collections import defaultdict
-from functools import partial
 
 from kombu.exceptions import ContentDisallowed, DecodeError
 from kombu.utils.encoding import safe_repr
@@ -42,8 +42,7 @@ CLOSE = bootsteps.CLOSE
 TERMINATE = bootsteps.TERMINATE
 STOP_CONDITIONS = {CLOSE, TERMINATE}
 logger = get_logger(__name__)
-debug, info, warn, error, crit = (logger.debug, logger.info, logger.warning,
-                                  logger.error, logger.critical)
+debug, info, warn, error, crit = (logger.debug, logger.info, logger.warning, logger.error, logger.critical)
 
 CONNECTION_RETRY = """\
 consumer: Connection to broker lost. \
@@ -207,12 +206,22 @@ class Consumer:
         async def shutdown(self, parent):
             await self.send_all(parent, "shutdown")
 
-    def __init__(self, on_task_request,
-                 init_callback=noop, hostname=None,
-                 pool=None, app=None,
-                 timer=None, controller=None, amqheartbeat=None,
-                 worker_options=None, disable_rate_limits=False,
-                 initial_prefetch_count=2, prefetch_multiplier=1, **kwargs):
+    def __init__(
+        self,
+        on_task_request,
+        init_callback=noop,
+        hostname=None,
+        pool=None,
+        app=None,
+        timer=None,
+        controller=None,
+        amqheartbeat=None,
+        worker_options=None,
+        disable_rate_limits=False,
+        initial_prefetch_count=2,
+        prefetch_multiplier=1,
+        **kwargs,
+    ):
         self.app = app
         self.controller = controller
         self.init_callback = init_callback
@@ -268,24 +277,20 @@ class Consumer:
         return TokenBucket(limit, capacity=1) if limit else None
 
     def reset_rate_limits(self):
-        self.task_buckets.update(
-            (n, self.bucket_for_task(t)) for n, t in self.app.tasks.items()
-        )
+        self.task_buckets.update((n, self.bucket_for_task(t)) for n, t in self.app.tasks.items())
 
     def _update_prefetch_count(self, index=0):
         """Update prefetch count after pool grow/shrink operations."""
         num_processes = self.pool.num_processes
         if not self.initial_prefetch_count or not num_processes:
             return None  # prefetch disabled
-        self.initial_prefetch_count = (
-            self.pool.num_processes * self.prefetch_multiplier
-        )
+        self.initial_prefetch_count = self.pool.num_processes * self.prefetch_multiplier
         return self._update_qos_eventually(index)
 
     def _update_qos_eventually(self, index):
-        return (self.qos.decrement_eventually if index < 0
-                else self.qos.increment_eventually)(
-            abs(index) * self.prefetch_multiplier)
+        return (self.qos.decrement_eventually if index < 0 else self.qos.increment_eventually)(
+            abs(index) * self.prefetch_multiplier
+        )
 
     def _limit_move_to_pool(self, request):
         task_reserved(request)
@@ -305,7 +310,9 @@ class Consumer:
             pri = self._limit_order = (self._limit_order + 1) % 10
             hold = bucket.expected_time(tokens)
             self.timer.call_after(
-                hold, self._schedule_bucket_request, (bucket,),
+                hold,
+                self._schedule_bucket_request,
+                (bucket,),
                 priority=pri,
             )
             break
@@ -331,7 +338,7 @@ class Consumer:
                     await asyncio.sleep(1)
             self.restart_count += 1
             if self.app.conf.broker_channel_error_retry:
-                recoverable_errors = (self.connection_errors + self.channel_errors)
+                recoverable_errors = self.connection_errors + self.channel_errors
             else:
                 recoverable_errors = self.connection_errors
             try:
@@ -361,14 +368,14 @@ class Consumer:
                     await blueprint.restart(self)
 
     def _get_connection_retry_type(self, is_connection_loss_on_startup):
-        return ("broker_connection_retry_on_startup"
-                if (is_connection_loss_on_startup
-                    and self.app.conf.broker_connection_retry_on_startup is not None)
-                else "broker_connection_retry")
+        return (
+            "broker_connection_retry_on_startup"
+            if (is_connection_loss_on_startup and self.app.conf.broker_connection_retry_on_startup is not None)
+            else "broker_connection_retry"
+        )
 
     def on_connection_error_before_connected(self, exc):
-        error(CONNECTION_ERROR, self.conninfo.as_uri(), exc,
-              "Trying to reconnect...")
+        error(CONNECTION_ERROR, self.conninfo.as_uri(), exc, "Trying to reconnect...")
 
     def on_connection_error_after_connected(self, exc):
         warn(CONNECTION_RETRY, exc_info=True)
@@ -376,16 +383,15 @@ class Consumer:
         if self.app.conf.worker_cancel_long_running_tasks_on_connection_loss:
             for request in tuple(active_requests):
                 if request.task.acks_late and not request.acknowledged:
-                    warn(TERMINATING_TASK_ON_RESTART_AFTER_A_CONNECTION_LOSS,
-                         request)
+                    warn(TERMINATING_TASK_ON_RESTART_AFTER_A_CONNECTION_LOSS, request)
                     request.cancel(self.pool)
         else:
-            warnings.warn(CANCEL_TASKS_BY_DEFAULT, CPendingDeprecationWarning)
+            warnings.warn(CANCEL_TASKS_BY_DEFAULT, CPendingDeprecationWarning, stacklevel=2)
 
         if self.app.conf.worker_enable_prefetch_count_reduction:
             self.initial_prefetch_count = max(
                 self.prefetch_multiplier,
-                self.max_prefetch_count - len(tuple(active_requests)) * self.prefetch_multiplier
+                self.max_prefetch_count - len(tuple(active_requests)) * self.prefetch_multiplier,
             )
 
             self._maximum_prefetch_restored = self.initial_prefetch_count == self.max_prefetch_count
@@ -413,16 +419,28 @@ class Consumer:
             callback(self)
 
     def loop_args(self):
-        return (self, self.connection, self.task_consumer,
-                self.blueprint, self.qos, self.amqheartbeat,
-                self.app.clock, self.amqheartbeat_rate)
+        return (
+            self,
+            self.connection,
+            self.task_consumer,
+            self.blueprint,
+            self.qos,
+            self.amqheartbeat,
+            self.app.clock,
+            self.amqheartbeat_rate,
+        )
 
     def on_decode_error(self, message, exc):
         """Callback called if an error occurs while decoding a message."""
-        crit(MESSAGE_DECODE_ERROR,
-             exc, message.content_type, message.content_encoding,
-             safe_repr(message.headers), dump_body(message, message.body),
-             exc_info=1)
+        crit(
+            MESSAGE_DECODE_ERROR,
+            exc,
+            message.content_type,
+            message.content_encoding,
+            safe_repr(message.headers),
+            dump_body(message, message.body),
+            exc_info=1,
+        )
         message.ack()
 
     def on_close(self):
@@ -445,15 +463,14 @@ class Consumer:
         return conn
 
     async def connection_for_read(self, heartbeat=None):
-        return await self.ensure_connected(
-            self.app.connection_for_read(heartbeat=heartbeat))
+        return await self.ensure_connected(self.app.connection_for_read(heartbeat=heartbeat))
 
     async def connection_for_write(self, url=None, heartbeat=None):
-        return await self.ensure_connected(
-            self.app.connection_for_write(url=url, heartbeat=heartbeat))
+        return await self.ensure_connected(self.app.connection_for_write(url=url, heartbeat=heartbeat))
 
     async def ensure_connected(self, conn):
         """Ensure the connection is established, with retries."""
+
         def _error_handler(exc, interval, next_step=CONNECTION_RETRY_STEP):
             if getattr(conn, "alt", None) and interval == 0:
                 next_step = CONNECTION_FAILOVER
@@ -462,7 +479,8 @@ class Consumer:
             next_step = next_step.format(
                 when=humanize_seconds(interval, "in", " "),
                 retries=self.broker_connection_retry_attempt,
-                max_retries=self.app.conf.broker_connection_max_retries)
+                max_retries=self.app.conf.broker_connection_max_retries,
+            )
             error(CONNECTION_ERROR, conn.as_uri(), exc, next_step)
 
         retry_disabled = False
@@ -475,7 +493,9 @@ class Consumer:
                         "The broker_connection_retry configuration setting will no longer determine\n"
                         "whether broker connection retries are made during startup in Celery 6.0 and above.\n"
                         "If you wish to refrain from retrying connections on startup,\n"
-                        "you should set broker_connection_retry_on_startup to False instead.")
+                        "you should set broker_connection_retry_on_startup to False instead."
+                    ),
+                    stacklevel=2,
                 )
         elif self.first_connection_attempt:
             retry_disabled = not self.app.conf.broker_connection_retry_on_startup
@@ -488,7 +508,8 @@ class Consumer:
             return conn
 
         conn = await conn.ensure_connection(
-            _error_handler, self.app.conf.broker_connection_max_retries,
+            _error_handler,
+            self.app.conf.broker_connection_max_retries,
             callback=maybe_shutdown,
         )
         self.first_connection_attempt = False
@@ -499,20 +520,17 @@ class Consumer:
         if self.event_dispatcher:
             self.event_dispatcher.flush()
 
-    async def add_task_queue(self, queue, exchange=None, exchange_type=None,
-                             routing_key=None, **options):
+    async def add_task_queue(self, queue, exchange=None, exchange_type=None, routing_key=None, **options):
         cset = self.task_consumer
         queues = self.app.amqp.queues
         if queue in queues:
             q = queues[queue]
         else:
             exchange = queue if exchange is None else exchange
-            exchange_type = ("direct" if exchange_type is None
-                             else exchange_type)
-            q = queues.select_add(queue,
-                                  exchange=exchange,
-                                  exchange_type=exchange_type,
-                                  routing_key=routing_key, **options)
+            exchange_type = "direct" if exchange_type is None else exchange_type
+            q = queues.select_add(
+                queue, exchange=exchange, exchange_type=exchange_type, routing_key=routing_key, **options
+            )
         if not cset.consuming_from(queue):
             cset.add_queue(q)
             await cset.consume()
@@ -530,11 +548,13 @@ class Consumer:
         self.qos.decrement_eventually()
 
     def _message_report(self, body, message):
-        return MESSAGE_REPORT.format(dump_body(message, body),
-                                     safe_repr(message.content_type),
-                                     safe_repr(message.content_encoding),
-                                     safe_repr(message.delivery_info),
-                                     safe_repr(message.headers))
+        return MESSAGE_REPORT.format(
+            dump_body(message, body),
+            safe_repr(message.content_type),
+            safe_repr(message.content_encoding),
+            safe_repr(message.delivery_info),
+            safe_repr(message.headers),
+        )
 
     def on_unknown_message(self, body, message):
         warn(UNKNOWN_FORMAT, self._message_report(body, message))
@@ -542,12 +562,7 @@ class Consumer:
         signals.task_rejected.send(sender=self, message=message, exc=None)
 
     def on_unknown_task(self, body, message, exc):
-        error(UNKNOWN_TASK_ERROR,
-              exc,
-              dump_body(message, body),
-              message.headers,
-              message.delivery_info,
-              exc_info=True)
+        error(UNKNOWN_TASK_ERROR, exc, dump_body(message, body), message.headers, message.delivery_info, exc_info=True)
         try:
             id_, name = message.headers["id"], message.headers["task"]
             root_id = message.headers.get("root_id")
@@ -556,27 +571,35 @@ class Consumer:
             id_, name = payload["id"], payload["task"]
             root_id = None
         request = Bunch(
-            name=name, chord=None, root_id=root_id,
+            name=name,
+            chord=None,
+            root_id=root_id,
             correlation_id=message.properties.get("correlation_id"),
             reply_to=message.properties.get("reply_to"),
             errbacks=None,
         )
         message.reject_log_error(logger, self.connection_errors)
         self.app.backend.mark_as_failure(
-            id_, NotRegistered(name), request=request,
+            id_,
+            NotRegistered(name),
+            request=request,
         )
         if self.event_dispatcher:
             self.event_dispatcher.send(
-                "task-failed", uuid=id_,
+                "task-failed",
+                uuid=id_,
                 exception=f"NotRegistered({name!r})",
             )
         signals.task_unknown.send(
-            sender=self, message=message, exc=exc, name=name, id=id_,
+            sender=self,
+            message=message,
+            exc=exc,
+            name=name,
+            id=id_,
         )
 
     def on_invalid_task(self, body, message, exc):
-        error(INVALID_TASK_ERROR, exc, dump_body(message, body),
-              exc_info=True)
+        error(INVALID_TASK_ERROR, exc, dump_body(message, body), exc_info=True)
         message.reject_log_error(logger, self.connection_errors)
         signals.task_rejected.send(sender=self, message=message, exc=exc)
 
@@ -584,8 +607,7 @@ class Consumer:
         loader = self.app.loader
         for name, task in self.app.tasks.items():
             self.strategies[name] = task.start_strategy(self.app, self)
-            task.__trace__ = build_tracer(name, task, loader, self.hostname,
-                                          app=self.app)
+            task.__trace__ = build_tracer(name, task, loader, self.hostname, app=self.app)
 
     def create_task_handler(self):
         strategies = self.strategies
@@ -625,17 +647,16 @@ class Consumer:
                     # sync Request code (possibly in a thread pool).
                     # Use call_soon_threadsafe to schedule on the event loop.
                     def _ack(*args, _msg=message, **kwargs):
-                        loop.call_soon_threadsafe(
-                            loop.create_task,
-                            _msg.ack_log_error(logger, self.connection_errors))
+                        loop.call_soon_threadsafe(loop.create_task, _msg.ack_log_error(logger, self.connection_errors))
 
                     def _reject(*args, _msg=message, **kwargs):
                         loop.call_soon_threadsafe(
-                            loop.create_task,
-                            _msg.reject_log_error(logger, self.connection_errors))
+                            loop.create_task, _msg.reject_log_error(logger, self.connection_errors)
+                        )
 
                     strategy(
-                        message, payload,
+                        message,
+                        payload,
                         _ack,
                         _reject,
                         callbacks,

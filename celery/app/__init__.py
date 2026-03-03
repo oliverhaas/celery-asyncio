@@ -1,4 +1,5 @@
 """Celery Application."""
+
 from celery import _state
 from celery._state import app_or_default, disable_trace, enable_trace, pop_current_task, push_current_task
 from celery.local import Proxy
@@ -7,9 +8,16 @@ from .base import Celery
 from .utils import AppPickler
 
 __all__ = (
-    'Celery', 'AppPickler', 'app_or_default', 'default_app',
-    'bugreport', 'enable_trace', 'disable_trace', 'shared_task',
-    'push_current_task', 'pop_current_task',
+    "Celery",
+    "AppPickler",
+    "app_or_default",
+    "default_app",
+    "bugreport",
+    "enable_trace",
+    "disable_trace",
+    "shared_task",
+    "push_current_task",
+    "pop_current_task",
 )
 
 #: Proxy always returning the app set as default.
@@ -45,15 +53,14 @@ def shared_task(*args, **kwargs):
         >>> add.app is app2
         True
     """
+
     def create_shared_task(**options):
 
         def __inner(fun):
-            name = options.get('name')
+            name = options.get("name")
             # Set as shared task so that unfinalized apps,
             # and future apps will register a copy of this task.
-            _state.connect_on_app_finalize(
-                lambda app: app._task_from_fun(fun, **options)
-            )
+            _state.connect_on_app_finalize(lambda app: app._task_from_fun(fun, **options))
 
             # Force all finalized apps to take this task as well.
             for app in _state._get_active_apps():
@@ -65,10 +72,10 @@ def shared_task(*args, **kwargs):
             # apps task registry.
             def task_by_cons():
                 app = _state.get_current_app()
-                return app.tasks[
-                    name or app.gen_task_name(fun.__name__, fun.__module__)
-                ]
+                return app.tasks[name or app.gen_task_name(fun.__name__, fun.__module__)]
+
             return Proxy(task_by_cons)
+
         return __inner
 
     if len(args) == 1 and callable(args[0]):

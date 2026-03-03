@@ -13,45 +13,56 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 __all__ = (
-    'reraise',
+    "reraise",
     # Warnings
-    'CeleryWarning',
-    'AlwaysEagerIgnored', 'DuplicateNodenameWarning',
-    'FixupWarning', 'NotConfigured', 'SecurityWarning',
-
+    "CeleryWarning",
+    "AlwaysEagerIgnored",
+    "DuplicateNodenameWarning",
+    "FixupWarning",
+    "NotConfigured",
+    "SecurityWarning",
     # Core errors
-    'CeleryError',
-    'ImproperlyConfigured', 'SecurityError',
-
+    "CeleryError",
+    "ImproperlyConfigured",
+    "SecurityError",
     # Kombu (messaging) errors.
-    'OperationalError',
-
+    "OperationalError",
     # Task semi-predicates
-    'TaskPredicate', 'Ignore', 'Reject', 'Retry',
-
+    "TaskPredicate",
+    "Ignore",
+    "Reject",
+    "Retry",
     # Task related errors.
-    'TaskError', 'QueueNotFound', 'IncompleteStream',
-    'NotRegistered', 'AlreadyRegistered', 'TimeoutError',
-    'MaxRetriesExceededError', 'TaskRevokedError',
-    'InvalidTaskError', 'ChordError',
-
+    "TaskError",
+    "QueueNotFound",
+    "IncompleteStream",
+    "NotRegistered",
+    "AlreadyRegistered",
+    "TimeoutError",
+    "MaxRetriesExceededError",
+    "TaskRevokedError",
+    "InvalidTaskError",
+    "ChordError",
     # Backend related errors.
-    'BackendError', 'BackendGetMetaError', 'BackendStoreError',
-
+    "BackendError",
+    "BackendGetMetaError",
+    "BackendStoreError",
     # Task execution errors.
-    'SoftTimeLimitExceeded', 'TimeLimitExceeded',
-    'WorkerLostError', 'Terminated', 'RestartFreqExceeded',
-
+    "SoftTimeLimitExceeded",
+    "TimeLimitExceeded",
+    "WorkerLostError",
+    "Terminated",
+    "RestartFreqExceeded",
     # Exception info utilities.
-    'ExceptionInfo', 'ExceptionWithTraceback',
-
+    "ExceptionInfo",
+    "ExceptionWithTraceback",
     # Deprecation warnings (forcing Python to emit them).
-    'CPendingDeprecationWarning', 'CDeprecationWarning',
-
+    "CPendingDeprecationWarning",
+    "CDeprecationWarning",
     # Worker shutdown semi-predicates (inherits from SystemExit).
-    'WorkerShutdown', 'WorkerTerminate',
-
-    'CeleryCommandException',
+    "WorkerShutdown",
+    "WorkerTerminate",
+    "CeleryCommandException",
 )
 
 from celery.utils.serialization import get_pickleable_exception
@@ -113,9 +124,9 @@ class Retry(TaskPredicate):
     #: :class:`~datetime.datetime`.
     when = None
 
-    def __init__(self, message=None, exc=None, when=None, is_eager=False,
-                 sig=None, **kwargs):
+    def __init__(self, message=None, exc=None, when=None, is_eager=False, sig=None, **kwargs):
         from kombu.utils.encoding import safe_repr
+
         self.message = message
         if isinstance(exc, str):
             self.exc, self.excs = None, exc
@@ -128,15 +139,15 @@ class Retry(TaskPredicate):
 
     def humanize(self):
         if isinstance(self.when, numbers.Number):
-            return f'in {self.when}s'
-        return f'at {self.when}'
+            return f"in {self.when}s"
+        return f"at {self.when}"
 
     def __str__(self):
         if self.message:
             return self.message
         if self.excs:
-            return f'Retry {self.humanize()}: {self.excs}'
-        return f'Retry {self.humanize()}'
+            return f"Retry {self.humanize()}: {self.excs}"
+        return f"Retry {self.humanize()}"
 
     def __reduce__(self):
         return self.__class__, (self.message, self.exc, self.when)
@@ -158,7 +169,7 @@ class Reject(TaskPredicate):
         super().__init__(reason, requeue)
 
     def __repr__(self):
-        return f'reject requeue={self.requeue}: {self.reason}'
+        return f"reject requeue={self.requeue}: {self.reason}"
 
 
 class ImproperlyConfigured(CeleryError):
@@ -190,6 +201,7 @@ class NotRegistered(KeyError, TaskError):
 
 class AlreadyRegistered(TaskError):
     """The task is already registered."""
+
     # XXX Unused
 
 
@@ -202,7 +214,7 @@ class MaxRetriesExceededError(TaskError):
 
     def __init__(self, *args, **kwargs):
         self.task_args = kwargs.pop("task_args", [])
-        self.task_kwargs = kwargs.pop("task_kwargs", dict())
+        self.task_kwargs = kwargs.pop("task_kwargs", {})
         super().__init__(*args, **kwargs)
 
 
@@ -266,7 +278,7 @@ class BackendGetMetaError(BackendError):
     """An issue reading from the backend."""
 
     def __init__(self, *args, **kwargs):
-        self.task_id = kwargs.get('task_id', "")
+        self.task_id = kwargs.get("task_id", "")
 
     def __repr__(self):
         return super().__repr__() + " task_id:" + self.task_id
@@ -276,8 +288,8 @@ class BackendStoreError(BackendError):
     """An issue writing to the backend."""
 
     def __init__(self, *args, **kwargs):
-        self.state = kwargs.get('state', "")
-        self.task_id = kwargs.get('task_id', "")
+        self.state = kwargs.get("state", "")
+        self.task_id = kwargs.get("task_id", "")
 
     def __repr__(self):
         return super().__repr__() + " state:" + self.state + " task_id:" + self.task_id

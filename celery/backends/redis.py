@@ -1,4 +1,5 @@
 """Redis result store backend."""
+
 import asyncio
 import time
 from contextlib import contextmanager
@@ -7,6 +8,7 @@ from ssl import CERT_NONE, CERT_OPTIONAL, CERT_REQUIRED
 from urllib.parse import unquote
 
 from kombu.utils import symbol_by_name
+from kombu.utils.encoding import bytes_to_str
 from kombu.utils.functional import retry_over_time
 from kombu.utils.objects import cached_property
 from kombu.utils.url import _parse_url, maybe_sanitize_url
@@ -31,12 +33,8 @@ try:
 
     def get_redis_error_classes():
         return (
-            (redis.exceptions.ConnectionError,
-             redis.exceptions.TimeoutError,
-             redis.exceptions.AuthenticationError),
-            (redis.exceptions.DataError,
-             redis.exceptions.InvalidResponse,
-             redis.exceptions.ResponseError),
+            (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.AuthenticationError),
+            (redis.exceptions.DataError, redis.exceptions.InvalidResponse, redis.exceptions.ResponseError),
         )
 except ImportError:
     redis = None
@@ -52,7 +50,7 @@ try:
 except ImportError:
     pass
 
-__all__ = ('RedisBackend', 'SentinelBackend')
+__all__ = ("RedisBackend", "SentinelBackend")
 
 E_REDIS_MISSING = """
 You need to install the redis library in order to use \
@@ -86,7 +84,7 @@ A rediss:// URL must have parameter ssl_cert_reqs and this must be set to \
 CERT_REQUIRED, CERT_OPTIONAL, or CERT_NONE
 """
 
-E_LOST = 'Connection to Redis lost: Retry (%s/%s) %s.'
+E_LOST = "Connection to Redis lost: Retry (%s/%s) %s."
 
 E_RETRY_LIMIT_EXCEEDED = """
 Retry limit exceeded while trying to reconnect to the Celery redis result \
@@ -133,9 +131,7 @@ class ResultConsumer(BaseResultConsumer):
         if self.subscribed_to:
             self._pubsub.subscribe(*self.subscribed_to)
         else:
-            self._pubsub.connection = self._pubsub.connection_pool.get_connection(
-                'pubsub', self._pubsub.shard_hint
-            )
+            self._pubsub.connection = self._pubsub.connection_pool.get_connection("pubsub", self._pubsub.shard_hint)
             # even if there is nothing to subscribe, we should not lose the callback after connecting.
             # The on_connect callback will re-subscribe to any channels we previously subscribed to.
             self._pubsub.connection.register_connect_callback(self._pubsub.on_connect)
@@ -152,8 +148,8 @@ class ResultConsumer(BaseResultConsumer):
                 raise RuntimeError(E_RETRY_LIMIT_EXCEEDED) from e
 
     def _maybe_cancel_ready_task(self, meta):
-        if meta['status'] in states.READY_STATES:
-            self.cancel_for(meta['task_id'])
+        if meta["status"] in states.READY_STATES:
+            self.cancel_for(meta["task_id"])
 
     def on_state_change(self, meta, message):
         super().on_state_change(meta, message)
@@ -178,8 +174,8 @@ class ResultConsumer(BaseResultConsumer):
         if self._pubsub:
             with self.reconnect_on_error():
                 message = self._pubsub.get_message(timeout=timeout)
-                if message and message['type'] == 'message':
-                    self.on_state_change(self._decode_result(message['data']), message)
+                if message and message["type"] == "message":
+                    self.on_state_change(self._decode_result(message["data"]), message)
         elif timeout:
             time.sleep(timeout)
 
@@ -226,44 +222,48 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     #: 512 MB - https://redis.io/topics/data-types
     _MAX_STR_VALUE_SIZE = 536870912
 
-    def __init__(self, host=None, port=None, db=None, password=None,
-                 max_connections=None, url=None,
-                 connection_pool=None, **kwargs):
+    def __init__(
+        self,
+        host=None,
+        port=None,
+        db=None,
+        password=None,
+        max_connections=None,
+        url=None,
+        connection_pool=None,
+        **kwargs,
+    ):
         super().__init__(expires_type=int, **kwargs)
         _get = self.app.conf.get
         if self.redis is None:
             raise ImproperlyConfigured(E_REDIS_MISSING.strip())
 
-        if host and '://' in host:
+        if host and "://" in host:
             url, host = host, None
 
-        self.max_connections = (
-            max_connections or
-            _get('redis_max_connections') or
-            self.max_connections)
+        self.max_connections = max_connections or _get("redis_max_connections") or self.max_connections
         self._ConnectionPool = connection_pool
 
-        socket_timeout = _get('redis_socket_timeout')
-        socket_connect_timeout = _get('redis_socket_connect_timeout')
-        retry_on_timeout = _get('redis_retry_on_timeout')
-        socket_keepalive = _get('redis_socket_keepalive')
-        health_check_interval = _get('redis_backend_health_check_interval')
-        credential_provider = _get('redis_backend_credential_provider')
+        socket_timeout = _get("redis_socket_timeout")
+        socket_connect_timeout = _get("redis_socket_connect_timeout")
+        retry_on_timeout = _get("redis_retry_on_timeout")
+        socket_keepalive = _get("redis_socket_keepalive")
+        health_check_interval = _get("redis_backend_health_check_interval")
+        credential_provider = _get("redis_backend_credential_provider")
 
         self.connparams = {
-            'host': _get('redis_host') or 'localhost',
-            'port': _get('redis_port') or 6379,
-            'db': _get('redis_db') or 0,
-            'password': _get('redis_password'),
-            'max_connections': self.max_connections,
-            'socket_timeout': socket_timeout and float(socket_timeout),
-            'retry_on_timeout': retry_on_timeout or False,
-            'socket_connect_timeout':
-                socket_connect_timeout and float(socket_connect_timeout),
-            'client_name': _get('redis_client_name'),
+            "host": _get("redis_host") or "localhost",
+            "port": _get("redis_port") or 6379,
+            "db": _get("redis_db") or 0,
+            "password": _get("redis_password"),
+            "max_connections": self.max_connections,
+            "socket_timeout": socket_timeout and float(socket_timeout),
+            "retry_on_timeout": retry_on_timeout or False,
+            "socket_connect_timeout": socket_connect_timeout and float(socket_connect_timeout),
+            "client_name": _get("redis_client_name"),
         }
 
-        username = _get('redis_username')
+        username = _get("redis_username")
         if username:
             # We're extra careful to avoid including this configuration value
             # if it wasn't specified since older versions of py-redis
@@ -272,7 +272,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
             # TODO: Include this in connparams' definition once we drop
             #       support for py-redis<3.4.0.
-            self.connparams['username'] = username
+            self.connparams["username"] = username
 
         if credential_provider:
             # if credential provider passed as string or query param
@@ -281,11 +281,9 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                 credential_provider = credential_provider_cls()
 
             if not isinstance(credential_provider, CredentialProvider):
-                raise ValueError(
-                    "Credential provider is not an instance of a redis.CredentialProvider or a subclass"
-                )
+                raise ValueError("Credential provider is not an instance of a redis.CredentialProvider or a subclass")
 
-            self.connparams['credential_provider'] = credential_provider
+            self.connparams["credential_provider"] = credential_provider
 
             # drop username and password if credential provider is configured
             self.connparams.pop("username", None)
@@ -296,15 +294,15 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
         # absent in redis.connection.UnixDomainSocketConnection
         if socket_keepalive:
-            self.connparams['socket_keepalive'] = socket_keepalive
+            self.connparams["socket_keepalive"] = socket_keepalive
 
         # "redis_backend_use_ssl" must be a dict with the keys:
         # 'ssl_cert_reqs', 'ssl_ca_certs', 'ssl_certfile', 'ssl_keyfile'
         # (the same as "broker_use_ssl")
-        ssl = _get('redis_backend_use_ssl')
+        ssl = _get("redis_backend_use_ssl")
         if ssl:
             self.connparams.update(ssl)
-            self.connparams['connection_class'] = self.connection_class_ssl
+            self.connparams["connection_class"] = self.connection_class_ssl
 
         if url:
             self.connparams = self._params_from_url(url, self.connparams)
@@ -312,16 +310,19 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         # If we've received SSL parameters via query string or the
         # redis_backend_use_ssl dict, check ssl_cert_reqs is valid. If set
         # via query string ssl_cert_reqs will be a string so convert it here
-        if ('connection_class' in self.connparams and
-                issubclass(self.connparams['connection_class'], redis.SSLConnection)):
-            ssl_cert_reqs_missing = 'MISSING'
-            ssl_string_to_constant = {'CERT_REQUIRED': CERT_REQUIRED,
-                                      'CERT_OPTIONAL': CERT_OPTIONAL,
-                                      'CERT_NONE': CERT_NONE,
-                                      'required': CERT_REQUIRED,
-                                      'optional': CERT_OPTIONAL,
-                                      'none': CERT_NONE}
-            ssl_cert_reqs = self.connparams.get('ssl_cert_reqs', ssl_cert_reqs_missing)
+        if "connection_class" in self.connparams and issubclass(
+            self.connparams["connection_class"], redis.SSLConnection
+        ):
+            ssl_cert_reqs_missing = "MISSING"
+            ssl_string_to_constant = {
+                "CERT_REQUIRED": CERT_REQUIRED,
+                "CERT_OPTIONAL": CERT_OPTIONAL,
+                "CERT_NONE": CERT_NONE,
+                "required": CERT_REQUIRED,
+                "optional": CERT_OPTIONAL,
+                "none": CERT_NONE,
+            }
+            ssl_cert_reqs = self.connparams.get("ssl_cert_reqs", ssl_cert_reqs_missing)
             ssl_cert_reqs = ssl_string_to_constant.get(ssl_cert_reqs, ssl_cert_reqs)
             if ssl_cert_reqs not in ssl_string_to_constant.values():
                 raise ValueError(E_REDIS_SSL_CERT_REQS_MISSING_INVALID)
@@ -330,51 +331,59 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                 logger.warning(W_REDIS_SSL_CERT_OPTIONAL)
             elif ssl_cert_reqs == CERT_NONE:
                 logger.warning(W_REDIS_SSL_CERT_NONE)
-            self.connparams['ssl_cert_reqs'] = ssl_cert_reqs
+            self.connparams["ssl_cert_reqs"] = ssl_cert_reqs
 
         self.url = url
 
-        self.connection_errors, self.channel_errors = (
-            get_redis_error_classes() if get_redis_error_classes
-            else ((), ()))
+        self.connection_errors, self.channel_errors = get_redis_error_classes() if get_redis_error_classes else ((), ())
         self.result_consumer = self.ResultConsumer(
-            self, self.app, self.accept,
-            self._pending_results, self._pending_messages,
+            self,
+            self.app,
+            self.accept,
+            self._pending_results,
+            self._pending_messages,
         )
 
     def _params_from_url(self, url, defaults):
         scheme, host, port, username, password, path, query = _parse_url(url)
         connparams = dict(
-            defaults, **dictfilter({
-                'host': host, 'port': port, 'username': username,
-                'password': password, 'db': query.pop('virtual_host', None)})
+            defaults,
+            **dictfilter(
+                {
+                    "host": host,
+                    "port": port,
+                    "username": username,
+                    "password": password,
+                    "db": query.pop("virtual_host", None),
+                }
+            ),
         )
 
-        if scheme == 'socket':
+        if scheme == "socket":
             # use 'path' as path to the socket… in this case
             # the database number should be given in 'query'
-            connparams.update({
-                'connection_class': self.redis.UnixDomainSocketConnection,
-                'path': '/' + path,
-            })
+            connparams.update(
+                {
+                    "connection_class": self.redis.UnixDomainSocketConnection,
+                    "path": "/" + path,
+                }
+            )
             # host+port are invalid options when using this connection type.
-            connparams.pop('host', None)
-            connparams.pop('port', None)
-            connparams.pop('socket_connect_timeout')
+            connparams.pop("host", None)
+            connparams.pop("port", None)
+            connparams.pop("socket_connect_timeout")
         else:
-            connparams['db'] = path
+            connparams["db"] = path
 
-        ssl_param_keys = ['ssl_ca_certs', 'ssl_certfile', 'ssl_keyfile',
-                          'ssl_cert_reqs']
+        ssl_param_keys = ["ssl_ca_certs", "ssl_certfile", "ssl_keyfile", "ssl_cert_reqs"]
 
-        if scheme == 'redis':
+        if scheme == "redis":
             # If connparams or query string contain ssl params, raise error
-            if (any(key in connparams for key in ssl_param_keys) or
-                    any(key in query for key in ssl_param_keys)):
+            if any(key in connparams for key in ssl_param_keys) or any(key in query for key in ssl_param_keys):
                 raise ValueError(E_REDIS_SSL_PARAMS_AND_SCHEME_MISMATCH)
 
-        if scheme == 'rediss':
-            connparams['connection_class'] = redis.SSLConnection
+        if scheme == "rediss":
+            connparams["connection_class"] = redis.SSLConnection
             # The following parameters, if present in the URL, are encoded. We
             # must add the decoded values to connparams.
             for ssl_setting in ssl_param_keys:
@@ -383,9 +392,9 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                     connparams[ssl_setting] = unquote(ssl_val)
 
         # db may be string and start with / like in kombu.
-        db = connparams.get('db') or 0
-        db = db.strip('/') if isinstance(db, str) else db
-        connparams['db'] = int(db)
+        db = connparams.get("db") or 0
+        db = db.strip("/") if isinstance(db, str) else db
+        connparams["db"] = int(db)
 
         # credential provider as query string
         credential_provider = query.pop("credential_provider", None)
@@ -395,20 +404,16 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                 credential_provider = credential_provider_cls()
 
             if not isinstance(credential_provider, CredentialProvider):
-                raise ValueError(
-                    "Credential provider is not an instance of a redis.CredentialProvider or a subclass"
-                )
+                raise ValueError("Credential provider is not an instance of a redis.CredentialProvider or a subclass")
 
-            connparams['credential_provider'] = credential_provider
+            connparams["credential_provider"] = credential_provider
             # drop username and password if credential provider is configured
             connparams.pop("username", None)
             connparams.pop("password", None)
 
         for key, value in query.items():
             if key in redis.connection.URL_QUERY_ARGUMENT_PARSERS:
-                query[key] = redis.connection.URL_QUERY_ARGUMENT_PARSERS[key](
-                    value
-                )
+                query[key] = redis.connection.URL_QUERY_ARGUMENT_PARSERS[key](value)
 
         # Query parameters override other parameters
         connparams.update(query)
@@ -424,7 +429,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         retry_policy = super().retry_policy
         if "retry_policy" in self._transport_options:
             retry_policy = retry_policy.copy()
-            retry_policy.update(self._transport_options['retry_policy'])
+            retry_policy.update(self._transport_options["retry_policy"])
 
         return retry_policy
 
@@ -440,22 +445,19 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
     def ensure(self, fun, args, **policy):
         retry_policy = dict(self.retry_policy, **policy)
-        max_retries = retry_policy.get('max_retries')
+        max_retries = retry_policy.get("max_retries")
         return retry_over_time(
-            fun, self.connection_errors, args, {},
-            partial(self.on_connection_error, max_retries),
-            **retry_policy)
+            fun, self.connection_errors, args, {}, partial(self.on_connection_error, max_retries), **retry_policy
+        )
 
     def on_connection_error(self, max_retries, exc, intervals, retries):
         tts = next(intervals)
-        logger.error(
-            E_LOST.strip(),
-            retries, max_retries or 'Inf', humanize_seconds(tts, 'in '))
+        logger.error(E_LOST.strip(), retries, max_retries or "Inf", humanize_seconds(tts, "in "))
         return tts
 
     def set(self, key, value, **retry_policy):
         if isinstance(value, str) and len(value) > self._MAX_STR_VALUE_SIZE:
-            raise BackendStoreError('value too large for Redis backend')
+            raise BackendStoreError("value too large for Redis backend")
 
         return self.ensure(self._set, (key, value), **retry_policy)
 
@@ -482,23 +484,23 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         return self.client.expire(key, value)
 
     def add_to_chord(self, group_id, result):
-        self.client.incr(self.get_key_for_group(group_id, '.t'), 1)
+        self.client.incr(self.get_key_for_group(group_id, ".t"), 1)
 
-    def _unpack_chord_result(self, tup, decode,
-                             EXCEPTION_STATES=states.EXCEPTION_STATES,
-                             PROPAGATE_STATES=states.PROPAGATE_STATES):
+    def _unpack_chord_result(
+        self, tup, decode, EXCEPTION_STATES=states.EXCEPTION_STATES, PROPAGATE_STATES=states.PROPAGATE_STATES
+    ):
         _, tid, state, retval = decode(tup)
         if state in EXCEPTION_STATES:
             retval = self.exception_to_python(retval)
         if state in PROPAGATE_STATES:
             chord_error = _create_chord_error_with_cause(
-                message=f'Dependency {tid} raised {retval!r}', original_exc=retval
+                message=f"Dependency {tid} raised {retval!r}", original_exc=retval
             )
             raise chord_error
         return retval
 
     def set_chord_size(self, group_id, chord_size):
-        self.set(self.get_key_for_group(group_id, '.s'), chord_size)
+        self.set(self.get_key_for_group(group_id, ".s"), chord_size)
 
     def apply_chord(self, header_result_args, body, **kwargs):
         # If any of the child results of this chord are complex (ie. group
@@ -514,38 +516,38 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
     @cached_property
     def _chord_zset(self):
-        return self._transport_options.get('result_chord_ordered', True)
+        return self._transport_options.get("result_chord_ordered", True)
 
     @cached_property
     def _transport_options(self):
-        return self.app.conf.get('result_backend_transport_options', {})
+        return self.app.conf.get("result_backend_transport_options", {})
 
-    def on_chord_part_return(self, request, state, result,
-                             propagate=None, **kwargs):
+    def on_chord_part_return(self, request, state, result, propagate=None, **kwargs):
         app = self.app
         tid, gid, group_index = request.id, request.group, request.group_index
         if not gid or not tid:
-            return
+            return None
         if group_index is None:
-            group_index = '+inf'
+            group_index = "+inf"
 
         client = self.client
-        jkey = self.get_key_for_group(gid, '.j')
-        tkey = self.get_key_for_group(gid, '.t')
-        skey = self.get_key_for_group(gid, '.s')
+        jkey = self.get_key_for_group(gid, ".j")
+        tkey = self.get_key_for_group(gid, ".t")
+        skey = self.get_key_for_group(gid, ".s")
         result = self.encode_result(result, state)
         encoded = self.encode([1, tid, state, result])
         with client.pipeline() as pipe:
             pipeline = (
-                pipe.zadd(jkey, {encoded: group_index}).zcount(jkey, "-inf", "+inf")
-                if self._chord_zset
-                else pipe.rpush(jkey, encoded).llen(jkey)
-            ).get(tkey).get(skey)
+                (
+                    pipe.zadd(jkey, {encoded: group_index}).zcount(jkey, "-inf", "+inf")
+                    if self._chord_zset
+                    else pipe.rpush(jkey, encoded).llen(jkey)
+                )
+                .get(tkey)
+                .get(skey)
+            )
             if self.expires:
-                pipeline = pipeline \
-                    .expire(jkey, self.expires) \
-                    .expire(tkey, self.expires) \
-                    .expire(skey, self.expires)
+                pipeline = pipeline.expire(jkey, self.expires).expire(tkey, self.expires).expire(skey, self.expires)
 
             _, readycount, totaldiff, chord_size_bytes = pipeline.execute()[:4]
 
@@ -568,15 +570,10 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                         # structured as intended rather than the flattened version
                         # we'd construct without any other information.
                         join_func = (
-                            header_result.join_native
-                            if header_result.supports_native_join
-                            else header_result.join
+                            header_result.join_native if header_result.supports_native_join else header_result.join
                         )
                         with allow_join_result():
-                            resl = join_func(
-                                timeout=app.conf.result_chord_join_timeout,
-                                propagate=True
-                            )
+                            resl = join_func(timeout=app.conf.result_chord_join_timeout, propagate=True)
                     else:
                         # Otherwise simply extract and decode the results we
                         # stashed along the way, which should be faster for large
@@ -587,32 +584,27 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                                 pipeline = pipe.zrange(jkey, 0, -1)
                             else:
                                 pipeline = pipe.lrange(jkey, 0, total)
-                            resl, = pipeline.execute()
+                            (resl,) = pipeline.execute()
                         resl = [unpack(tup, decode) for tup in resl]
                     try:
                         callback.delay(resl)
                     except Exception as exc:  # pylint: disable=broad-except
-                        logger.exception(
-                            'Chord callback for %r raised: %r', request.group, exc)
+                        logger.exception("Chord callback for %r raised: %r", request.group, exc)
                         return self.chord_error_from_stack(
                             callback,
-                            ChordError(f'Callback error: {exc!r}'),
+                            ChordError(f"Callback error: {exc!r}"),
                         )
                     finally:
                         with client.pipeline() as pipe:
-                            pipe \
-                                .delete(jkey) \
-                                .delete(tkey) \
-                                .delete(skey) \
-                                .execute()
+                            pipe.delete(jkey).delete(tkey).delete(skey).execute()
             except ChordError as exc:
-                logger.exception('Chord %r raised: %r', request.group, exc)
+                logger.exception("Chord %r raised: %r", request.group, exc)
                 return self.chord_error_from_stack(callback, exc)
             except Exception as exc:  # pylint: disable=broad-except
-                logger.exception('Chord %r raised: %r', request.group, exc)
+                logger.exception("Chord %r raised: %r", request.group, exc)
                 return self.chord_error_from_stack(
                     callback,
-                    ChordError(f'Join error: {exc!r}'),
+                    ChordError(f"Join error: {exc!r}"),
                 )
 
     def _create_client(self, **params):
@@ -641,16 +633,14 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     def _get_async_client_class(self):
         if aioredis is None:
             raise ImproperlyConfigured(
-                'redis.asyncio is required for native async support. '
-                'Install redis>=4.2.0 or use sync_to_async wrappers.'
+                "redis.asyncio is required for native async support. "
+                "Install redis>=4.2.0 or use sync_to_async wrappers."
             )
         return aioredis.Redis
 
     def _get_async_connection_pool_class(self):
         if aioredis is None:
-            raise ImproperlyConfigured(
-                'redis.asyncio is required for native async support.'
-            )
+            raise ImproperlyConfigured("redis.asyncio is required for native async support.")
         return aioredis.ConnectionPool
 
     def _create_async_client(self, **params):
@@ -676,7 +666,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     async def aset(self, key, value, **retry_policy):
         """Async version of set."""
         if isinstance(value, str) and len(value) > self._MAX_STR_VALUE_SIZE:
-            raise BackendStoreError('value too large for Redis backend')
+            raise BackendStoreError("value too large for Redis backend")
         # For async, we don't use retry_over_time - caller should handle retries
         await self._aset(key, value)
 
@@ -711,7 +701,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
             except KeyError:
                 pass
         meta = await self._aget_task_meta_for(task_id)
-        if cache and meta.get('status') == states.SUCCESS:
+        if cache and meta.get("status") == states.SUCCESS:
             self._cache[task_id] = meta
         return meta
 
@@ -719,16 +709,25 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         """Async version of _get_task_meta_for."""
         meta = await self.aget(self.get_key_for_task(task_id))
         if not meta:
-            return {'status': states.PENDING, 'result': None}
+            return {"status": states.PENDING, "result": None}
         return self.decode_result(meta)
 
-    async def await_for_pending(self, result, timeout=None, interval=0.5,
-                                 no_ack=True, on_message=None, on_interval=None,
-                                 callback=None, propagate=True):
+    async def await_for_pending(
+        self,
+        result,
+        timeout=None,
+        interval=0.5,
+        no_ack=True,
+        on_message=None,
+        on_interval=None,
+        callback=None,
+        propagate=True,
+    ):
         """Async version of wait_for_pending - wait for task result."""
         self._ensure_not_eager()
         meta = await self.await_for(
-            result.id, timeout=timeout,
+            result.id,
+            timeout=timeout,
             interval=interval,
             on_interval=on_interval,
             no_ack=no_ack,
@@ -737,15 +736,14 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
             result._maybe_set_cache(meta)
             return result.maybe_throw(propagate=propagate, callback=callback)
 
-    async def await_for(self, task_id, timeout=None, interval=0.5,
-                        no_ack=True, on_interval=None):
+    async def await_for(self, task_id, timeout=None, interval=0.5, no_ack=True, on_interval=None):
         """Async version of wait_for - poll for task result."""
         self._ensure_not_eager()
         time_elapsed = 0.0
 
         while True:
             meta = await self.aget_task_meta(task_id)
-            if meta['status'] in states.READY_STATES:
+            if meta["status"] in states.READY_STATES:
                 return meta
             if on_interval:
                 on_interval()
@@ -753,7 +751,8 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
             time_elapsed += interval
             if timeout and time_elapsed >= timeout:
                 from celery.exceptions import TimeoutError
-                raise TimeoutError('The operation timed out.')
+
+                raise TimeoutError("The operation timed out.")
 
     async def aforget(self, task_id):
         """Async version of forget."""
@@ -787,9 +786,17 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                 self._cache[group_id] = meta
             return meta
 
-    async def aget_many(self, task_ids, timeout=None, interval=0.5, no_ack=True,
-                        on_message=None, on_interval=None, max_iterations=None,
-                        READY_STATES=states.READY_STATES):
+    async def aget_many(
+        self,
+        task_ids,
+        timeout=None,
+        interval=0.5,
+        no_ack=True,
+        on_message=None,
+        on_interval=None,
+        max_iterations=None,
+        READY_STATES=states.READY_STATES,
+    ):
         """Async version of get_many - fetch multiple task results."""
         interval = 0.5 if interval is None else interval
         ids = task_ids if isinstance(task_ids, set) else set(task_ids)
@@ -804,7 +811,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
             except KeyError:
                 pass
             else:
-                if cached['status'] in READY_STATES:
+                if cached["status"] in READY_STATES:
                     results.append((bytes_to_str(task_id), cached))
                     cached_ids.add(task_id)
 
@@ -824,7 +831,8 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                 results.append((bytes_to_str(key), value))
             if timeout and iterations * interval >= timeout:
                 from celery.exceptions import TimeoutError
-                raise TimeoutError(f'Operation timed out ({timeout})')
+
+                raise TimeoutError(f"Operation timed out ({timeout})")
             if on_interval:
                 on_interval()
             await asyncio.sleep(interval)
@@ -834,8 +842,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
         return results
 
-    async def aiter_native(self, result, timeout=None, interval=0.5, no_ack=True,
-                           on_message=None, on_interval=None):
+    async def aiter_native(self, result, timeout=None, interval=0.5, no_ack=True, on_message=None, on_interval=None):
         """Async version of iter_native - iterate over task results."""
         self._ensure_not_eager()
         results = result.results
@@ -846,7 +853,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         task_ids = set()
         for res in results:
             # Check if it's a ResultSet (has .results attribute)
-            if hasattr(res, 'results') and hasattr(res, 'id'):
+            if hasattr(res, "results") and hasattr(res, "id"):
                 all_results.append((res.id, res.results))
             else:
                 task_ids.add(res.id)
@@ -854,8 +861,11 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         if task_ids:
             many_results = await self.aget_many(
                 task_ids,
-                timeout=timeout, interval=interval, no_ack=no_ack,
-                on_message=on_message, on_interval=on_interval,
+                timeout=timeout,
+                interval=interval,
+                no_ack=no_ack,
+                on_message=on_message,
+                on_interval=on_interval,
             )
             all_results.extend(many_results)
 
@@ -867,14 +877,12 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
     def __reduce__(self, args=(), kwargs=None):
         kwargs = {} if not kwargs else kwargs
-        return super().__reduce__(
-            args, dict(kwargs, expires=self.expires, url=self.url))
+        return super().__reduce__(args, dict(kwargs, expires=self.expires, url=self.url))
 
 
 if getattr(redis, "sentinel", None):
-    class SentinelManagedSSLConnection(
-            redis.sentinel.SentinelManagedConnection,
-            redis.SSLConnection):
+
+    class SentinelManagedSSLConnection(redis.sentinel.SentinelManagedConnection, redis.SSLConnection):
         """Connect to a Redis server using Sentinel + TLS.
 
         Use Sentinel to identify which Redis server is the current master
@@ -907,31 +915,24 @@ class SentinelBackend(RedisBackend):
             )
         # Otherwise we need to ensure that all components get sanitized rather
         # by passing them one by one to the `kombu` helper
-        uri_chunks = (
-            maybe_sanitize_url(chunk)
-            for chunk in (self.url or "").split(self._SERVER_URI_SEPARATOR)
-        )
+        uri_chunks = (maybe_sanitize_url(chunk) for chunk in (self.url or "").split(self._SERVER_URI_SEPARATOR))
         # Similar to the superclass, strip the trailing slash from URIs with
         # all components empty other than the scheme
-        return self._SERVER_URI_SEPARATOR.join(
-            uri[:-1] if uri.endswith(":///") else uri
-            for uri in uri_chunks
-        )
+        return self._SERVER_URI_SEPARATOR.join(uri[:-1] if uri.endswith(":///") else uri for uri in uri_chunks)
 
     def _params_from_url(self, url, defaults):
         chunks = url.split(self._SERVER_URI_SEPARATOR)
         connparams = dict(defaults, hosts=[])
         for chunk in chunks:
-            data = super()._params_from_url(
-                url=chunk, defaults=defaults)
-            connparams['hosts'].append(data)
+            data = super()._params_from_url(url=chunk, defaults=defaults)
+            connparams["hosts"].append(data)
         for param in ("host", "port", "db", "password"):
             connparams.pop(param)
 
         # Adding db/password in connparams to connect to the correct instance
         for param in ("db", "password"):
-            if connparams['hosts'] and param in connparams['hosts'][0]:
-                connparams[param] = connparams['hosts'][0].get(param)
+            if connparams["hosts"] and param in connparams["hosts"][0]:
+                connparams[param] = connparams["hosts"][0].get(param)
         return connparams
 
     def _get_sentinel_instance(self, **params):
@@ -942,10 +943,11 @@ class SentinelBackend(RedisBackend):
         sentinel_kwargs = self._transport_options.get("sentinel_kwargs", {})
 
         sentinel_instance = self.sentinel.Sentinel(
-            [(cp['host'], cp['port']) for cp in hosts],
+            [(cp["host"], cp["port"]) for cp in hosts],
             min_other_sentinels=min_other_sentinels,
             sentinel_kwargs=sentinel_kwargs,
-            **connparams)
+            **connparams,
+        )
 
         return sentinel_instance
 

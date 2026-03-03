@@ -7,7 +7,7 @@ The worker consists of several components, all managed by async bootsteps
 import asyncio
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from celery import bootsteps, signals
 from celery import concurrency as _concurrency
@@ -82,7 +82,7 @@ class WorkController:
     def __init__(self, app=None, hostname=None, **kwargs):
         self.app = app or self.app
         self.hostname = default_nodename(hostname)
-        self.startup_time = datetime.now(timezone.utc)
+        self.startup_time = datetime.now(UTC)
         self.app.loader.init_worker()
         self.on_before_init(**kwargs)
         self.setup_defaults(**kwargs)
@@ -90,8 +90,9 @@ class WorkController:
 
         self.setup_instance(**self.prepare_args(**kwargs))
 
-    def setup_instance(self, queues=None, ready_callback=None, pidfile=None,
-                       include=None, exclude_queues=None, **kwargs):
+    def setup_instance(
+        self, queues=None, ready_callback=None, pidfile=None, include=None, exclude_queues=None, **kwargs
+    ):
         self.pidfile = pidfile
         self.setup_queues(queues, exclude_queues)
         self.setup_includes(str_to_list(include))
@@ -160,13 +161,11 @@ class WorkController:
         try:
             self.app.amqp.queues.select(include)
         except KeyError as exc:
-            raise ImproperlyConfigured(
-                SELECT_UNKNOWN_QUEUE.strip().format(include, exc))
+            raise ImproperlyConfigured(SELECT_UNKNOWN_QUEUE.strip().format(include, exc))
         try:
             self.app.amqp.queues.deselect(exclude)
         except KeyError as exc:
-            raise ImproperlyConfigured(
-                DESELECT_UNKNOWN_QUEUE.strip().format(exclude, exc))
+            raise ImproperlyConfigured(DESELECT_UNKNOWN_QUEUE.strip().format(exclude, exc))
         if self.app.conf.worker_direct:
             self.app.amqp.queues.select_add(worker_direct(self.hostname))
 
@@ -177,8 +176,7 @@ class WorkController:
             prev += tuple(includes)
             [self.app.loader.import_task_module(m) for m in includes]
         self.include = includes
-        task_modules = {task.__class__.__module__
-                        for task in self.app.tasks.values()}
+        task_modules = {task.__class__.__module__ for task in self.app.tasks.values()}
         self.app.conf.include = tuple(set(prev) | task_modules)
 
     def prepare_args(self, **kwargs):
@@ -235,8 +233,7 @@ class WorkController:
             await self.blueprint.join()
 
     def reload(self, modules=None, reload=False, reloader=None):
-        list(self._reload_modules(
-            modules, force_reload=reload, reloader=reloader))
+        list(self._reload_modules(modules, force_reload=reload, reloader=reloader))
 
         if self.consumer:
             self.consumer.update_strategies()
@@ -249,8 +246,7 @@ class WorkController:
     def _reload_modules(self, modules=None, **kwargs):
         return (
             self._maybe_reload_module(m, **kwargs)
-            for m in set(self.app.loader.task_modules
-                         if modules is None else (modules or ()))
+            for m in set(self.app.loader.task_modules if modules is None else (modules or ()))
         )
 
     def _maybe_reload_module(self, module, force_reload=False, reloader=None):
@@ -262,11 +258,13 @@ class WorkController:
             return reload_from_cwd(sys.modules[module], reloader)
 
     def info(self):
-        uptime = datetime.now(timezone.utc) - self.startup_time
-        return {"total": self.state.total_count,
-                "pid": os.getpid(),
-                "clock": str(self.app.clock),
-                "uptime": round(uptime.total_seconds())}
+        uptime = datetime.now(UTC) - self.startup_time
+        return {
+            "total": self.state.total_count,
+            "pid": os.getpid(),
+            "clock": str(self.app.clock),
+            "uptime": round(uptime.total_seconds()),
+        }
 
     def rusage(self):
         if resource is None:
@@ -316,29 +314,41 @@ class WorkController:
     def state(self):
         return state
 
-    def setup_defaults(self, concurrency=None, loglevel="WARN", logfile=None,
-                       task_events=None, pool=None, consumer_cls=None,
-                       timer_cls=None, timer_precision=None,
-                       autoscaler_cls=None,
-                       pool_putlocks=None,
-                       pool_restarts=None,
-                       optimization=None, O=None,
-                       statedb=None,
-                       time_limit=None,
-                       soft_time_limit=None,
-                       scheduler=None,
-                       pool_cls=None,
-                       state_db=None,
-                       task_time_limit=None,
-                       task_soft_time_limit=None,
-                       scheduler_cls=None,
-                       schedule_filename=None,
-                       max_tasks_per_child=None,
-                       prefetch_multiplier=None, disable_rate_limits=None,
-                       worker_lost_wait=None,
-                       max_memory_per_child=None,
-                       loop_workers=None, loop_concurrency=None,
-                       sync_workers=None, **_kw):
+    def setup_defaults(
+        self,
+        concurrency=None,
+        loglevel="WARN",
+        logfile=None,
+        task_events=None,
+        pool=None,
+        consumer_cls=None,
+        timer_cls=None,
+        timer_precision=None,
+        autoscaler_cls=None,
+        pool_putlocks=None,
+        pool_restarts=None,
+        optimization=None,
+        O=None,
+        statedb=None,
+        time_limit=None,
+        soft_time_limit=None,
+        scheduler=None,
+        pool_cls=None,
+        state_db=None,
+        task_time_limit=None,
+        task_soft_time_limit=None,
+        scheduler_cls=None,
+        schedule_filename=None,
+        max_tasks_per_child=None,
+        prefetch_multiplier=None,
+        disable_rate_limits=None,
+        worker_lost_wait=None,
+        max_memory_per_child=None,
+        loop_workers=None,
+        loop_concurrency=None,
+        sync_workers=None,
+        **_kw,
+    ):
         either = self.app.either
         self.loglevel = loglevel
         self.logfile = logfile
@@ -349,7 +359,8 @@ class WorkController:
         self.consumer_cls = either("worker_consumer", consumer_cls)
         self.timer_cls = either("worker_timer", timer_cls)
         self.timer_precision = either(
-            "worker_timer_precision", timer_precision,
+            "worker_timer_precision",
+            timer_precision,
         )
         self.optimization = optimization or O
         self.autoscaler_cls = either("worker_autoscaler", autoscaler_cls)
@@ -357,25 +368,33 @@ class WorkController:
         self.pool_restarts = either("worker_pool_restarts", pool_restarts)
         self.statedb = either("worker_state_db", statedb, state_db)
         self.schedule_filename = either(
-            "beat_schedule_filename", schedule_filename,
+            "beat_schedule_filename",
+            schedule_filename,
         )
         self.scheduler = either("beat_scheduler", scheduler, scheduler_cls)
-        self.time_limit = either(
-            "task_time_limit", time_limit, task_time_limit)
+        self.time_limit = either("task_time_limit", time_limit, task_time_limit)
         self.soft_time_limit = either(
-            "task_soft_time_limit", soft_time_limit, task_soft_time_limit,
+            "task_soft_time_limit",
+            soft_time_limit,
+            task_soft_time_limit,
         )
         self.max_tasks_per_child = either(
-            "worker_max_tasks_per_child", max_tasks_per_child,
+            "worker_max_tasks_per_child",
+            max_tasks_per_child,
         )
         self.max_memory_per_child = either(
-            "worker_max_memory_per_child", max_memory_per_child,
+            "worker_max_memory_per_child",
+            max_memory_per_child,
         )
-        self.prefetch_multiplier = int(either(
-            "worker_prefetch_multiplier", prefetch_multiplier,
-        ))
+        self.prefetch_multiplier = int(
+            either(
+                "worker_prefetch_multiplier",
+                prefetch_multiplier,
+            )
+        )
         self.disable_rate_limits = either(
-            "worker_disable_rate_limits", disable_rate_limits,
+            "worker_disable_rate_limits",
+            disable_rate_limits,
         )
         self.worker_lost_wait = either("worker_lost_wait", worker_lost_wait)
         self.loop_workers = either("worker_loop_workers", loop_workers)

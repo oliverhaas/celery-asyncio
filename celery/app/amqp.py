@@ -1,4 +1,5 @@
 """Sending/Receiving Messages (Kombu integration)."""
+
 import numbers
 from collections import namedtuple
 from collections.abc import Mapping
@@ -55,6 +56,7 @@ def _convert_eta_to_properties(body, properties, **kwargs):
     elif isinstance(eta_value, (int, float)):
         properties["eta"] = float(eta_value)
 
+
 #: earliest date supported by time.mktime.
 INT_MIN = -2147483648
 
@@ -64,13 +66,11 @@ QUEUE_FORMAT = """
 key={0.routing_key}
 """
 
-task_message = namedtuple("task_message",
-                          ("headers", "properties", "body", "sent_event"))
+task_message = namedtuple("task_message", ("headers", "properties", "body", "sent_event"))
 
 
 def utf8dict(d, encoding="utf-8"):
-    return {k.decode(encoding) if isinstance(k, bytes) else k: v
-            for k, v in d.items()}
+    return {k.decode(encoding) if isinstance(k, bytes) else k: v for k, v in d.items()}
 
 
 class Queues(dict):
@@ -96,10 +96,15 @@ class Queues(dict):
     _consume_from = None
 
     def __init__(
-            self, queues=None, default_exchange=None,
-            create_missing=True, create_missing_queue_type=None,
-            create_missing_queue_exchange_type=None, autoexchange=None,
-            max_priority=None, default_routing_key=None,
+        self,
+        queues=None,
+        default_exchange=None,
+        create_missing=True,
+        create_missing_queue_type=None,
+        create_missing_queue_exchange_type=None,
+        autoexchange=None,
+        max_priority=None,
+        default_routing_key=None,
     ):
         super().__init__()
         self.aliases = WeakValueDictionary()
@@ -183,8 +188,7 @@ class Queues(dict):
         active = self.consume_from
         if not active:
             return ""
-        info = [QUEUE_FORMAT.strip().format(q)
-                for _, q in sorted(active.items())]
+        info = [QUEUE_FORMAT.strip().format(q) for _, q in sorted(active.items())]
         if indent_first:
             return textindent("\n".join(info), indent)
         return info[0] + "\n" + textindent("\n".join(info[1:]), indent)
@@ -207,9 +211,7 @@ class Queues(dict):
             include (Sequence[str], str): Names of queues to consume from.
         """
         if include:
-            self._consume_from = {
-                name: self[name] for name in maybe_list(include)
-            }
+            self._consume_from = {name: self[name] for name in maybe_list(include)}
 
     def deselect(self, exclude):
         """Deselect queues so that they won't be consumed from.
@@ -232,8 +234,7 @@ class Queues(dict):
         if self.create_missing_queue_type and self.create_missing_queue_type != "classic":
             if self.create_missing_queue_type not in ("classic", "quorum"):
                 raise ValueError(
-                    f"Invalid queue type '{self.create_missing_queue_type}'. "
-                    "Valid types are 'classic' and 'quorum'."
+                    f"Invalid queue type '{self.create_missing_queue_type}'. Valid types are 'classic' and 'quorum'."
                 )
             queue_arguments = {"x-queue-type": self.create_missing_queue_type}
 
@@ -305,8 +306,15 @@ class AMQP:
     def send_task_message(self):
         return self._create_task_sender()
 
-    def Queues(self, queues, create_missing=None, create_missing_queue_type=None,
-               create_missing_queue_exchange_type=None, autoexchange=None, max_priority=None):
+    def Queues(
+        self,
+        queues,
+        create_missing=None,
+        create_missing_queue_type=None,
+        create_missing_queue_exchange_type=None,
+        autoexchange=None,
+        max_priority=None,
+    ):
         # Create new :class:`Queues` instance, using queue defaults
         # from the current configuration.
         conf = self.app.conf
@@ -323,12 +331,15 @@ class AMQP:
             queue_arguments = None
             if conf.task_default_queue_type == "quorum":
                 queue_arguments = {"x-queue-type": "quorum"}
-            queues = (Queue(conf.task_default_queue,
-                            exchange=self.default_exchange,
-                            routing_key=default_routing_key,
-                            queue_arguments=queue_arguments),)
-        autoexchange = (self.autoexchange if autoexchange is None
-                        else autoexchange)
+            queues = (
+                Queue(
+                    conf.task_default_queue,
+                    exchange=self.default_exchange,
+                    routing_key=default_routing_key,
+                    queue_arguments=queue_arguments,
+                ),
+            )
+        autoexchange = self.autoexchange if autoexchange is None else autoexchange
         return self.queues_cls(
             queues,
             default_exchange=self.default_exchange,
@@ -342,9 +353,12 @@ class AMQP:
 
     def Router(self, queues=None, create_missing=None):
         """Return the current task router."""
-        return _routes.Router(self.routes, queues or self.queues,
-                              self.app.either("task_create_missing_queues",
-                                              create_missing), app=self.app)
+        return _routes.Router(
+            self.routes,
+            queues or self.queues,
+            self.app.either("task_create_missing_queues", create_missing),
+            app=self.app,
+        )
 
     def flush_routes(self):
         self._rtable = _routes.prepare(self.app.conf.task_routes)
@@ -352,21 +366,41 @@ class AMQP:
     def TaskConsumer(self, channel, queues=None, accept=None, **kw):
         if accept is None:
             accept = self.app.conf.accept_content
-        return self.Consumer(
-            channel, accept=accept,
-            queues=queues or list(self.queues.consume_from.values()),
-            **kw
-        )
+        return self.Consumer(channel, accept=accept, queues=queues or list(self.queues.consume_from.values()), **kw)
 
-    def as_task_v2(self, task_id, name, args=None, kwargs=None,
-                   countdown=None, eta=None, group_id=None, group_index=None,
-                   expires=None, retries=0, chord=None,
-                   callbacks=None, errbacks=None, reply_to=None,
-                   time_limit=None, soft_time_limit=None,
-                   create_sent_event=False, root_id=None, parent_id=None,
-                   shadow=None, chain=None, now=None, timezone=None,
-                   origin=None, ignore_result=False, argsrepr=None, kwargsrepr=None, stamped_headers=None,
-                   replaced_task_nesting=0, **options):
+    def as_task_v2(
+        self,
+        task_id,
+        name,
+        args=None,
+        kwargs=None,
+        countdown=None,
+        eta=None,
+        group_id=None,
+        group_index=None,
+        expires=None,
+        retries=0,
+        chord=None,
+        callbacks=None,
+        errbacks=None,
+        reply_to=None,
+        time_limit=None,
+        soft_time_limit=None,
+        create_sent_event=False,
+        root_id=None,
+        parent_id=None,
+        shadow=None,
+        chain=None,
+        now=None,
+        timezone=None,
+        origin=None,
+        ignore_result=False,
+        argsrepr=None,
+        kwargsrepr=None,
+        stamped_headers=None,
+        replaced_task_nesting=0,
+        **options,
+    ):
 
         args = args or ()
         kwargs = kwargs or {}
@@ -379,14 +413,16 @@ class AMQP:
             now = now or self.app.now()
             timezone = timezone or self.app.timezone
             eta = maybe_make_aware(
-                now + timedelta(seconds=countdown), tz=timezone,
+                now + timedelta(seconds=countdown),
+                tz=timezone,
             )
         if isinstance(expires, numbers.Real):
             self._verify_seconds(expires, "expires")
             now = now or self.app.now()
             timezone = timezone or self.app.timezone
             expires = maybe_make_aware(
-                now + timedelta(seconds=expires), tz=timezone,
+                now + timedelta(seconds=expires),
+                tz=timezone,
             )
         if not isinstance(eta, str):
             eta = eta and eta.isoformat()
@@ -432,7 +468,9 @@ class AMQP:
                 "reply_to": reply_to or "",
             },
             body=(
-                args, kwargs, {
+                args,
+                kwargs,
+                {
                     "callbacks": callbacks,
                     "errbacks": errbacks,
                     "chain": chain,
@@ -449,17 +487,37 @@ class AMQP:
                 "retries": retries,
                 "eta": eta,
                 "expires": expires,
-            } if create_sent_event else None,
+            }
+            if create_sent_event
+            else None,
         )
 
-    def as_task_v1(self, task_id, name, args=None, kwargs=None,
-                   countdown=None, eta=None, group_id=None, group_index=None,
-                   expires=None, retries=0,
-                   chord=None, callbacks=None, errbacks=None, reply_to=None,
-                   time_limit=None, soft_time_limit=None,
-                   create_sent_event=False, root_id=None, parent_id=None,
-                   shadow=None, now=None, timezone=None,
-                   **compat_kwargs):
+    def as_task_v1(
+        self,
+        task_id,
+        name,
+        args=None,
+        kwargs=None,
+        countdown=None,
+        eta=None,
+        group_id=None,
+        group_index=None,
+        expires=None,
+        retries=0,
+        chord=None,
+        callbacks=None,
+        errbacks=None,
+        reply_to=None,
+        time_limit=None,
+        soft_time_limit=None,
+        create_sent_event=False,
+        root_id=None,
+        parent_id=None,
+        shadow=None,
+        now=None,
+        timezone=None,
+        **compat_kwargs,
+    ):
         args = args or ()
         kwargs = kwargs or {}
         utc = self.utc
@@ -509,7 +567,9 @@ class AMQP:
                 "retries": retries,
                 "eta": eta,
                 "expires": expires,
-            } if create_sent_event else None,
+            }
+            if create_sent_event
+            else None,
         )
 
     def _verify_seconds(self, s, what):
@@ -528,7 +588,7 @@ class AMQP:
         send_after_publish = signals.after_task_publish.send
         after_receivers = signals.after_task_publish.receivers
 
-        send_task_sent = signals.task_sent.send   # XXX compat
+        send_task_sent = signals.task_sent.send  # XXX compat
         sent_receivers = signals.task_sent.receivers
 
         default_evd = self._event_dispatcher
@@ -538,14 +598,26 @@ class AMQP:
         default_serializer = self.app.conf.task_serializer
         default_compressor = self.app.conf.task_compression
 
-        def send_task_message(producer, name, message,
-                              exchange=None, routing_key=None, queue=None,
-                              event_dispatcher=None,
-                              retry=None, retry_policy=None,
-                              serializer=None, delivery_mode=None,
-                              compression=None, declare=None,
-                              headers=None, exchange_type=None,
-                              timeout=None, confirm_timeout=None, **kwargs):
+        def send_task_message(
+            producer,
+            name,
+            message,
+            exchange=None,
+            routing_key=None,
+            queue=None,
+            event_dispatcher=None,
+            retry=None,
+            retry_policy=None,
+            serializer=None,
+            delivery_mode=None,
+            compression=None,
+            declare=None,
+            headers=None,
+            exchange_type=None,
+            timeout=None,
+            confirm_timeout=None,
+            **kwargs,
+        ):
             retry = default_retry if retry is None else retry
             headers2, properties, body, sent_event = message
             if headers:
@@ -587,15 +659,18 @@ class AMQP:
 
             # merge default and custom policy
             retry = default_retry if retry is None else retry
-            _rp = (dict(default_policy, **retry_policy) if retry_policy
-                   else default_policy)
+            _rp = dict(default_policy, **retry_policy) if retry_policy else default_policy
 
             if before_receivers:
                 send_before_publish(
-                    sender=name, body=body,
-                    exchange=exchange, routing_key=routing_key,
-                    declare=declare, headers=headers2,
-                    properties=properties, retry_policy=retry_policy,
+                    sender=name,
+                    body=body,
+                    exchange=exchange,
+                    routing_key=routing_key,
+                    declare=declare,
+                    headers=headers2,
+                    properties=properties,
+                    retry_policy=retry_policy,
                 )
             ret = producer.publish(
                 body,
@@ -603,41 +678,53 @@ class AMQP:
                 routing_key=routing_key,
                 serializer=serializer or default_serializer,
                 compression=compression or default_compressor,
-                retry=retry, retry_policy=_rp,
-                delivery_mode=delivery_mode, declare=declare,
+                retry=retry,
+                retry_policy=_rp,
+                delivery_mode=delivery_mode,
+                declare=declare,
                 headers=headers2,
-                timeout=timeout, confirm_timeout=confirm_timeout,
-                **properties
+                timeout=timeout,
+                confirm_timeout=confirm_timeout,
+                **properties,
             )
             if after_receivers:
-                send_after_publish(sender=name, body=body, headers=headers2,
-                                   exchange=exchange, routing_key=routing_key)
+                send_after_publish(sender=name, body=body, headers=headers2, exchange=exchange, routing_key=routing_key)
             if sent_receivers:  # XXX deprecated
                 if isinstance(body, tuple):  # protocol version 2
                     send_task_sent(
-                        sender=name, task_id=headers2["id"], task=name,
-                        args=body[0], kwargs=body[1],
-                        eta=headers2["eta"], taskset=headers2["group"],
+                        sender=name,
+                        task_id=headers2["id"],
+                        task=name,
+                        args=body[0],
+                        kwargs=body[1],
+                        eta=headers2["eta"],
+                        taskset=headers2["group"],
                     )
                 else:  # protocol version 1
                     send_task_sent(
-                        sender=name, task_id=body["id"], task=name,
-                        args=body["args"], kwargs=body["kwargs"],
-                        eta=body["eta"], taskset=body["taskset"],
+                        sender=name,
+                        task_id=body["id"],
+                        task=name,
+                        args=body["args"],
+                        kwargs=body["kwargs"],
+                        eta=body["eta"],
+                        taskset=body["taskset"],
                     )
             if sent_event:
                 evd = event_dispatcher or default_evd
                 exname = exchange
                 if isinstance(exname, Exchange):
                     exname = exname.name
-                sent_event.update({
-                    "queue": qname,
-                    "exchange": exname,
-                    "routing_key": routing_key,
-                })
-                evd.publish("task-sent", sent_event,
-                            producer, retry=retry, retry_policy=retry_policy)
+                sent_event.update(
+                    {
+                        "queue": qname,
+                        "exchange": exname,
+                        "routing_key": routing_key,
+                    }
+                )
+                evd.publish("task-sent", sent_event, producer, retry=retry, retry_policy=retry_policy)
             return ret
+
         return send_task_message
 
     def _create_async_task_sender(self):
@@ -654,7 +741,7 @@ class AMQP:
         send_after_publish = signals.after_task_publish.send
         after_receivers = signals.after_task_publish.receivers
 
-        send_task_sent = signals.task_sent.send   # XXX compat
+        send_task_sent = signals.task_sent.send  # XXX compat
         sent_receivers = signals.task_sent.receivers
 
         default_evd = self._event_dispatcher
@@ -664,13 +751,22 @@ class AMQP:
         default_serializer = self.app.conf.task_serializer
         default_compressor = self.app.conf.task_compression
 
-        async def asend_task_message(producer, name, message,
-                                     exchange=None, routing_key=None, queue=None,
-                                     event_dispatcher=None,
-                                     serializer=None, delivery_mode=None,
-                                     compression=None, declare=None,
-                                     headers=None, exchange_type=None,
-                                     **kwargs):
+        async def asend_task_message(
+            producer,
+            name,
+            message,
+            exchange=None,
+            routing_key=None,
+            queue=None,
+            event_dispatcher=None,
+            serializer=None,
+            delivery_mode=None,
+            compression=None,
+            declare=None,
+            headers=None,
+            exchange_type=None,
+            **kwargs,
+        ):
             """Async version of send_task_message using native asyncio.
 
             Note: retry, retry_policy, timeout, confirm_timeout are not supported
@@ -722,10 +818,14 @@ class AMQP:
 
             if before_receivers:
                 send_before_publish(
-                    sender=name, body=body,
-                    exchange=exchange, routing_key=routing_key,
-                    declare=declare, headers=headers2,
-                    properties=properties, retry_policy=None,
+                    sender=name,
+                    body=body,
+                    exchange=exchange,
+                    routing_key=routing_key,
+                    declare=declare,
+                    headers=headers2,
+                    properties=properties,
+                    retry_policy=None,
                 )
 
             # Native async publish
@@ -737,35 +837,44 @@ class AMQP:
                 compression=compression or default_compressor,
                 delivery_mode=delivery_mode,
                 headers=headers2,
-                **properties
+                **properties,
             )
 
             if after_receivers:
-                send_after_publish(sender=name, body=body, headers=headers2,
-                                   exchange=exchange, routing_key=routing_key)
+                send_after_publish(sender=name, body=body, headers=headers2, exchange=exchange, routing_key=routing_key)
             if sent_receivers:  # XXX deprecated
                 if isinstance(body, tuple):  # protocol version 2
                     send_task_sent(
-                        sender=name, task_id=headers2["id"], task=name,
-                        args=body[0], kwargs=body[1],
-                        eta=headers2["eta"], taskset=headers2["group"],
+                        sender=name,
+                        task_id=headers2["id"],
+                        task=name,
+                        args=body[0],
+                        kwargs=body[1],
+                        eta=headers2["eta"],
+                        taskset=headers2["group"],
                     )
                 else:  # protocol version 1
                     send_task_sent(
-                        sender=name, task_id=body["id"], task=name,
-                        args=body["args"], kwargs=body["kwargs"],
-                        eta=body["eta"], taskset=body["taskset"],
+                        sender=name,
+                        task_id=body["id"],
+                        task=name,
+                        args=body["args"],
+                        kwargs=body["kwargs"],
+                        eta=body["eta"],
+                        taskset=body["taskset"],
                     )
             if sent_event:
                 evd = event_dispatcher or default_evd
                 exname = exchange
                 if isinstance(exname, Exchange):
                     exname = exname.name
-                sent_event.update({
-                    "queue": qname,
-                    "exchange": exname,
-                    "routing_key": routing_key,
-                })
+                sent_event.update(
+                    {
+                        "queue": qname,
+                        "exchange": exname,
+                        "routing_key": routing_key,
+                    }
+                )
                 # Note: async event publish would need to be implemented
                 evd.publish("task-sent", sent_event, producer)
 
@@ -809,8 +918,7 @@ class AMQP:
 
     @cached_property
     def default_exchange(self):
-        return Exchange(self.app.conf.task_default_exchange,
-                        self.app.conf.task_default_exchange_type)
+        return Exchange(self.app.conf.task_default_exchange, self.app.conf.task_default_exchange_type)
 
     @cached_property
     def utc(self):
@@ -823,6 +931,6 @@ class AMQP:
         return self.app.events.Dispatcher(enabled=False)
 
     def _handle_conf_update(self, *args, **kwargs):
-        if ("task_routes" in kwargs or "task_routes" in args):
+        if "task_routes" in kwargs or "task_routes" in args:
             self.flush_routes()
             self.router = self.Router()

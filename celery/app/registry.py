@@ -1,4 +1,5 @@
 """Registry of available tasks."""
+
 import inspect
 from importlib import import_module
 
@@ -6,7 +7,7 @@ from celery._state import get_current_app
 from celery.app.autoretry import add_autoretry_behaviour
 from celery.exceptions import InvalidTaskError, NotRegistered
 
-__all__ = ('TaskRegistry',)
+__all__ = ("TaskRegistry",)
 
 
 class TaskRegistry(dict):
@@ -24,10 +25,8 @@ class TaskRegistry(dict):
         instance. Name must be configured prior to registration.
         """
         if task.name is None:
-            raise InvalidTaskError(
-                'Task class {!r} must specify .name attribute'.format(
-                    type(task).__name__))
-        task = inspect.isclass(task) and task() or task
+            raise InvalidTaskError(f"Task class {type(task).__name__!r} must specify .name attribute")
+        task = (inspect.isclass(task) and task()) or task
         add_autoretry_behaviour(task)
         self[task.name] = task
 
@@ -42,20 +41,19 @@ class TaskRegistry(dict):
             celery.exceptions.NotRegistered: if the task is not registered.
         """
         try:
-            self.pop(getattr(name, 'name', name))
+            self.pop(getattr(name, "name", name))
         except KeyError:
             raise self.NotRegistered(name)
 
     # -- these methods are irrelevant now and will be removed in 4.0
     def regular(self):
-        return self.filter_types('regular')
+        return self.filter_types("regular")
 
     def periodic(self):
-        return self.filter_types('periodic')
+        return self.filter_types("periodic")
 
     def filter_types(self, type):
-        return {name: task for name, task in self.items()
-                if getattr(task, 'type', 'regular') == type}
+        return {name: task for name, task in self.items() if getattr(task, "type", "regular") == type}
 
 
 def _unpickle_task(name):

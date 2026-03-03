@@ -1,4 +1,5 @@
 """Click customizations for Celery."""
+
 import json
 import numbers
 from collections import OrderedDict
@@ -21,9 +22,11 @@ try:
     from pygments.formatters import Terminal256Formatter
     from pygments.lexers import PythonLexer
 except ImportError:
+
     def highlight(s, *args, **kwargs):
         """Place holder function in case pygments is missing."""
         return s
+
     LEXER = None
     FORMATTER = None
 else:
@@ -57,22 +60,22 @@ class CLIContext:
 
     def secho(self, message=None, **kwargs):
         if self.no_color:
-            kwargs['color'] = False
+            kwargs["color"] = False
             click.echo(message, **kwargs)
         else:
             click.secho(message, **kwargs)
 
     def echo(self, message=None, **kwargs):
         if self.no_color:
-            kwargs['color'] = False
+            kwargs["color"] = False
             click.echo(message, **kwargs)
         else:
             click.echo(message, **kwargs)
 
     def error(self, message=None, **kwargs):
-        kwargs['err'] = True
+        kwargs["err"] = True
         if self.no_color:
-            kwargs['color'] = False
+            kwargs["color"] = False
             click.echo(message, **kwargs)
         else:
             click.secho(message, **kwargs)
@@ -81,7 +84,7 @@ class CLIContext:
         if isinstance(n, list):
             return self.OK, self.pretty_list(n)
         if isinstance(n, dict):
-            if 'ok' in n or 'error' in n:
+            if "ok" in n or "error" in n:
                 return self.pretty_dict_ok_error(n)
             else:
                 s = json.dumps(n, sort_keys=True, indent=4)
@@ -94,41 +97,35 @@ class CLIContext:
 
     def pretty_list(self, n):
         if not n:
-            return '- empty -'
-        return '\n'.join(
-            f'{self.style("*", fg="white")} {item}' for item in n
-        )
+            return "- empty -"
+        return "\n".join(f"{self.style('*', fg='white')} {item}" for item in n)
 
     def pretty_dict_ok_error(self, n):
         try:
-            return (self.OK,
-                    text.indent(self.pretty(n['ok'])[1], 4))
+            return (self.OK, text.indent(self.pretty(n["ok"])[1], 4))
         except KeyError:
             pass
-        return (self.ERROR,
-                text.indent(self.pretty(n['error'])[1], 4))
+        return (self.ERROR, text.indent(self.pretty(n["error"])[1], 4))
 
-    def say_chat(self, direction, title, body='', show_body=False):
-        if direction == '<-' and self.quiet:
+    def say_chat(self, direction, title, body="", show_body=False):
+        if direction == "<-" and self.quiet:
             return
-        dirstr = not self.quiet and f'{self.style(direction, fg="white", bold=True)} ' or ''
-        self.echo(f'{dirstr} {title}')
+        dirstr = (not self.quiet and f"{self.style(direction, fg='white', bold=True)} ") or ""
+        self.echo(f"{dirstr} {title}")
         if body and show_body:
             self.echo(body)
 
 
 def handle_preload_options(f):
     """Extract preload options and return a wrapped callable."""
+
     def caller(ctx, *args, **kwargs):
         app = ctx.obj.app
 
-        preload_options = [o.name for o in app.user_options.get('preload', [])]
+        preload_options = [o.name for o in app.user_options.get("preload", [])]
 
         if preload_options:
-            user_options = {
-                preload_option: kwargs[preload_option]
-                for preload_option in preload_options
-            }
+            user_options = {preload_option: kwargs[preload_option] for preload_option in preload_options}
 
             user_preload_options.send(sender=f, app=app, options=user_options)
 
@@ -147,8 +144,8 @@ class CeleryOption(click.Option):
 
     def __init__(self, *args, **kwargs):
         """Initialize a Celery option."""
-        self.help_group = kwargs.pop('help_group', None)
-        self.default_value_from_context = kwargs.pop('default_value_from_context', None)
+        self.help_group = kwargs.pop("help_group", None)
+        self.default_value_from_context = kwargs.pop("default_value_from_context", None)
         super().__init__(*args, **kwargs)
 
 
@@ -161,10 +158,10 @@ class CeleryCommand(click.Command):
         for param in self.get_params(ctx):
             rv = param.get_help_record(ctx)
             if rv is not None:
-                if hasattr(param, 'help_group') and param.help_group:
+                if hasattr(param, "help_group") and param.help_group:
                     opts.setdefault(str(param.help_group), []).append(rv)
                 else:
-                    opts.setdefault('Options', []).append(rv)
+                    opts.setdefault("Options", []).append(rv)
 
         for name, opts_group in opts.items():
             with formatter.section(name):
@@ -175,10 +172,12 @@ class DaemonOption(CeleryOption):
     """Common daemonization option"""
 
     def __init__(self, *args, **kwargs):
-        super().__init__(args,
-                         help_group=kwargs.pop("help_group", "Daemonization Options"),
-                         callback=kwargs.pop("callback", self.daemon_setting),
-                         **kwargs)
+        super().__init__(
+            args,
+            help_group=kwargs.pop("help_group", "Daemonization Options"),
+            callback=kwargs.pop("callback", self.daemon_setting),
+            **kwargs,
+        )
 
     def daemon_setting(self, ctx: Context, opt: CeleryOption, value: Any) -> Any:
         """
@@ -194,14 +193,16 @@ class CeleryDaemonCommand(CeleryCommand):
     def __init__(self, *args, **kwargs):
         """Initialize a Celery command with common daemon options."""
         super().__init__(*args, **kwargs)
-        self.params.extend((
-            DaemonOption("--logfile", "-f", help="Log destination; defaults to stderr"),
-            DaemonOption("--pidfile", help="PID file path; defaults to no PID file"),
-            DaemonOption("--uid", help="Drops privileges to this user ID"),
-            DaemonOption("--gid", help="Drops privileges to this group ID"),
-            DaemonOption("--umask", help="Create files and directories with this umask"),
-            DaemonOption("--executable", help="Override path to the Python executable"),
-        ))
+        self.params.extend(
+            (
+                DaemonOption("--logfile", "-f", help="Log destination; defaults to stderr"),
+                DaemonOption("--pidfile", help="PID file path; defaults to no PID file"),
+                DaemonOption("--uid", help="Drops privileges to this user ID"),
+                DaemonOption("--gid", help="Drops privileges to this group ID"),
+                DaemonOption("--umask", help="Create files and directories with this umask"),
+                DaemonOption("--executable", help="Override path to the Python executable"),
+            )
+        )
 
 
 class CommaSeparatedList(ParamType):
@@ -287,7 +288,7 @@ class LogLevel(click.Choice):
 
     def __init__(self):
         """Initialize the log level option with the relevant choices."""
-        super().__init__(('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'FATAL'))
+        super().__init__(("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "FATAL"))
 
     def convert(self, value, param, ctx):
         if isinstance(value, numbers.Integral):

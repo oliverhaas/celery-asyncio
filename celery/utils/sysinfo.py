@@ -1,4 +1,5 @@
 """System information utilities."""
+
 from __future__ import annotations
 
 import os
@@ -6,10 +7,10 @@ from math import ceil
 
 from kombu.utils.objects import cached_property
 
-__all__ = ('load_average', 'df')
+__all__ = ("load_average", "df")
 
 
-if hasattr(os, 'getloadavg'):
+if hasattr(os, "getloadavg"):
 
     def _load_average() -> tuple[float, ...]:
         return tuple(ceil(l * 1e2) / 1e2 for l in os.getloadavg())
@@ -17,7 +18,11 @@ if hasattr(os, 'getloadavg'):
 else:  # pragma: no cover
     # Windows doesn't have getloadavg
     def _load_average() -> tuple[float, ...]:
-        return 0.0, 0.0, 0.0,
+        return (
+            0.0,
+            0.0,
+            0.0,
+        )
 
 
 def load_average() -> tuple[float, ...]:

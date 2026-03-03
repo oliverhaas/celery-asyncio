@@ -1,4 +1,5 @@
 """Implementation of the Observer pattern."""
+
 import sys
 import threading
 import warnings
@@ -13,7 +14,7 @@ from celery.utils.functional import fun_accepts_kwargs
 from celery.utils.log import get_logger
 from celery.utils.time import humanize_seconds
 
-__all__ = ('Signal',)
+__all__ = ("Signal",)
 
 logger = get_logger(__name__)
 
@@ -24,7 +25,7 @@ def _make_id(target):  # pragma: no cover
     if isinstance(target, (bytes, str)):
         # see Issue #2475
         return target
-    if hasattr(target, '__func__'):
+    if hasattr(target, "__func__"):
         return id(target.__func__)
     return id(target)
 
@@ -55,7 +56,7 @@ def _make_lookup_key(receiver, sender, dispatch_uid):
     if dispatch_uid:
         return (dispatch_uid, _make_id(sender))
     # Issue #9119 - retry-wrapped functions use the underlying function for dispatch_uid
-    elif hasattr(receiver, '_dispatch_uid'):
+    elif hasattr(receiver, "_dispatch_uid"):
         return (receiver._dispatch_uid, _make_id(sender))
     else:
         return (_make_id(receiver), _make_id(sender))
@@ -86,8 +87,7 @@ class Signal:  # pragma: no cover
 
     def __init__(self, providing_args=None, use_caching=False, name=None):
         self.receivers = []
-        self.providing_args = set(
-            providing_args if providing_args is not None else [])
+        self.providing_args = set(providing_args if providing_args is not None else [])
         self.lock = threading.Lock()
         self.use_caching = use_caching
         self.name = name
@@ -96,15 +96,15 @@ class Signal:  # pragma: no cover
         # distinct sender we cache the receivers that sender has in
         # 'sender_receivers_cache'.  The cache is cleaned when .connect() or
         # .disconnect() is called and populated on .send().
-        self.sender_receivers_cache = (
-            weakref.WeakKeyDictionary() if use_caching else {}
-        )
+        self.sender_receivers_cache = weakref.WeakKeyDictionary() if use_caching else {}
         self._dead_receivers = False
 
     def _connect_proxy(self, fun, sender, weak, dispatch_uid):
         return self.connect(
-            fun, sender=sender._get_current_object(),
-            weak=weak, dispatch_uid=dispatch_uid,
+            fun,
+            sender=sender._get_current_object(),
+            weak=weak,
+            dispatch_uid=dispatch_uid,
         )
 
     def connect(self, *args, **kwargs):
@@ -141,42 +141,40 @@ class Signal:  # pragma: no cover
                 runs successfully. A strong ref to the receiver will be stored
                 and the `weak` option will be ignored.
         """
-        def _handle_options(sender=None, weak=True, dispatch_uid=None,
-                            retry=False):
+
+        def _handle_options(sender=None, weak=True, dispatch_uid=None, retry=False):
 
             def _connect_signal(fun):
 
-                options = {'dispatch_uid': dispatch_uid,
-                           'weak': weak}
+                options = {"dispatch_uid": dispatch_uid, "weak": weak}
 
                 def _retry_receiver(retry_fun):
 
                     def _try_receiver_over_time(*args, **kwargs):
                         def on_error(exc, intervals, retries):
                             interval = next(intervals)
-                            err_msg = RECEIVER_RETRY_ERROR % \
-                                {'receiver': retry_fun,
-                                 'when': humanize_seconds(interval, 'in', ' ')}
+                            err_msg = RECEIVER_RETRY_ERROR % {
+                                "receiver": retry_fun,
+                                "when": humanize_seconds(interval, "in", " "),
+                            }
                             logger.error(err_msg)
                             return interval
 
-                        return retry_over_time(retry_fun, Exception, args,
-                                               kwargs, on_error)
+                        return retry_over_time(retry_fun, Exception, args, kwargs, on_error)
 
                     return _try_receiver_over_time
 
                 if retry:
-                    options['weak'] = False
+                    options["weak"] = False
                     if not dispatch_uid:
                         # if there's no dispatch_uid then we need to set the
                         # dispatch uid to the original func id so we can look
                         # it up later with the original func id
-                        options['dispatch_uid'] = _make_id(fun)
+                        options["dispatch_uid"] = _make_id(fun)
                     fun = _retry_receiver(fun)
-                    fun._dispatch_uid = options['dispatch_uid']
+                    fun._dispatch_uid = options["dispatch_uid"]
 
-                self._connect_signal(fun, sender, options['weak'],
-                                     options['dispatch_uid'])
+                self._connect_signal(fun, sender, options["weak"], options["dispatch_uid"])
                 return fun
 
             return _connect_signal
@@ -186,14 +184,17 @@ class Signal:  # pragma: no cover
         return _handle_options(*args, **kwargs)
 
     def _connect_signal(self, receiver, sender, weak, dispatch_uid):
-        assert callable(receiver), 'Signal receivers must be callable'
+        assert callable(receiver), "Signal receivers must be callable"
         if not fun_accepts_kwargs(receiver):
-            raise ValueError(
-                'Signal receiver must accept keyword arguments.')
+            raise ValueError("Signal receiver must accept keyword arguments.")
 
         if isinstance(sender, PromiseProxy):
             sender.__then__(
-                self._connect_proxy, receiver, sender, weak, dispatch_uid,
+                self._connect_proxy,
+                receiver,
+                sender,
+                weak,
+                dispatch_uid,
             )
             return receiver
 
@@ -215,8 +216,7 @@ class Signal:  # pragma: no cover
 
         return receiver
 
-    def disconnect(self, receiver=None, sender=None, weak=None,
-                   dispatch_uid=None):
+    def disconnect(self, receiver=None, sender=None, weak=None, dispatch_uid=None):
         """Disconnect receiver from sender for signal.
 
         If weak references are used, disconnect needn't be called.
@@ -234,9 +234,7 @@ class Signal:  # pragma: no cover
                 to disconnect.
         """
         if weak is not None:
-            warnings.warn(
-                'Passing `weak` to disconnect has no effect.',
-                CDeprecationWarning, stacklevel=2)
+            warnings.warn("Passing `weak` to disconnect has no effect.", CDeprecationWarning, stacklevel=2)
 
         lookup_key = _make_lookup_key(receiver, sender, dispatch_uid)
 
@@ -271,22 +269,21 @@ class Signal:  # pragma: no cover
             List: of tuple pairs: `[(receiver, response), … ]`.
         """
         responses = []
-        if not self.receivers or \
-                self.sender_receivers_cache.get(sender) is NO_RECEIVERS:
+        if not self.receivers or self.sender_receivers_cache.get(sender) is NO_RECEIVERS:
             return responses
 
         for receiver in self._live_receivers(sender):
             try:
                 response = receiver(signal=self, sender=sender, **named)
             except Exception as exc:  # pylint: disable=broad-except
-                if not hasattr(exc, '__traceback__'):
+                if not hasattr(exc, "__traceback__"):
                     exc.__traceback__ = sys.exc_info()[2]
-                logger.exception(
-                    'Signal handler %r raised: %r', receiver, exc)
+                logger.exception("Signal handler %r raised: %r", receiver, exc)
                 responses.append((receiver, exc))
             else:
                 responses.append((receiver, response))
         return responses
+
     send_robust = send  # Compat with Django interface.
 
     def _clear_dead_receivers(self):
@@ -320,7 +317,7 @@ class Signal:  # pragma: no cover
                 senderkey = _make_id(sender)
                 receivers = []
                 for (receiverkey, r_senderkey), receiver in self.receivers:
-                    if r_senderkey == NONE_ID or r_senderkey == senderkey:
+                    if r_senderkey in (NONE_ID, senderkey):
                         receivers.append(receiver)
                 if self.use_caching:
                     if not receivers:
@@ -351,7 +348,7 @@ class Signal:  # pragma: no cover
 
     def __repr__(self):
         """``repr(signal)``."""
-        return f'<{type(self).__name__}: {self.name} providing_args={self.providing_args!r}>'
+        return f"<{type(self).__name__}: {self.name} providing_args={self.providing_args!r}>"
 
     def __str__(self):
         """``str(signal)``."""

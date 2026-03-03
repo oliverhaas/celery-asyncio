@@ -1,6 +1,6 @@
 """Async I/O backend support utilities."""
 
-import socket
+import builtins
 import threading
 import time
 from collections import deque
@@ -12,8 +12,10 @@ from celery import states
 from celery.exceptions import TimeoutError
 
 __all__ = (
-    'AsyncBackendMixin', 'BaseResultConsumer', 'Drainer',
-    'register_drainer',
+    "AsyncBackendMixin",
+    "BaseResultConsumer",
+    "Drainer",
+    "register_drainer",
 )
 
 
@@ -22,13 +24,15 @@ drainers = {}
 
 def register_drainer(name):
     """Decorator used to register a new result drainer type."""
+
     def _inner(cls):
         drainers[name] = cls
         return cls
+
     return _inner
 
 
-@register_drainer('default')
+@register_drainer("default")
 class Drainer:
     """Result draining service."""
 
@@ -48,10 +52,10 @@ class Drainer:
         while 1:
             # Total time spent may exceed a single call to wait()
             if timeout and time.monotonic() - time_start >= timeout:
-                raise socket.timeout()
+                raise builtins.TimeoutError()
             try:
                 yield self.wait_for(p, wait, timeout=interval)
-            except socket.timeout:
+            except builtins.TimeoutError:
                 pass
             if on_interval:
                 on_interval()
@@ -82,9 +86,7 @@ class AsyncBackendMixin:
         # into these buckets.
         bucket = deque()
         for node in results:
-            if not hasattr(node, '_cache'):
-                bucket.append(node)
-            elif node._cache:
+            if not hasattr(node, "_cache") or node._cache:
                 bucket.append(node)
             else:
                 self._collect_into(node, bucket)
@@ -92,7 +94,7 @@ class AsyncBackendMixin:
         for _ in self._wait_for_pending(result, no_ack=no_ack, **kwargs):
             while bucket:
                 node = bucket.popleft()
-                if not hasattr(node, '_cache'):
+                if not hasattr(node, "_cache"):
                     yield node.id, node.children
                 else:
                     yield node.id, node._cache
@@ -120,8 +122,7 @@ class AsyncBackendMixin:
 
     def add_pending_results(self, results, weak=False):
         self.result_consumer.drainer.start()
-        return [self.add_pending_result(result, weak=weak, start_drainer=False)
-                for result in results]
+        return [self.add_pending_result(result, weak=weak, start_drainer=False) for result in results]
 
     def remove_pending_result(self, result):
         self._remove_pending_result(result.id)
@@ -135,20 +136,15 @@ class AsyncBackendMixin:
     def on_result_fulfilled(self, result):
         self.result_consumer.cancel_for(result.id)
 
-    def wait_for_pending(self, result,
-                         callback=None, propagate=True, **kwargs):
+    def wait_for_pending(self, result, callback=None, propagate=True, **kwargs):
         self._ensure_not_eager()
         for _ in self._wait_for_pending(result, **kwargs):
             pass
         return result.maybe_throw(callback=callback, propagate=propagate)
 
-    def _wait_for_pending(self, result,
-                          timeout=None, on_interval=None, on_message=None,
-                          **kwargs):
+    def _wait_for_pending(self, result, timeout=None, on_interval=None, on_message=None, **kwargs):
         return self.result_consumer._wait_for_pending(
-            result, timeout=timeout,
-            on_interval=on_interval, on_message=on_message,
-            **kwargs
+            result, timeout=timeout, on_interval=on_interval, on_message=on_message, **kwargs
         )
 
     @property
@@ -159,8 +155,7 @@ class AsyncBackendMixin:
 class BaseResultConsumer:
     """Manager responsible for consuming result messages."""
 
-    def __init__(self, backend, app, accept,
-                 pending_results, pending_messages):
+    def __init__(self, backend, app, accept, pending_results, pending_messages):
         self.backend = backend
         self.app = app
         self.accept = accept
@@ -168,7 +163,7 @@ class BaseResultConsumer:
         self._pending_messages = pending_messages
         self.on_message = None
         self.buckets = WeakKeyDictionary()
-        self.drainer = drainers['default'](self)
+        self.drainer = drainers["default"](self)
 
     def start(self, initial_task_id, **kwargs):
         raise NotImplementedError()
@@ -195,22 +190,17 @@ class BaseResultConsumer:
         pass
 
     def drain_events_until(self, p, timeout=None, on_interval=None):
-        return self.drainer.drain_events_until(
-            p, timeout=timeout, on_interval=on_interval)
+        return self.drainer.drain_events_until(p, timeout=timeout, on_interval=on_interval)
 
-    def _wait_for_pending(self, result,
-                          timeout=None, on_interval=None, on_message=None,
-                          **kwargs):
+    def _wait_for_pending(self, result, timeout=None, on_interval=None, on_message=None, **kwargs):
         self.on_wait_for_pending(result, timeout=timeout, **kwargs)
         prev_on_m, self.on_message = self.on_message, on_message
         try:
-            for _ in self.drain_events_until(
-                    result.on_ready, timeout=timeout,
-                    on_interval=on_interval):
+            for _ in self.drain_events_until(result.on_ready, timeout=timeout, on_interval=on_interval):
                 yield
                 sleep(0)
-        except socket.timeout:
-            raise TimeoutError('The operation timed out.')
+        except builtins.TimeoutError:
+            raise TimeoutError("The operation timed out.")
         finally:
             self.on_message = prev_on_m
 
@@ -231,8 +221,8 @@ class BaseResultConsumer:
     def on_state_change(self, meta, message):
         if self.on_message:
             self.on_message(meta)
-        if meta['status'] in states.READY_STATES:
-            task_id = meta['task_id']
+        if meta["status"] in states.READY_STATES:
+            task_id = meta["task_id"]
             try:
                 result = self._get_pending_result(task_id)
             except KeyError:

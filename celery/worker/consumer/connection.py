@@ -1,4 +1,5 @@
 """Consumer Broker Connection Bootstep - async implementation."""
+
 from celery import bootsteps
 from celery.utils.log import get_logger
 

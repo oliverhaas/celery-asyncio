@@ -1,4 +1,5 @@
 """Worker Event Dispatcher Bootstep - async implementation."""
+
 from celery import bootsteps
 
 from .connection import Connection
@@ -11,17 +12,9 @@ class Events(bootsteps.StartStopStep):
 
     requires = (Connection,)
 
-    def __init__(self, c,
-                 task_events=True,
-                 without_heartbeat=False,
-                 without_gossip=False,
-                 **kwargs):
+    def __init__(self, c, task_events=True, without_heartbeat=False, without_gossip=False, **kwargs):
         self.groups = None if task_events else ["worker"]
-        self.send_events = (
-            task_events or
-            not without_gossip or
-            not without_heartbeat
-        )
+        self.send_events = task_events or not without_gossip or not without_heartbeat
         self.enabled = self.send_events
         c.event_dispatcher = None
         super().__init__(c, **kwargs)

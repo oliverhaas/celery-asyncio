@@ -1,7 +1,8 @@
 """Object related utilities, including introspection, etc."""
+
 from functools import reduce
 
-__all__ = ('Bunch', 'FallbackContext', 'getitem_property', 'mro_lookup')
+__all__ = ("Bunch", "FallbackContext", "getitem_property", "mro_lookup")
 
 
 class Bunch:
@@ -38,7 +39,7 @@ def mro_lookup(cls, attr, stop=None, monkey_patched=None):
             else:
                 if module_origin not in monkey_patched:
                     return node
-            return
+            return None
         if attr in node.__dict__:
             return node
 
@@ -81,9 +82,7 @@ class FallbackContext:
     def __enter__(self):
         if self.provided is not None:
             return self.provided
-        context = self._context = self.fallback(
-            *self.fb_args, **self.fb_kwargs
-        ).__enter__()
+        context = self._context = self.fallback(*self.fb_args, **self.fb_kwargs).__enter__()
         return context
 
     def __exit__(self, *exc_info):
@@ -125,13 +124,12 @@ class getitem_property:
     """
 
     def __init__(self, keypath, doc=None):
-        path, _, self.key = keypath.rpartition('.')
-        self.path = path.split('.') if path else None
+        path, _, self.key = keypath.rpartition(".")
+        self.path = path.split(".") if path else None
         self.__doc__ = doc
 
     def _path(self, obj):
-        return (reduce(lambda d, k: d[k], [obj] + self.path) if self.path
-                else obj)
+        return reduce(lambda d, k: d[k], [obj] + self.path) if self.path else obj
 
     def __get__(self, obj, type=None):
         if obj is None:

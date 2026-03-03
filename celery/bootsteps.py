@@ -45,8 +45,7 @@ class StepFormatter(GraphFormatter):
     def label(self, step):
         return step and "{}{}".format(
             self._get_prefix(step),
-            bytes_to_str(
-                (step.label or _label(step)).encode("utf-8", "ignore")),
+            bytes_to_str((step.label or _label(step)).encode("utf-8", "ignore")),
         )
 
     def _get_prefix(self, step):
@@ -93,8 +92,7 @@ class Blueprint:
         TERMINATE: "terminating",
     }
 
-    def __init__(self, steps=None, name=None,
-                 on_start=None, on_close=None, on_stopped=None):
+    def __init__(self, steps=None, name=None, on_start=None, on_close=None, on_stopped=None):
         self.name = name or self.name or qualname(type(self))
         self.types = set(steps or []) | set(self.default_steps)
         self.on_start = on_start
@@ -127,20 +125,17 @@ class Blueprint:
             self.on_close()
         await self.send_all(parent, "close", "closing", reverse=False)
 
-    async def restart(self, parent, method="stop",
-                      description="restarting", propagate=False):
+    async def restart(self, parent, method="stop", description="restarting", propagate=False):
         await self.send_all(parent, method, description, propagate=propagate)
 
-    async def send_all(self, parent, method,
-                       description=None, reverse=True, propagate=True, args=()):
+    async def send_all(self, parent, method, description=None, reverse=True, propagate=True, args=()):
         description = description or method.replace("_", " ")
         steps = reversed(parent.steps) if reverse else parent.steps
         for step in steps:
             if step:
                 fun = getattr(step, method, None)
                 if fun is not None:
-                    self._debug("%s %s...",
-                                description.capitalize(), step.alias)
+                    self._debug("%s %s...", description.capitalize(), step.alias)
                     try:
                         result = fun(parent, *args)
                         if asyncio.iscoroutine(result):
@@ -148,8 +143,7 @@ class Blueprint:
                     except Exception as exc:
                         if propagate:
                             raise
-                        logger.exception(
-                            "Error on %s %s: %r", description, step.alias, exc)
+                        logger.exception("Error on %s %s: %r", description, step.alias, exc)
 
     async def stop(self, parent, close=True, terminate=False):
         what = "terminating" if terminate else "stopping"
@@ -165,8 +159,10 @@ class Blueprint:
         self.state = CLOSE
 
         await self.restart(
-            parent, "terminate" if terminate else "stop",
-            description=what, propagate=False,
+            parent,
+            "terminate" if terminate else "stop",
+            description=what,
+            propagate=False,
         )
 
         if self.on_stopped:
@@ -205,8 +201,7 @@ class Blueprint:
             step = S(parent, **kwargs)
             steps[step.name] = step
             order.append(step)
-        self._debug("New boot order: {%s}",
-                    ", ".join(s.alias for s in self.order))
+        self._debug("New boot order: {%s}", ", ".join(s.alias for s in self.order))
         for step in order:
             step.include(parent)
         return self
@@ -237,7 +232,8 @@ class Blueprint:
         self._firstpass(steps)
         it = ((C, C.requires) for C in steps.values())
         G = self.graph = DependencyGraph(
-            it, formatter=self.GraphFormatter(root=last),
+            it,
+            formatter=self.GraphFormatter(root=last),
         )
         if last:
             for obj in G:

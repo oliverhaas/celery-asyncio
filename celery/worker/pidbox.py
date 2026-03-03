@@ -1,4 +1,5 @@
 """Worker Pidbox (remote control) - async implementation."""
+
 import asyncio
 
 from kombu.utils.encoding import safe_str

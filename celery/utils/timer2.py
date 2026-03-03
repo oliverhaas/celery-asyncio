@@ -3,22 +3,25 @@
 .. note::
     This is used for the thread-based worker only.
 """
+
 import logging
 import os
 import sys
 import threading
+from collections.abc import Callable, Iterator
 from itertools import count
 from threading import TIMEOUT_MAX as THREAD_TIMEOUT_MAX
 from time import sleep
-from typing import Any, Callable, Iterator, Optional, Tuple
+from typing import Any
 
-from celery.utils.scheduling import Entry, Timer as Schedule, to_timestamp
+from celery.utils.scheduling import Entry, to_timestamp
+from celery.utils.scheduling import Timer as Schedule
 
 logger = logging.getLogger(__name__)
 
-TIMER_DEBUG = os.environ.get('TIMER_DEBUG')
+TIMER_DEBUG = os.environ.get("TIMER_DEBUG")
 
-__all__ = ('Entry', 'Schedule', 'Timer', 'to_timestamp')
+__all__ = ("Entry", "Schedule", "Timer", "to_timestamp")
 
 
 class Timer(threading.Thread):
@@ -32,24 +35,29 @@ class Timer(threading.Thread):
     Schedule = Schedule
 
     running: bool = False
-    on_tick: Optional[Callable[[float], None]] = None
+    on_tick: Callable[[float], None] | None = None
 
     _timer_count: count = count(1)
 
     if TIMER_DEBUG:  # pragma: no cover
+
         def start(self, *args: Any, **kwargs: Any) -> None:
             import traceback
-            print('- Timer starting')
+
+            print("- Timer starting")
             traceback.print_stack()
             super().start(*args, **kwargs)
 
-    def __init__(self, schedule: Optional[Schedule] = None,
-                 on_error: Optional[Callable[[Exception], None]] = None,
-                 on_tick: Optional[Callable[[float], None]] = None,
-                 on_start: Optional[Callable[['Timer'], None]] = None,
-                 max_interval: Optional[float] = None, **kwargs: Any) -> None:
-        self.schedule = schedule or self.Schedule(on_error=on_error,
-                                                  max_interval=max_interval)
+    def __init__(
+        self,
+        schedule: Schedule | None = None,
+        on_error: Callable[[Exception], None] | None = None,
+        on_tick: Callable[[float], None] | None = None,
+        on_start: Callable[["Timer"], None] | None = None,
+        max_interval: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.schedule = schedule or self.Schedule(on_error=on_error, max_interval=max_interval)
         self.on_start = on_start
         self.on_tick = on_tick or self.on_tick
         super().__init__()
@@ -62,24 +70,25 @@ class Timer(threading.Thread):
         self.mutex = threading.Lock()
         self.not_empty = threading.Condition(self.mutex)
         self.daemon = True
-        self.name = f'Timer-{next(self._timer_count)}'
+        self.name = f"Timer-{next(self._timer_count)}"
 
-    def _next_entry(self) -> Optional[float]:
+    def _next_entry(self) -> float | None:
         with self.not_empty:
-            delay: Optional[float]
-            entry: Optional[Entry]
+            delay: float | None
+            entry: Entry | None
             delay, entry = next(self.scheduler)
             if entry is None:
                 if delay is None:
                     self.not_empty.wait(1.0)
                 return delay
         return self.schedule.apply_entry(entry)
+
     __next__ = next = _next_entry  # for 2to3
 
     def run(self) -> None:
         try:
             self.running = True
-            self.scheduler: Iterator[Tuple[Optional[float], Optional[Entry]]] = iter(self.schedule)
+            self.scheduler: Iterator[tuple[float | None, Entry | None]] = iter(self.schedule)
 
             while not self.__is_shutdown.is_set():
                 delay = self._next_entry()
@@ -96,7 +105,7 @@ class Timer(threading.Thread):
                 # so gc collected built-in modules.
                 pass
         except Exception as exc:
-            logger.error('Thread Timer crashed: %r', exc, exc_info=True)
+            logger.error("Thread Timer crashed: %r", exc, exc_info=True)
             sys.stderr.flush()
             os._exit(1)
 
@@ -120,20 +129,20 @@ class Timer(threading.Thread):
             self.not_empty.notify()
             return entry
 
-    def enter(self, entry: Entry, eta: float, priority: Optional[int] = None) -> Entry:
-        return self._do_enter('enter_at', entry, eta, priority=priority)
+    def enter(self, entry: Entry, eta: float, priority: int | None = None) -> Entry:
+        return self._do_enter("enter_at", entry, eta, priority=priority)
 
     def call_at(self, *args: Any, **kwargs: Any) -> Entry:
-        return self._do_enter('call_at', *args, **kwargs)
+        return self._do_enter("call_at", *args, **kwargs)
 
     def enter_after(self, *args: Any, **kwargs: Any) -> Entry:
-        return self._do_enter('enter_after', *args, **kwargs)
+        return self._do_enter("enter_after", *args, **kwargs)
 
     def call_after(self, *args: Any, **kwargs: Any) -> Entry:
-        return self._do_enter('call_after', *args, **kwargs)
+        return self._do_enter("call_after", *args, **kwargs)
 
     def call_repeatedly(self, *args: Any, **kwargs: Any) -> Entry:
-        return self._do_enter('call_repeatedly', *args, **kwargs)
+        return self._do_enter("call_repeatedly", *args, **kwargs)
 
     def exit_after(self, secs: float, priority: int = 10) -> None:
         self.call_after(secs, sys.exit, priority)
@@ -153,6 +162,7 @@ class Timer(threading.Thread):
     def __bool__(self) -> bool:
         """``bool(timer)``."""
         return True
+
     __nonzero__ = __bool__
 
     @property

@@ -78,10 +78,11 @@ have it block until the task is finished.
    database backend.  Therefore, this class will only work with the
    database backends.
 """
+
 from celery import Task
 from celery.result import AsyncResult
 
-__all__ = ('AbortableAsyncResult', 'AbortableTask')
+__all__ = ("AbortableAsyncResult", "AbortableTask")
 
 
 """
@@ -97,7 +98,7 @@ Task is aborted (typically by the producer) and should be
 aborted as soon as possible.
 
 """
-ABORTED = 'ABORTED'
+ABORTED = "ABORTED"
 
 
 class AbortableAsyncResult(AsyncResult):
@@ -123,8 +124,7 @@ class AbortableAsyncResult(AsyncResult):
         """
         # TODO: store_result requires all four arguments to be set,
         # but only state should be updated here
-        return self.backend.store_result(self.id, result=None,
-                                         state=ABORTED, traceback=None)
+        return self.backend.store_result(self.id, result=None, state=ABORTED, traceback=None)
 
 
 class AbortableTask(Task):
@@ -158,7 +158,7 @@ class AbortableTask(Task):
         between calling it regularly (for responsiveness), but not too
         often (for performance).
         """
-        task_id = kwargs.get('task_id', self.request.id)
+        task_id = kwargs.get("task_id", self.request.id)
         result = self.AsyncResult(task_id)
         if not isinstance(result, AbortableAsyncResult):
             return False

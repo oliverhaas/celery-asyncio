@@ -3,6 +3,7 @@
 Provides Timer, Hub, and related scheduling components for the asyncio-based
 worker. These are native asyncio implementations.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -10,8 +11,9 @@ import heapq
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -104,7 +106,7 @@ class DummyLock:
     def release(self) -> None:
         pass
 
-    def __enter__(self) -> "DummyLock":
+    def __enter__(self) -> DummyLock:
         return self
 
     def __exit__(self, *args: Any) -> None:
@@ -142,11 +144,10 @@ class LaxBoundedSemaphore:
         """Release the semaphore."""
         with self._condition:
             self._value += 1
-            if self._value > self._initial_value:
-                self._value = self._initial_value
+            self._value = min(self._value, self._initial_value)
             self._condition.notify()
 
-    def __enter__(self) -> "LaxBoundedSemaphore":
+    def __enter__(self) -> LaxBoundedSemaphore:
         self.acquire()
         return self
 

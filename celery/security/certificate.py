@@ -1,10 +1,12 @@
 """X.509 certificates."""
+
 from __future__ import annotations
 
 import datetime
 import glob
 import os
-from typing import TYPE_CHECKING, Iterator
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -25,29 +27,24 @@ if TYPE_CHECKING:
     from cryptography.hazmat.primitives.hashes import HashAlgorithm
 
 
-__all__ = ('Certificate', 'CertStore', 'FSCertStore')
+__all__ = ("Certificate", "CertStore", "FSCertStore")
 
 
 class Certificate:
     """X.509 certificate."""
 
     def __init__(self, cert: str) -> None:
-        with reraise_errors(
-            'Invalid certificate: {0!r}', errors=(ValueError,)
-        ):
-            self._cert = load_pem_x509_certificate(
-                ensure_bytes(cert), backend=default_backend())
+        with reraise_errors("Invalid certificate: {0!r}", errors=(ValueError,)):
+            self._cert = load_pem_x509_certificate(ensure_bytes(cert), backend=default_backend())
 
             if not isinstance(self._cert.public_key(), rsa.RSAPublicKey):
                 raise ValueError("Non-RSA certificates are not supported.")
 
     def has_expired(self) -> bool:
         """Check if the certificate has expired."""
-        return datetime.datetime.now(datetime.timezone.utc) >= self._cert.not_valid_after_utc
+        return datetime.datetime.now(datetime.UTC) >= self._cert.not_valid_after_utc
 
-    def get_pubkey(self) -> (
-        DSAPublicKey | EllipticCurvePublicKey | Ed448PublicKey | Ed25519PublicKey | RSAPublicKey
-    ):
+    def get_pubkey(self) -> DSAPublicKey | EllipticCurvePublicKey | Ed448PublicKey | Ed25519PublicKey | RSAPublicKey:
         return self._cert.public_key()
 
     def get_serial_number(self) -> int:
@@ -56,19 +53,16 @@ class Certificate:
 
     def get_issuer(self) -> str:
         """Return issuer (CA) as a string."""
-        return ' '.join(x.value for x in self._cert.issuer)
+        return " ".join(x.value for x in self._cert.issuer)
 
     def get_id(self) -> str:
         """Serial number/issuer pair uniquely identifies a certificate."""
-        return f'{self.get_issuer()} {self.get_serial_number()}'
+        return f"{self.get_issuer()} {self.get_serial_number()}"
 
     def verify(self, data: bytes, signature: bytes, digest: HashAlgorithm | Prehashed) -> None:
         """Verify signature for string containing data."""
-        with reraise_errors('Bad signature: {0!r}'):
-
-            pad = padding.PSS(
-                mgf=padding.MGF1(digest),
-                salt_length=padding.PSS.MAX_LENGTH)
+        with reraise_errors("Bad signature: {0!r}"):
+            pad = padding.PSS(mgf=padding.MGF1(digest), salt_length=padding.PSS.MAX_LENGTH)
 
             self.get_pubkey().verify(signature, ensure_bytes(data), pad, digest)
 
@@ -88,12 +82,12 @@ class CertStore:
         try:
             return self._certs[bytes_to_str(id)]
         except KeyError:
-            raise SecurityError(f'Unknown certificate: {id!r}')
+            raise SecurityError(f"Unknown certificate: {id!r}")
 
     def add_cert(self, cert: Certificate) -> None:
         cert_id = bytes_to_str(cert.get_id())
         if cert_id in self._certs:
-            raise SecurityError(f'Duplicate certificate: {id!r}')
+            raise SecurityError(f"Duplicate certificate: {id!r}")
         self._certs[cert_id] = cert
 
 
@@ -103,11 +97,10 @@ class FSCertStore(CertStore):
     def __init__(self, path: str) -> None:
         super().__init__()
         if os.path.isdir(path):
-            path = os.path.join(path, '*')
+            path = os.path.join(path, "*")
         for p in glob.glob(path):
             with open(p) as f:
                 cert = Certificate(f.read())
                 if cert.has_expired():
-                    raise SecurityError(
-                        f'Expired certificate: {cert.get_id()!r}')
+                    raise SecurityError(f"Expired certificate: {cert.get_id()!r}")
                 self.add_cert(cert)

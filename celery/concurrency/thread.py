@@ -1,17 +1,19 @@
 """Thread execution pool."""
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, wait
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from .base import BasePool, apply_target
 
-__all__ = ('TaskPool',)
+__all__ = ("TaskPool",)
 
 if TYPE_CHECKING:
     from typing import TypedDict
 
-    PoolInfo = TypedDict('PoolInfo', {'max-concurrency': int, 'threads': int})
+    PoolInfo = TypedDict("PoolInfo", {"max-concurrency": int, "threads": int})
 
     # `TargetFunction` should be a Protocol that represents fast_trace_task and
     # trace_task_ret.
@@ -29,6 +31,7 @@ class ApplyResult:
 
 class TaskPool(BasePool):
     """Thread Task Pool."""
+
     limit: int
 
     body_can_be_buffer = True
@@ -49,16 +52,12 @@ class TaskPool(BasePool):
         kwargs: dict[str, Any] | None = None,
         callback: Callable[..., Any] | None = None,
         accept_callback: Callable[..., Any] | None = None,
-        **_: Any
+        **_: Any,
     ) -> ApplyResult:
-        f = self.executor.submit(apply_target, target, args, kwargs,
-                                 callback, accept_callback)
+        f = self.executor.submit(apply_target, target, args, kwargs, callback, accept_callback)
         return ApplyResult(f)
 
     def _get_info(self) -> PoolInfo:
         info = super()._get_info()
-        info.update({
-            'max-concurrency': self.limit,
-            'threads': len(self.executor._threads)
-        })
+        info.update({"max-concurrency": self.limit, "threads": len(self.executor._threads)})
         return info

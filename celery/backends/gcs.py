@@ -1,4 +1,5 @@
 """Google Cloud Storage result store backend for Celery."""
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from os import getpid
@@ -34,7 +35,7 @@ except ImportError:
     firestore_admin_v1 = None
 
 
-__all__ = ('GCSBackend',)
+__all__ = ("GCSBackend",)
 
 
 logger = get_logger(__name__)
@@ -45,9 +46,7 @@ class GCSBackendBase(KeyValueStoreBackend):
 
     def __init__(self, **kwargs):
         if not storage:
-            raise ImproperlyConfigured(
-                'You must install google-cloud-storage to use gcs backend'
-            )
+            raise ImproperlyConfigured("You must install google-cloud-storage to use gcs backend")
         super().__init__(**kwargs)
         self._client_lock = RLock()
         self._pid = getpid()
@@ -59,28 +58,21 @@ class GCSBackendBase(KeyValueStoreBackend):
             url_params = self._params_from_url()
             conf.update(**dictfilter(url_params))
 
-        self.bucket_name = conf.get('gcs_bucket')
+        self.bucket_name = conf.get("gcs_bucket")
         if not self.bucket_name:
-            raise ImproperlyConfigured(
-                'Missing bucket name: specify gcs_bucket to use gcs backend'
-            )
-        self.project = conf.get('gcs_project')
+            raise ImproperlyConfigured("Missing bucket name: specify gcs_bucket to use gcs backend")
+        self.project = conf.get("gcs_project")
         if not self.project:
-            raise ImproperlyConfigured(
-                'Missing project:specify gcs_project to use gcs backend'
-            )
-        self.base_path = conf.get('gcs_base_path', '').strip('/')
-        self._threadpool_maxsize = int(conf.get('gcs_threadpool_maxsize', 10))
-        self.ttl = float(conf.get('gcs_ttl') or 0)
+            raise ImproperlyConfigured("Missing project:specify gcs_project to use gcs backend")
+        self.base_path = conf.get("gcs_base_path", "").strip("/")
+        self._threadpool_maxsize = int(conf.get("gcs_threadpool_maxsize", 10))
+        self.ttl = float(conf.get("gcs_ttl") or 0)
         if self.ttl < 0:
-            raise ImproperlyConfigured(
-                f'Invalid ttl: {self.ttl} must be greater than or equal to 0'
-            )
-        elif self.ttl:
+            raise ImproperlyConfigured(f"Invalid ttl: {self.ttl} must be greater than or equal to 0")
+        if self.ttl:
             if not self._is_bucket_lifecycle_rule_exists():
                 raise ImproperlyConfigured(
-                    f'Missing lifecycle rule to use gcs backend with ttl on '
-                    f'bucket: {self.bucket_name}'
+                    f"Missing lifecycle rule to use gcs backend with ttl on bucket: {self.bucket_name}"
                 )
 
     def get(self, key):
@@ -137,14 +129,14 @@ class GCSBackendBase(KeyValueStoreBackend):
         return self.client.bucket(self.bucket_name)
 
     def _get_blob(self, key):
-        key_bucket_path = f'{self.base_path}/{key}' if self.base_path else key
+        key_bucket_path = f"{self.base_path}/{key}" if self.base_path else key
         return self.bucket.blob(key_bucket_path)
 
     def _is_bucket_lifecycle_rule_exists(self):
         bucket = self.bucket
         bucket.reload()
         for rule in bucket.lifecycle_rules:
-            if rule['action']['type'] == 'Delete':
+            if rule["action"]["type"] == "Delete":
                 return True
         return False
 
@@ -152,8 +144,8 @@ class GCSBackendBase(KeyValueStoreBackend):
         url_parts = url_to_parts(self.url)
 
         return {
-            'gcs_bucket': url_parts.hostname,
-            'gcs_base_path': url_parts.path,
+            "gcs_bucket": url_parts.hostname,
+            "gcs_base_path": url_parts.path,
             **url_parts.query,
         }
 
@@ -168,28 +160,24 @@ class GCSBackend(GCSBackendBase):
     supports_native_join = True
 
     # Firestore parameters
-    _collection_name = 'celery'
-    _field_count = 'chord_count'
-    _field_expires = 'expires_at'
+    _collection_name = "celery"
+    _field_count = "chord_count"
+    _field_expires = "expires_at"
 
     def __init__(self, **kwargs):
         if not (firestore and firestore_admin_v1):
-            raise ImproperlyConfigured(
-                'You must install google-cloud-firestore to use gcs backend'
-            )
+            raise ImproperlyConfigured("You must install google-cloud-firestore to use gcs backend")
         super().__init__(**kwargs)
 
         self._firestore_lock = RLock()
         self._firestore_client = None
 
-        self.firestore_project = self.app.conf.get(
-            'firestore_project', self.project
-        )
+        self.firestore_project = self.app.conf.get("firestore_project", self.project)
         if not self._is_firestore_ttl_policy_enabled():
             raise ImproperlyConfigured(
-                f'Missing TTL policy to use gcs backend with ttl on '
-                f'Firestore collection: {self._collection_name} '
-                f'project: {self.firestore_project}'
+                f"Missing TTL policy to use gcs backend with ttl on "
+                f"Firestore collection: {self._collection_name} "
+                f"project: {self.firestore_project}"
             )
 
     @property
@@ -201,9 +189,7 @@ class GCSBackend(GCSBackendBase):
             if self._firestore_client and self._pid == getpid():
                 return self._firestore_client
             # make sure each process gets its own connection after a fork
-            self._firestore_client = firestore.Client(
-                project=self.firestore_project
-            )
+            self._firestore_client = firestore.Client(project=self.firestore_project)
             self._pid = getpid()
         return self._firestore_client
 
@@ -267,9 +253,7 @@ class GCSBackend(GCSBackendBase):
                 return
             size = len(deps)
         if val > size:  # pragma: no cover
-            logger.warning(
-                'Chord counter incremented too many times for %r', gid
-            )
+            logger.warning("Chord counter incremented too many times for %r", gid)
         elif val == size:
             # Read the deps once, to reduce the number of reads from GCS ($$)
             deps = self._restore_deps(gid, request)
@@ -286,24 +270,21 @@ class GCSBackend(GCSBackendBase):
             except Exception as exc:  # pylint: disable=broad-except
                 try:
                     culprit = next(deps._failed_join_report())
-                    reason = 'Dependency {0.id} raised {1!r}'.format(
-                        culprit,
-                        exc,
-                    )
+                    reason = f"Dependency {culprit.id} raised {exc!r}"
                 except StopIteration:
                     reason = repr(exc)
 
-                logger.exception('Chord %r raised: %r', gid, reason)
+                logger.exception("Chord %r raised: %r", gid, reason)
                 chord_error = _create_chord_error_with_cause(message=reason, original_exc=exc)
                 self.chord_error_from_stack(callback, chord_error)
             else:
                 try:
                     callback.delay(ret)
                 except Exception as exc:  # pylint: disable=broad-except
-                    logger.exception('Chord %r raised: %r', gid, exc)
+                    logger.exception("Chord %r raised: %r", gid, exc)
                     self.chord_error_from_stack(
                         callback,
-                        ChordError(f'Callback error: {exc!r}'),
+                        ChordError(f"Callback error: {exc!r}"),
                     )
             finally:
                 deps.delete()
@@ -316,21 +297,21 @@ class GCSBackend(GCSBackendBase):
             deps = GroupResult.restore(gid, backend=self)
         except Exception as exc:  # pylint: disable=broad-except
             callback = maybe_signature(request.chord, app=app)
-            logger.exception('Chord %r raised: %r', gid, exc)
+            logger.exception("Chord %r raised: %r", gid, exc)
             self.chord_error_from_stack(
                 callback,
-                ChordError(f'Cannot restore group: {exc!r}'),
+                ChordError(f"Cannot restore group: {exc!r}"),
             )
-            return
+            return None
         if deps is None:
             try:
                 raise ValueError(gid)
             except ValueError as exc:
                 callback = maybe_signature(request.chord, app=app)
-                logger.exception('Chord callback %r raised: %r', gid, exc)
+                logger.exception("Chord callback %r raised: %r", gid, exc)
                 self.chord_error_from_stack(
                     callback,
-                    ChordError(f'GroupResult {gid} no longer exists'),
+                    ChordError(f"GroupResult {gid} no longer exists"),
                 )
         return deps
 
@@ -349,6 +330,4 @@ class GCSBackend(GCSBackendBase):
         doc.set({self._field_expires: val_expires}, merge=True)
 
     def _firestore_document(self, key):
-        return self.firestore_client.collection(
-            self._collection_name
-        ).document(bytes_to_str(key))
+        return self.firestore_client.collection(self._collection_name).document(bytes_to_str(key))

@@ -1,10 +1,10 @@
 """Utilities for debugging memory usage, blocking calls, etc."""
+
 import os
 import sys
 import traceback
 from contextlib import contextmanager
 from functools import partial
-from pprint import pprint
 
 from celery.platforms import signals
 from celery.utils.text import WhateverIO
@@ -15,16 +15,22 @@ except ImportError:
     Process = None
 
 __all__ = (
-    'blockdetection', 'sample_mem', 'memdump', 'sample',
-    'humanbytes', 'mem_rss', 'ps', 'cry',
+    "blockdetection",
+    "sample_mem",
+    "memdump",
+    "sample",
+    "humanbytes",
+    "mem_rss",
+    "ps",
+    "cry",
 )
 
 UNITS = (
-    (2 ** 40.0, 'TB'),
-    (2 ** 30.0, 'GB'),
-    (2 ** 20.0, 'MB'),
-    (2 ** 10.0, 'KB'),
-    (0.0, 'b'),
+    (2**40.0, "TB"),
+    (2**30.0, "GB"),
+    (2**20.0, "MB"),
+    (2**10.0, "KB"),
+    (0.0, "b"),
 )
 
 _process = None
@@ -33,9 +39,8 @@ _mem_sample = []
 
 def _on_blocking(signum, frame):
     import inspect
-    raise RuntimeError(
-        f'Blocking detection timed-out at: {inspect.getframeinfo(frame)}'
-    )
+
+    raise RuntimeError(f"Blocking detection timed-out at: {inspect.getframeinfo(frame)}")
 
 
 @contextmanager
@@ -47,16 +52,16 @@ def blockdetection(timeout):
     if not timeout:
         yield
     else:
-        old_handler = signals['ALRM']
+        old_handler = signals["ALRM"]
         old_handler = None if old_handler == _on_blocking else old_handler
 
-        signals['ALRM'] = _on_blocking
+        signals["ALRM"] = _on_blocking
 
         try:
             yield signals.arm_alarm(timeout)
         finally:
             if old_handler:
-                signals['ALRM'] = old_handler
+                signals["ALRM"] = old_handler
             signals.reset_alarm()
 
 
@@ -75,6 +80,7 @@ def _memdump(samples=10):  # pragma: no cover
     prev = list(S) if len(S) <= samples else sample(S, samples)
     _mem_sample[:] = []
     import gc
+
     gc.collect()
     after_collect = mem_rss()
     return prev, after_collect
@@ -89,14 +95,14 @@ def memdump(samples=10, file=None):  # pragma: no cover
     """
     say = partial(print, file=file)
     if ps() is None:
-        say('- rss: (psutil not installed).')
+        say("- rss: (psutil not installed).")
         return
     prev, after_collect = _memdump(samples)
     if prev:
-        say('- rss (sample):')
+        say("- rss (sample):")
         for mem in prev:
-            say(f'-    > {mem},')
-    say(f'- rss (end): {after_collect}.')
+            say(f"-    > {mem},")
+    say(f"- rss (end): {after_collect}.")
 
 
 def sample(x, n, k=0):
@@ -124,15 +130,12 @@ def hfloat(f, p=5):
         p (int): Floating point precision (default is 5).
     """
     i = int(f)
-    return i if i == f else '{0:.{p}}'.format(f, p=p)
+    return i if i == f else "{0:.{p}}".format(f, p=p)
 
 
 def humanbytes(s):
     """Convert bytes to human-readable form (e.g., KB, MB)."""
-    return next(
-        f'{hfloat(s / div if div else s)}{unit}'
-        for div, unit in UNITS if s >= div
-    )
+    return next(f"{hfloat(s / div if div else s)}{unit}" for div, unit in UNITS if s >= div)
 
 
 def mem_rss():
@@ -161,7 +164,7 @@ def _process_memory_info(process):
         return process.get_memory_info()
 
 
-def cry(out=None, sepchr='=', seplen=49):  # pragma: no cover
+def cry(out=None, sepchr="=", seplen=49):  # pragma: no cover
     """Return stack-trace of all active threads.
 
     See Also:
@@ -182,12 +185,11 @@ def cry(out=None, sepchr='=', seplen=49):  # pragma: no cover
         if not thread:
             # skip old junk (left-overs from a fork)
             continue
-        P(f'{thread.name}')
+        P(f"{thread.name}")
         P(sep)
         traceback.print_stack(frame, file=out)
         P(sep)
-        P('LOCAL VARIABLES')
+        P("LOCAL VARIABLES")
         P(sep)
-        pprint(frame.f_locals, stream=out)
-        P('\n')
+        P("\n")
     return out.getvalue()

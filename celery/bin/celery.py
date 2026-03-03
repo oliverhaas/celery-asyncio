@@ -1,7 +1,7 @@
 """Celery Command Line Interface."""
+
 import os
 import pathlib
-import sys
 import traceback
 from importlib.metadata import entry_points
 
@@ -28,89 +28,69 @@ from celery.bin.shell import shell
 from celery.bin.upgrade import upgrade
 from celery.bin.worker import worker
 
-UNABLE_TO_LOAD_APP_MODULE_NOT_FOUND = click.style("""
+UNABLE_TO_LOAD_APP_MODULE_NOT_FOUND = click.style(
+    """
 Unable to load celery application.
-The module {0} was not found.""", fg='red')
+The module {0} was not found.""",
+    fg="red",
+)
 
-UNABLE_TO_LOAD_APP_ERROR_OCCURRED = click.style("""
+UNABLE_TO_LOAD_APP_ERROR_OCCURRED = click.style(
+    """
 Unable to load celery application.
 While trying to load the module {0} the following error occurred:
-{1}""", fg='red')
+{1}""",
+    fg="red",
+)
 
 UNABLE_TO_LOAD_APP_APP_MISSING = click.style("""
 Unable to load celery application.
 {0}""")
 
 
-if sys.version_info >= (3, 10):
-    _PLUGINS = entry_points(group='celery.commands')
-else:
-    try:
-        _PLUGINS = entry_points().get('celery.commands', [])
-    except AttributeError:
-        _PLUGINS = entry_points().select(group='celery.commands')
+_PLUGINS = entry_points(group="celery.commands")
 
 
 @with_plugins(_PLUGINS)
 @click.group(cls=DYMGroup, invoke_without_command=True)
-@click.option('-A',
-              '--app',
-              envvar='APP',
-              cls=CeleryOption,
-              # May take either: a str when invoked from command line (Click),
-              # or a Celery object when invoked from inside Celery; hence the
-              # need to prevent Click from "processing" the Celery object and
-              # converting it into its str representation.
-              type=click.UNPROCESSED,
-              help_group="Global Options")
-@click.option('-b',
-              '--broker',
-              envvar='BROKER_URL',
-              cls=CeleryOption,
-              help_group="Global Options")
-@click.option('--result-backend',
-              envvar='RESULT_BACKEND',
-              cls=CeleryOption,
-              help_group="Global Options")
-@click.option('--loader',
-              envvar='LOADER',
-              cls=CeleryOption,
-              help_group="Global Options")
-@click.option('--config',
-              envvar='CONFIG_MODULE',
-              cls=CeleryOption,
-              help_group="Global Options")
-@click.option('--workdir',
-              cls=CeleryOption,
-              type=pathlib.Path,
-              callback=lambda _, __, wd: os.chdir(wd) if wd else None,
-              is_eager=True,
-              help_group="Global Options")
-@click.option('-C',
-              '--no-color',
-              envvar='NO_COLOR',
-              is_flag=True,
-              cls=CeleryOption,
-              help_group="Global Options")
-@click.option('-q',
-              '--quiet',
-              is_flag=True,
-              cls=CeleryOption,
-              help_group="Global Options")
-@click.option('--version',
-              cls=CeleryOption,
-              is_flag=True,
-              help_group="Global Options")
-@click.option('--skip-checks',
-              envvar='SKIP_CHECKS',
-              cls=CeleryOption,
-              is_flag=True,
-              help_group="Global Options",
-              help="Skip Django core checks on startup. Setting the SKIP_CHECKS environment "
-                   "variable to any non-empty string will have the same effect.")
+@click.option(
+    "-A",
+    "--app",
+    envvar="APP",
+    cls=CeleryOption,
+    # May take either: a str when invoked from command line (Click),
+    # or a Celery object when invoked from inside Celery; hence the
+    # need to prevent Click from "processing" the Celery object and
+    # converting it into its str representation.
+    type=click.UNPROCESSED,
+    help_group="Global Options",
+)
+@click.option("-b", "--broker", envvar="BROKER_URL", cls=CeleryOption, help_group="Global Options")
+@click.option("--result-backend", envvar="RESULT_BACKEND", cls=CeleryOption, help_group="Global Options")
+@click.option("--loader", envvar="LOADER", cls=CeleryOption, help_group="Global Options")
+@click.option("--config", envvar="CONFIG_MODULE", cls=CeleryOption, help_group="Global Options")
+@click.option(
+    "--workdir",
+    cls=CeleryOption,
+    type=pathlib.Path,
+    callback=lambda _, __, wd: os.chdir(wd) if wd else None,
+    is_eager=True,
+    help_group="Global Options",
+)
+@click.option("-C", "--no-color", envvar="NO_COLOR", is_flag=True, cls=CeleryOption, help_group="Global Options")
+@click.option("-q", "--quiet", is_flag=True, cls=CeleryOption, help_group="Global Options")
+@click.option("--version", cls=CeleryOption, is_flag=True, help_group="Global Options")
+@click.option(
+    "--skip-checks",
+    envvar="SKIP_CHECKS",
+    cls=CeleryOption,
+    is_flag=True,
+    help_group="Global Options",
+    help="Skip Django core checks on startup. Setting the SKIP_CHECKS environment "
+    "variable to any non-empty string will have the same effect.",
+)
 @click.pass_context
-def celery(ctx, app, broker, result_backend, loader, config, workdir,
-           no_color, quiet, version, skip_checks):
+def celery(ctx, app, broker, result_backend, loader, config, workdir, no_color, quiet, version, skip_checks):
     """Celery command entrypoint."""
     if version:
         click.echo(VERSION_BANNER)
@@ -121,15 +101,15 @@ def celery(ctx, app, broker, result_backend, loader, config, workdir,
 
     if loader:
         # Default app takes loader from this env (Issue #1066).
-        os.environ['CELERY_LOADER'] = loader
+        os.environ["CELERY_LOADER"] = loader
     if broker:
-        os.environ['CELERY_BROKER_URL'] = broker
+        os.environ["CELERY_BROKER_URL"] = broker
     if result_backend:
-        os.environ['CELERY_RESULT_BACKEND'] = result_backend
+        os.environ["CELERY_RESULT_BACKEND"] = result_backend
     if config:
-        os.environ['CELERY_CONFIG_MODULE'] = config
+        os.environ["CELERY_CONFIG_MODULE"] = config
     if skip_checks:
-        os.environ['CELERY_SKIP_CHECKS'] = 'true'
+        os.environ["CELERY_SKIP_CHECKS"] = "true"
 
     if isinstance(app, str):
         try:
@@ -137,29 +117,24 @@ def celery(ctx, app, broker, result_backend, loader, config, workdir,
         except ModuleNotFoundError as e:
             if e.name != app:
                 exc = traceback.format_exc()
-                ctx.fail(
-                    UNABLE_TO_LOAD_APP_ERROR_OCCURRED.format(app, exc)
-                )
+                ctx.fail(UNABLE_TO_LOAD_APP_ERROR_OCCURRED.format(app, exc))
             ctx.fail(UNABLE_TO_LOAD_APP_MODULE_NOT_FOUND.format(e.name))
         except AttributeError as e:
             attribute_name = e.args[0].capitalize()
             ctx.fail(UNABLE_TO_LOAD_APP_APP_MISSING.format(attribute_name))
         except Exception:
             exc = traceback.format_exc()
-            ctx.fail(
-                UNABLE_TO_LOAD_APP_ERROR_OCCURRED.format(app, exc)
-            )
+            ctx.fail(UNABLE_TO_LOAD_APP_ERROR_OCCURRED.format(app, exc))
 
-    ctx.obj = CLIContext(app=app, no_color=no_color, workdir=workdir,
-                         quiet=quiet)
+    ctx.obj = CLIContext(app=app, no_color=no_color, workdir=workdir, quiet=quiet)
 
     # User options
-    worker.params.extend(ctx.obj.app.user_options.get('worker', []))
-    beat.params.extend(ctx.obj.app.user_options.get('beat', []))
-    events.params.extend(ctx.obj.app.user_options.get('events', []))
+    worker.params.extend(ctx.obj.app.user_options.get("worker", []))
+    beat.params.extend(ctx.obj.app.user_options.get("beat", []))
+    events.params.extend(ctx.obj.app.user_options.get("events", []))
 
     for command in celery.commands.values():
-        command.params.extend(ctx.obj.app.user_options.get('preload', []))
+        command.params.extend(ctx.obj.app.user_options.get("preload", []))
 
 
 @celery.command(cls=CeleryCommand)
@@ -187,6 +162,7 @@ celery.add_command(upgrade)
 celery.add_command(logtool)
 try:
     from celery.bin.amqp import amqp
+
     celery.add_command(amqp)
 except ImportError:
     pass  # amqp module not available
@@ -207,12 +183,9 @@ celery {option_name} celeryapp {info_name} <...>"""
 
 
 def _show(self, file=None):
-    if self.option_name in ('-A', '--app'):
+    if self.option_name in ("-A", "--app"):
         self.ctx.obj.error(
-            WRONG_APP_OPTION_USAGE_MESSAGE.format(
-                option_name=self.option_name,
-                info_name=self.ctx.info_name),
-            fg='red'
+            WRONG_APP_OPTION_USAGE_MESSAGE.format(option_name=self.option_name, info_name=self.ctx.info_name), fg="red"
         )
     previous_show_implementation(self, file=file)
 

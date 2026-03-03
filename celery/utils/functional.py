@@ -1,22 +1,39 @@
 """Functional-style utilities."""
+
 import inspect
 from collections import UserList
+from collections.abc import Callable
 from functools import partial
 from itertools import islice, tee, zip_longest
-from typing import Any, Callable
+from typing import Any
 
 from kombu.utils.functional import LRUCache, dictfilter, is_list, lazy, maybe_evaluate, maybe_list, memoize
-from celery.utils.promises import promise
 
 from celery.utils.log import get_logger
+from celery.utils.promises import promise
 
 logger = get_logger(__name__)
 
 __all__ = (
-    'LRUCache', 'is_list', 'maybe_list', 'memoize', 'mlazy', 'noop',
-    'first', 'firstmethod', 'chunks', 'padlist', 'mattrgetter', 'uniq',
-    'regen', 'dictfilter', 'lazy', 'maybe_evaluate', 'head_from_fun',
-    'maybe', 'fun_accepts_kwargs',
+    "LRUCache",
+    "is_list",
+    "maybe_list",
+    "memoize",
+    "mlazy",
+    "noop",
+    "first",
+    "firstmethod",
+    "chunks",
+    "padlist",
+    "mattrgetter",
+    "uniq",
+    "regen",
+    "dictfilter",
+    "lazy",
+    "maybe_evaluate",
+    "head_from_fun",
+    "maybe",
+    "fun_accepts_kwargs",
 )
 
 FUNHEAD_TEMPLATE = """
@@ -26,7 +43,6 @@ def {fun_name}({fun_args}):
 
 
 class DummyContext:
-
     def __enter__(self):
         return self
 
@@ -78,8 +94,7 @@ def first(predicate, it):
     :const:`None`.
     """
     return next(
-        (v for v in evaluate_promises(it) if (
-            predicate(v) if predicate is not None else v is not None)),
+        (v for v in evaluate_promises(it) if (predicate(v) if predicate is not None else v is not None)),
         None,
     )
 
@@ -98,8 +113,7 @@ def firstmethod(method, on_call=None):
         for obj in it:
             try:
                 meth = getattr(maybe_evaluate(obj), method)
-                reply = (on_call(meth, *args, **kwargs) if on_call
-                         else meth(*args, **kwargs))
+                reply = on_call(meth, *args, **kwargs) if on_call else meth(*args, **kwargs)
             except AttributeError:
                 pass
             else:
@@ -280,10 +294,9 @@ class _regen(UserList, list):
 def _argsfromspec(spec, replace_defaults=True):
     if spec.defaults:
         split = len(spec.defaults)
-        defaults = (list(range(len(spec.defaults))) if replace_defaults
-                    else spec.defaults)
+        defaults = list(range(len(spec.defaults))) if replace_defaults else spec.defaults
         positional = spec.args[:-split]
-        optional = list(zip(spec.args[-split:], defaults))
+        optional = list(zip(spec.args[-split:], defaults, strict=False))
     else:
         positional, optional = spec.args, []
 
@@ -292,23 +305,26 @@ def _argsfromspec(spec, replace_defaults=True):
     if spec.kwonlydefaults:
         kwonlyargs = set(spec.kwonlyargs) - set(spec.kwonlydefaults.keys())
         if replace_defaults:
-            kwonlyargs_optional = [
-                (kw, i) for i, kw in enumerate(spec.kwonlydefaults.keys())
-            ]
+            kwonlyargs_optional = [(kw, i) for i, kw in enumerate(spec.kwonlydefaults.keys())]
         else:
             kwonlyargs_optional = list(spec.kwonlydefaults.items())
     else:
         kwonlyargs, kwonlyargs_optional = spec.kwonlyargs, []
 
-    return ', '.join(filter(None, [
-        ', '.join(positional),
-        ', '.join(f'{k}={v}' for k, v in optional),
-        f'*{varargs}' if varargs else None,
-        '*' if (kwonlyargs or kwonlyargs_optional) and not varargs else None,
-        ', '.join(kwonlyargs) if kwonlyargs else None,
-        ', '.join(f'{k}="{v}"' for k, v in kwonlyargs_optional),
-        f'**{varkw}' if varkw else None,
-    ]))
+    return ", ".join(
+        filter(
+            None,
+            [
+                ", ".join(positional),
+                ", ".join(f"{k}={v}" for k, v in optional),
+                f"*{varargs}" if varargs else None,
+                "*" if (kwonlyargs or kwonlyargs_optional) and not varargs else None,
+                ", ".join(kwonlyargs) if kwonlyargs else None,
+                ", ".join(f'{k}="{v}"' for k, v in kwonlyargs_optional),
+                f"**{varkw}" if varkw else None,
+            ],
+        )
+    )
 
 
 def head_from_fun(fun: Callable[..., Any], bound: bool = False) -> str:
@@ -320,7 +336,7 @@ def head_from_fun(fun: Callable[..., Any], bound: bool = False) -> str:
     # as just calling a function.
     is_function = inspect.isfunction(fun)
     is_callable = callable(fun)
-    is_cython = fun.__class__.__name__ == 'cython_function_or_method'
+    is_cython = fun.__class__.__name__ == "cython_function_or_method"
     is_method = inspect.ismethod(fun)
 
     if not is_function and is_callable and not is_method and not is_cython:
@@ -333,7 +349,7 @@ def head_from_fun(fun: Callable[..., Any], bound: bool = False) -> str:
         fun_value=1,
     )
     logger.debug(definition)
-    namespace = {'__name__': fun.__module__}
+    namespace = {"__name__": fun.__module__}
     # pylint: disable=exec-used
     # Tasks are rarely, if ever, created at runtime - exec here is fine.
     exec(definition, namespace)
@@ -351,18 +367,12 @@ def arity_greater(fun, n):
 
 def fun_takes_argument(name, fun, position=None):
     spec = inspect.getfullargspec(fun)
-    return (
-        spec.varkw or spec.varargs or
-        (len(spec.args) >= position if position else name in spec.args)
-    )
+    return spec.varkw or spec.varargs or (len(spec.args) >= position if position else name in spec.args)
 
 
 def fun_accepts_kwargs(fun):
     """Return true if function accepts arbitrary keyword arguments."""
-    return any(
-        p for p in inspect.signature(fun).parameters.values()
-        if p.kind == p.VAR_KEYWORD
-    )
+    return any(p for p in inspect.signature(fun).parameters.values() if p.kind == p.VAR_KEYWORD)
 
 
 def maybe(typ, val):

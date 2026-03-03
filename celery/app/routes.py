@@ -2,6 +2,7 @@
 
 Contains utilities for working with task routers, (:setting:`task_routes`).
 """
+
 import fnmatch
 import re
 from collections import OrderedDict
@@ -20,7 +21,7 @@ except AttributeError:  # pragma: no cover
     # for support Python 3.7
     Pattern = re.Pattern
 
-__all__ = ('MapRoute', 'Router', 'expand_router_string', 'prepare')
+__all__ = ("MapRoute", "Router", "expand_router_string", "prepare")
 
 
 class MapRoute:
@@ -33,7 +34,7 @@ class MapRoute:
         for k, v in map:
             if isinstance(k, Pattern):
                 self.patterns[k] = v
-            elif '*' in k:
+            elif "*" in k:
                 self.patterns[re.compile(fnmatch.translate(k))] = v
             else:
                 self.map[k] = v
@@ -44,20 +45,19 @@ class MapRoute:
         except KeyError:
             pass
         except ValueError:
-            return {'queue': self.map[name]}
+            return {"queue": self.map[name]}
         for regex, route in self.patterns.items():
             if regex.match(name):
                 try:
                     return dict(route)
                 except ValueError:
-                    return {'queue': route}
+                    return {"queue": route}
 
 
 class Router:
     """Route tasks based on the :setting:`task_routes` setting."""
 
-    def __init__(self, routes=None, queues=None,
-                 create_missing=False, app=None):
+    def __init__(self, routes=None, queues=None, create_missing=False, app=None):
         self.app = app
         self.queues = {} if queues is None else queues
         self.routes = [] if routes is None else routes
@@ -70,9 +70,8 @@ class Router:
             route = self.lookup_route(name, args, kwargs, options, task_type)
             if route:  # expands 'queue' in route.
                 return lpmerge(self.expand_destination(route), options)
-        if 'queue' not in options:
-            options = lpmerge(self.expand_destination(
-                self.app.conf.task_default_queue), options)
+        if "queue" not in options:
+            options = lpmerge(self.expand_destination(self.app.conf.task_default_queue), options)
         return options
 
     def expand_destination(self, route):
@@ -82,21 +81,19 @@ class Router:
         else:
             # can use defaults from configured queue, but override specific
             # things (like the routing_key): great for topic exchanges.
-            queue = route.pop('queue', None)
+            queue = route.pop("queue", None)
 
         if queue:
             if isinstance(queue, Queue):
-                route['queue'] = queue
+                route["queue"] = queue
             else:
                 try:
-                    route['queue'] = self.queues[queue]
+                    route["queue"] = self.queues[queue]
                 except KeyError:
-                    raise QueueNotFound(
-                        f'Queue {queue!r} missing from task_queues')
+                    raise QueueNotFound(f"Queue {queue!r} missing from task_queues")
         return route
 
-    def lookup_route(self, name,
-                     args=None, kwargs=None, options=None, task_type=None):
+    def lookup_route(self, name, args=None, kwargs=None, options=None, task_type=None):
         query = self.query_router
         for router in self.routes:
             route = query(router, name, args, kwargs, options, task_type)
@@ -105,7 +102,7 @@ class Router:
 
     def query_router(self, router, task, args, kwargs, options, task_type):
         router = maybe_evaluate(router)
-        if hasattr(router, 'route_for_task'):
+        if hasattr(router, "route_for_task"):
             # pre 4.0 router class
             return router.route_for_task(task, args, kwargs)
         return router(task, args, kwargs, options, task=task_type)
@@ -113,7 +110,7 @@ class Router:
 
 def expand_router_string(router):
     router = symbol_by_name(router)
-    if hasattr(router, 'route_for_task'):
+    if hasattr(router, "route_for_task"):
         # need to instantiate pre 4.0 router classes
         router = router()
     return router

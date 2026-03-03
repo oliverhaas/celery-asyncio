@@ -4,8 +4,20 @@ version = "6.0.0a2"
 description = "Distributed Task Queue with native asyncio support"
 readme = "README.rst"
 license = "BSD-3-Clause"
-requires-python = ">=3.10"
-keywords = ["task", "queue", "job", "async", "asyncio", "rabbitmq", "amqp", "redis", "python", "distributed", "actors"]
+requires-python = ">=3.12"
+keywords = [
+  "actors",
+  "amqp",
+  "async",
+  "asyncio",
+  "distributed",
+  "job",
+  "python",
+  "queue",
+  "rabbitmq",
+  "redis",
+  "task",
+]
 authors = [{ name = "Ask Solem", email = "auvipy@gmail.com" }]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -16,13 +28,13 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Programming Language :: Python :: Implementation :: CPython",
   "Topic :: Software Development :: Object Brokering",
   "Topic :: System :: Distributed Computing",
+  "Typing :: Typed",
 ]
 dependencies = [
   "kombu-asyncio>=6.0.0a1",
@@ -49,7 +61,6 @@ celery = "celery.__main__:main"
 auth = ["cryptography"]
 msgpack = ["msgpack"]
 yaml = ["PyYAML>=3.10"]
-
 
 # Transports and Backends
 redis = ["kombu-asyncio[redis]"]
@@ -82,12 +93,16 @@ zstd = ["zstandard>=0.22.0"]
 
 [dependency-groups]
 dev = [
-  "pre-commit>=4.0.0",
-  "pytest>=8.0.0",
-  "pytest-asyncio>=1.0.0",
-  "pytest-cov>=5.0.0",
-  "pytest-timeout>=2.0.0",
-  "ruff>=0.9.0",
+  "mypy==1.19.1",
+  "pre-commit==4.5.1",
+  "pytest==9.0.2",
+  "pytest-asyncio==1.3.0",
+  "pytest-cov==7.0.0",
+  "pytest-mock==3.15.1",
+  "pytest-timeout==2.4.0",
+  "pytest-xdist==3.8.0",
+  "ruff==0.15.2",
+  "ty==0.0.18",
 ]
 
 [build-system]
@@ -102,135 +117,153 @@ kombu-asyncio = { path = "../kombu", editable = true }
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
+fix = true
 
 [tool.ruff.lint]
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
-explicit-preview-rules = true
-fixable = ["ALL"]
-ignore = [
-  "A001",    # Variable shadowing builtin - legacy patterns
-  "A002",    # Argument shadowing builtin - legacy patterns
-  "ANN",     # Type annotations - legacy code not fully annotated
-  "ARG001",  # Signal handlers and overrides have required signatures
-  "ARG002",
-  "B007",    # Loop variable not used - sometimes intentional
-  "B904",    # Raise from - legacy exception handling
-  "BLE001",  # Catching blind exceptions - sometimes needed
-  "C901",    # Some functions are inherently complex
-  "COM812",  # Conflicts with ruff-format
-  "D",       # Docstring rules - existing code lacks comprehensive docstrings
-  "E5",      # 120 char limit is sufficient
-  "EM101",   # Extracting exception messages to variables hurts readability
-  "EM102",
-  "ERA001",  # Commented-out code - keeping for reference
-  "FBT001",  # Boolean traps - too many violations, breaks compatibility
-  "FBT002",
-  "FIX002",  # TODO comments - allowed
-  "N801",    # Class naming follows celery conventions
-  "N802",    # Function naming follows celery conventions
-  "N803",    # Argument naming follows celery conventions
-  "N806",    # Variable naming follows celery conventions
-  "N818",    # Exception naming follows celery conventions
-  "PERF203", # Try-except in loop - sometimes needed
-  "PGH004",  # Legacy noqa comments
-  "PLC0415", # Lazy imports for optional dependencies
-  "PLR0913", # Too many arguments - task APIs need many options
-  "PLR1704", # Redefining argument in context manager
-  "PLW2901", # Redefining loop variable - sometimes intentional
-  "PTH",     # Pathlib - legacy code uses os.path
-  "PYI024",  # namedtuple usage follows celery patterns
-  "PYI034",  # __aenter__ return type - legacy patterns
-  "RET503",  # Missing explicit return - legacy patterns
-  "RSE102",  # Unnecessary parentheses on raised exception
-  "RUF005",  # Tuple concatenation is clearer
-  "RUF012",  # Mutable class attributes - used intentionally
-  "RUF013",  # Implicit Optional - legacy patterns
-  "RUF015",  # Readability over micro-optimization
-  "RUF059",  # Keep unused variables explicit
-  "S101",    # Assert in non-test code - sometimes used
-  "S110",    # Try-except-pass - sometimes needed
-  "SIM105",  # contextlib.suppress - legacy patterns
-  "SIM108",  # Ternary operator - keep explicit if/else
-  "SIM212",  # Negated condition - keep as is
-  "SLF001",  # Private member access needed for internals
-  "T201",    # Print statements - for debugging
-  "TC003",   # Move import into TYPE_CHECKING - legacy patterns
-  "TD002",   # TODO author - not needed
-  "TD003",   # TODO issue link - not needed
-  "TRY003",  # Long exception messages are fine
-  "TRY300",  # Try-except in else - legacy patterns
-  "UP031",   # Printf-style formatting - keep for consistency
-  # Additional legacy patterns to ignore
-  "A004",    # Import shadowing builtin
-  "ARG003",  # Unused class method argument
-  "ARG005",  # Unused lambda argument
-  "B018",    # Useless expression
-  "B025",    # Duplicate exception handler
-  "B028",    # No stacklevel in warnings
-  "B905",    # Zip without strict
-  "C408",    # Unnecessary dict call
-  "DTZ005",  # Datetime without timezone
-  "E402",    # Module level import not at top
-  "EM103",   # Exception string formatting
-  "F821",    # Undefined name (usually TYPE_CHECKING)
-  "F822",    # Undefined name in __all__
-  "FIX001",  # FIXME comments
-  "FIX003",  # XXX comments
-  "G001",    # Logging string format
-  "G004",    # Logging f-string
-  "G201",    # Logging .exception with exc_info
-  "ISC002",  # Implicit string concatenation
-  "LOG014",  # Logging extra argument
-  "N804",    # First argument of classmethod
-  "N805",    # First argument of method
-  "N812",    # Lowercase imported as non-lowercase
-  "N813",    # Camelcase imported as lowercase
-  "N999",    # Invalid module name
-  "PERF102", # Dictionary keys as set
-  "PGH003",  # Type: ignore without code
-  "PLC0205", # __slots__ expected class variables
-  "PLR0912", # Too many branches
-  "PLR1714", # Consider merging comparisons
-  "PLR2004", # Magic value comparison
-  "PLW0603", # Global statement
-  "PLW1508", # Invalid envvar default
-  "PLW1641", # Object without __hash__
-  "PYI018",  # Unused TypeVar
-  "PYI036",  # Star annotation
-  "RET504",  # Unnecessary variable before return
-  "RUF003",  # Ambiguous unicode character
-  "RUF006",  # asyncio.create_task without reference
-  "RUF022",  # __all__ not sorted
-  "RUF046",  # Unnecessary cast
-  "S301",    # Pickle usage
-  "SIM101",  # Multiple isinstance calls
-  "SIM102",  # Nested if statements
-  "SIM103",  # Return bool directly
-  "SIM110",  # Use any/all
-  "SIM115",  # Open context manager
-  "SIM118",  # Dict keys iteration
-  "TD001",   # Invalid TODO tag
-  "TD004",   # Missing TODO colon
-  "TRY002",  # Raise vanilla exception
-  "TRY201",  # Use raise without exception
-  "TRY301",  # Abstract raise to inner function
-  "TRY400",  # Use logging.exception
-]
-preview = true
 select = ["ALL"]
-unfixable = []
+ignore = [
+  "A",        # Builtin shadowing — celery uses type, format, id as params
+  "ANN",      # Type annotations — will add incrementally (separate task)
+  "ARG",      # Unused arguments — signal handlers, overrides, API compat
+  "ASYNC109", # timeout param is task TTL, not asyncio.timeout
+  "B007",     # Unused loop control variable — sometimes intentional
+  "B018",     # Useless expression — intentional in some celery patterns
+  "B020",     # Loop variable overrides iterator
+  "B024",     # Abstract base class without abstract method
+  "B026",     # Star-arg unpacking after keyword arg
+  "B027",     # Empty method without abstract decorator
+  "B904",     # Raise from — will fix incrementally
+  "BLE001",   # Blind except: needed for task error handling
+  "C901",     # Complex structure: some task functions are inherently complex
+  "COM812",   # Conflicts with ruff-format
+  "COM818",   # Trailing comma on bare tuple
+  "D",        # Docstrings — will add incrementally
+  "DTZ",      # Datetime timezone — celery uses naive datetimes throughout
+  "E402",     # Module-level import not at top — lazy imports
+  "E501",     # Line length handled by config
+  "E741",     # Ambiguous variable name — l, O, I used in celery
+  "EM",       # Exception strings inline are fine
+  "ERA001",   # Commented-out code — keeping for reference during rewrite
+  "FBT",      # Boolean params match task APIs (ignore_result, bind, etc.)
+  "FIX",      # TODO/FIXME/XXX comments — allowed during development
+  "G",        # Logging format — celery uses % formatting in logging
+  "ISC002",   # Implicit string concatenation
+  "N",        # Naming conventions: celery has its own patterns
+  "PERF",     # Performance suggestions — readability over micro-optimization
+  "PGH003",   # Blanket type-ignore
+  "PGH004",   # Blanket noqa
+  "PLC0205",  # __slots__ style
+  "PLC0415",  # Dynamic imports for optional dependencies
+  "PLE0704",  # Misplaced bare raise
+  "PLR0206",  # Property with parameters
+  "PLR0911",  # Too many return statements
+  "PLR0912",  # Too many branches: complex task routing logic
+  "PLR0913",  # Too many args — task APIs need many options
+  "PLR0915",  # Too many statements — complex functions
+  "PLR1704",  # Redefining argument from local — context manager patterns
+  "PLR1714",  # Consider merging comparisons
+  "PLR2004",  # Magic values — task-specific constants
+  "PLW0127",  # Self-assigning variable — protocol v1 destructuring
+  "PLW0603",  # Global statement: needed for module-level state
+  "PLW1508",  # Invalid envvar default
+  "PLW1641",  # eq without hash
+  "PLW2901",  # Redefining loop variable
+  "PTH",      # Pathlib — celery uses os.path extensively
+  "PYI024",   # collections.namedtuple: existing patterns
+  "PYI034",   # Non-self return type: __aenter__ patterns
+  "PYI036",   # Bad exit annotation: __aexit__ patterns
+  "RET503",   # Missing explicit return
+  "RET504",   # Unnecessary variable before return
+  "RET505",   # Superfluous else return — style preference
+  "RSE102",   # Unnecessary parentheses on raise
+  "RUF002",   # Ambiguous unicode in docstrings
+  "RUF003",   # Ambiguous unicode
+  "RUF005",   # Tuple concatenation is clearer
+  "RUF006",   # asyncio.create_task without reference
+  "RUF012",   # Mutable class defaults: intentional for celery state
+  "RUF013",   # Implicit Optional
+  "RUF015",   # Readability over micro-optimization
+  "RUF022",   # __all__ not sorted
+  "RUF046",   # Unnecessary cast
+  "RUF059",   # Unused unpacked variable
+  "S",        # Security — celery needs pickle, subprocess, exec, etc.
+  "SIM",      # Simplify — style preference, readability varies
+  "SLF001",   # Private member access needed for internals
+  "SLOT000",  # No __slots__ in str subclass
+  "T201",     # Print statements — for debugging during rewrite
+  "TC003",    # Typing-only imports: style preference
+  "TD",       # TODO comments — allowed during development
+  "TID252",   # Relative imports
+  "TRY",      # tryceratops — style preference throughout
+  "UP007",    # Non-PEP 604 annotation
+  "UP031",    # Printf-style formatting — keep for consistency
+  "UP041",    # Timeout error alias
+]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = true
+suppress-none-returning = true
 
 [tool.ruff.lint.per-file-ignores]
-"t/**" = [
-  "PLR0913", # Too many arguments in test fixtures
-  "PLR2004", # Magic values in tests are fine
-  "S101",    # assert in tests
+"tests/**" = [
+  "ANN",     # Type annotations not required in tests
+  "ARG",     # Unused arguments common in fixtures
+  "ASYNC110", # Async busy wait — test patterns
+  "B",       # Bugbear — relaxed in tests
+  "COM818",  # Trailing comma on bare tuple
+  "DTZ",     # Datetime timezone — tests use naive datetimes
+  "E721",    # Type comparison — test assertions
+  "E742",    # Ambiguous class name — test mocks
+  "INP001",  # Implicit namespace package
+  "PERF",    # Performance — not critical in tests
+  "PLC0206", # Dict index missing items
+  "PLR",     # Pylint refactor — relaxed in tests
+  "PLW0129", # Assert on string literal
+  "PT",      # Pytest style — preference
+  "RUF043",  # Pytest raises ambiguous pattern
+  "S",       # Security — tests are trusted code
+  "SIM117",  # Multiple with statements
+  "SLOT",    # No slots in subclass
+  "TRY",     # tryceratops — relaxed in tests
+  "UP045",   # Non-PEP 604 Optional
 ]
 
+[tool.mypy]
+python_version = "3.12"
+pretty = true
+show_error_codes = true
+show_error_context = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unreachable = false
+
+[[tool.mypy.overrides]]
+module = "kombu.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "click_repl.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "click_didyoumean.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "asgiref.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "dateutil.*"
+ignore_missing_imports = true
+
+[tool.ty.environment]
+python-version = "3.12"
+
 [tool.pytest.ini_options]
-addopts = "--strict-markers"
-testpaths = ["t/unit"]
+addopts = "--cov=celery --cov-report=term-missing --cov-report=xml --no-cov-on-fail"
+testpaths = ["tests/unit"]
 python_classes = "test_*"
 xfail_strict = true
 asyncio_mode = "auto"
@@ -251,6 +284,8 @@ source = ["celery"]
 omit = ["*/__init__.py"]
 
 [tool.coverage.report]
+precision = 2
+skip_covered = true
 exclude_lines = [
   "pragma: no cover",
   "if TYPE_CHECKING:",

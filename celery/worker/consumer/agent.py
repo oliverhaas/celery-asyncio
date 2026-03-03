@@ -1,4 +1,5 @@
 """Celery + :pypi:`cell` integration."""
+
 from celery import bootsteps
 
 from .connection import Connection

@@ -10,26 +10,25 @@ With Python 3.14t free-threading, all threads run with true parallelism.
 
 This is the default pool for celery-asyncio workers.
 """
+
 from __future__ import annotations
 
 import asyncio
 import os
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any
 
 from celery import signals
 from celery.utils.log import get_logger
 
 from .base import BasePool, apply_target
 
-__all__ = ('TaskPool',)
+__all__ = ("TaskPool",)
 
-logger = get_logger('celery.pool')
-
-if TYPE_CHECKING:
-    pass
+logger = get_logger("celery.pool")
 
 
 class ApplyResult:
@@ -46,6 +45,7 @@ class ApplyResult:
     def wait(self, timeout: float | None = None) -> None:
         if isinstance(self.f, Future):
             from concurrent.futures import wait
+
             wait([self.f], timeout)
 
 
@@ -71,7 +71,7 @@ class LoopWorker:
         """Start the loop worker thread and wait until the loop is running."""
         self._thread = threading.Thread(
             target=self._run_loop,
-            name=f'celery-loop-worker-{self._index}',
+            name=f"celery-loop-worker-{self._index}",
             daemon=True,
         )
         self._thread.start()
@@ -96,15 +96,11 @@ class LoopWorker:
         # We need to create the coroutine from inside the target loop.
         # call_soon_threadsafe schedules a regular callback, so we
         # use it to create_task the semaphore-wrapped coroutine.
-        self._loop.call_soon_threadsafe(
-            self._schedule_task, coro_factory, args
-        )
+        self._loop.call_soon_threadsafe(self._schedule_task, coro_factory, args)
 
     def _schedule_task(self, coro_factory: Callable, args: tuple) -> None:
         """Create and schedule the task on this loop (called from loop thread)."""
-        self._loop.create_task(
-            self._run_with_semaphore(coro_factory, args)
-        )
+        self._loop.create_task(self._run_with_semaphore(coro_factory, args))
 
     async def _run_with_semaphore(self, coro_factory: Callable, args: tuple) -> None:
         """Acquire semaphore, run the coroutine, then release."""
@@ -136,11 +132,9 @@ class TaskPool(BasePool):
     signal_safe = False
     task_join_will_block = False
 
-    def __init__(self, *args: Any,
-                 loop_workers: int = 1,
-                 loop_concurrency: int = 10,
-                 sync_workers: int = 1,
-                 **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, loop_workers: int = 1, loop_concurrency: int = 10, sync_workers: int = 1, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._loop_worker_count = loop_workers
         self._loop_concurrency = loop_concurrency
@@ -157,9 +151,9 @@ class TaskPool(BasePool):
         # Start M sync worker threads
         self._executor = ThreadPoolExecutor(max_workers=self._sync_worker_count)
         logger.info(
-            'Pool started: %d loop workers (concurrency=%d each), '
-            '%d sync workers',
-            self._loop_worker_count, self._loop_concurrency,
+            "Pool started: %d loop workers (concurrency=%d each), %d sync workers",
+            self._loop_worker_count,
+            self._loop_concurrency,
             self._sync_worker_count,
         )
         signals.worker_process_init.send(sender=None)
@@ -203,13 +197,15 @@ class TaskPool(BasePool):
             worker = self._pick_loop_worker()
             worker.submit(
                 self._run_async_task,
-                target, args, kwargs, callback, accept_callback,
+                target,
+                args,
+                kwargs,
+                callback,
+                accept_callback,
             )
             return ApplyResult(None)
         else:
-            return self._apply_sync_task(
-                target, args, kwargs, callback, accept_callback, **options
-            )
+            return self._apply_sync_task(target, args, kwargs, callback, accept_callback, **options)
 
     async def _run_async_task(
         self,
@@ -220,8 +216,10 @@ class TaskPool(BasePool):
         accept_callback: Callable | None,
     ) -> None:
         """Execute an async task using the async tracer."""
+        from kombu.serialization import loads as loads_message
+        from kombu.serialization import prepare_accept_content
+
         from celery.app.trace import build_async_tracer
-        from kombu.serialization import loads as loads_message, prepare_accept_content
 
         # Unpack args: (task_name, uuid, request, body, content_type, content_encoding)
         task_name, uuid, request, body, content_type, content_encoding = args[:6]
@@ -235,21 +233,30 @@ class TaskPool(BasePool):
             if content_type:
                 accept = prepare_accept_content(app.conf.accept_content)
                 task_args, task_kwargs, embed = loads_message(
-                    body, content_type, content_encoding, accept=accept,
+                    body,
+                    content_type,
+                    content_encoding,
+                    accept=accept,
                 )
             else:
                 task_args, task_kwargs, embed = body
 
-            request.update({
-                'args': task_args, 'kwargs': task_kwargs,
-                'hostname': request.get('hostname', ''),
-                'is_eager': False,
-            }, **(embed or {}))
+            request.update(
+                {
+                    "args": task_args,
+                    "kwargs": task_kwargs,
+                    "hostname": request.get("hostname", ""),
+                    "is_eager": False,
+                },
+                **(embed or {}),
+            )
 
             task_obj = app.tasks[task_name]
 
             tracer = build_async_tracer(
-                task_name, task_obj, app=app,
+                task_name,
+                task_obj,
+                app=app,
             )
             R, I, T, Rstr = await tracer(uuid, task_args, task_kwargs, request)
 
@@ -258,6 +265,7 @@ class TaskPool(BasePool):
                 callback(result)
         except Exception:
             from celery.exceptions import ExceptionInfo
+
             if callback:
                 callback(ExceptionInfo())
 
@@ -273,8 +281,13 @@ class TaskPool(BasePool):
         """Run a sync task in the thread pool."""
         app = self.app
         f = self._executor.submit(
-            self._run_in_thread, app, target, args, kwargs,
-            callback, accept_callback,
+            self._run_in_thread,
+            app,
+            target,
+            args,
+            kwargs,
+            callback,
+            accept_callback,
         )
         return ApplyResult(f)
 
@@ -293,11 +306,13 @@ class TaskPool(BasePool):
 
     def _get_info(self) -> dict[str, Any]:
         info = super()._get_info()
-        info.update({
-            'implementation': 'asyncio+threads',
-            'loop-workers': self._loop_worker_count,
-            'loop-concurrency': self._loop_concurrency,
-            'sync-workers': self._sync_worker_count,
-            'loop-active': [w._active_count for w in self._loop_workers],
-        })
+        info.update(
+            {
+                "implementation": "asyncio+threads",
+                "loop-workers": self._loop_worker_count,
+                "loop-concurrency": self._loop_concurrency,
+                "sync-workers": self._sync_worker_count,
+                "loop-active": [w._active_count for w in self._loop_workers],
+            }
+        )
         return info

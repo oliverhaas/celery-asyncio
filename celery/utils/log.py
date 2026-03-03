@@ -1,4 +1,5 @@
 """Logging utilities."""
+
 import logging
 import numbers
 import os
@@ -15,25 +16,32 @@ from kombu.utils.encoding import safe_str
 from .term import colored
 
 __all__ = (
-    'ColorFormatter', 'LoggingProxy', 'base_logger',
-    'set_in_sighandler', 'in_sighandler', 'get_logger',
-    'get_task_logger', 'mlevel',
-    'get_multiprocessing_logger', 'reset_multiprocessing_logger', 'LOG_LEVELS'
+    "ColorFormatter",
+    "LoggingProxy",
+    "base_logger",
+    "set_in_sighandler",
+    "in_sighandler",
+    "get_logger",
+    "get_task_logger",
+    "mlevel",
+    "get_multiprocessing_logger",
+    "reset_multiprocessing_logger",
+    "LOG_LEVELS",
 )
 
 _process_aware = False
 _in_sighandler = False
 
-MP_LOG = os.environ.get('MP_LOG', False)
+MP_LOG = os.environ.get("MP_LOG", False)
 
-RESERVED_LOGGER_NAMES = {'celery', 'celery.task'}
+RESERVED_LOGGER_NAMES = {"celery", "celery.task"}
 
 # Sets up our logging hierarchy.
 #
 # Every logger in the celery package inherits from the "celery"
 # logger, and every task logger inherits from the "celery.task"
 # logger.
-base_logger = logger = _get_logger('celery')
+base_logger = logger = _get_logger("celery")
 
 
 def set_in_sighandler(value):
@@ -44,8 +52,7 @@ def set_in_sighandler(value):
 
 def iter_open_logger_fds():
     seen = set()
-    loggers = (list(logging.Logger.manager.loggerDict.values()) +
-               [logging.getLogger(None)])
+    loggers = list(logging.Logger.manager.loggerDict.values()) + [logging.getLogger(None)]
     for l in loggers:
         try:
             for handler in l.handlers:
@@ -77,14 +84,14 @@ def logger_isa(l, p, max=1000):
         else:
             if this in seen:
                 raise RuntimeError(
-                    f'Logger {l.name!r} parents recursive',
+                    f"Logger {l.name!r} parents recursive",
                 )
             seen.add(this)
             this = this.parent
             if not this:
                 break
     else:  # pragma: no cover
-        raise RuntimeError(f'Logger hierarchy exceeds {max}')
+        raise RuntimeError(f"Logger hierarchy exceeds {max}")
     return False
 
 
@@ -102,14 +109,14 @@ def get_logger(name):
     return l
 
 
-task_logger = get_logger('celery.task')
-worker_logger = get_logger('celery.worker')
+task_logger = get_logger("celery.task")
+worker_logger = get_logger("celery.worker")
 
 
 def get_task_logger(name):
     """Get logger for task module by name."""
     if name in RESERVED_LOGGER_NAMES:
-        raise RuntimeError(f'Logger name {name!r} is reserved!')
+        raise RuntimeError(f"Logger name {name!r} is reserved!")
     return _using_logger_parent(task_logger, get_logger(name))
 
 
@@ -126,10 +133,10 @@ class ColorFormatter(logging.Formatter):
     #: Loglevel -> Color mapping.
     COLORS = colored().names
     colors = {
-        'DEBUG': COLORS['blue'],
-        'WARNING': COLORS['yellow'],
-        'ERROR': COLORS['red'],
-        'CRITICAL': COLORS['magenta'],
+        "DEBUG": COLORS["blue"],
+        "WARNING": COLORS["yellow"],
+        "ERROR": COLORS["red"],
+        "CRITICAL": COLORS["magenta"],
     }
 
     def __init__(self, fmt=None, use_color=True):
@@ -163,9 +170,9 @@ class ColorFormatter(logging.Formatter):
                     return safe_str(msg)  # skip colors
             except Exception as exc:  # pylint: disable=broad-except
                 prev_msg, record.exc_info, record.msg = (
-                    record.msg, 1, '<Unrepresentable {!r}: {!r}>'.format(
-                        type(msg), exc
-                    ),
+                    record.msg,
+                    1,
+                    f"<Unrepresentable {type(msg)!r}: {exc!r}>",
                 )
                 try:
                     return super().format(record)
@@ -183,7 +190,7 @@ class LoggingProxy:
         loglevel (int, str): Log level to use when logging messages.
     """
 
-    mode = 'w'
+    mode = "w"
     name = None
     closed = False
     loglevel = logging.ERROR
@@ -201,17 +208,17 @@ class LoggingProxy:
         # :data:`sys.__stderr__` instead of :data:`sys.stderr` to circumvent
         # infinite loops.
 
-        def wrap_handler(handler):                  # pragma: no cover
+        def wrap_handler(handler):  # pragma: no cover
 
             class WithSafeHandleError(logging.Handler):
-
                 def handleError(self, record):
                     try:
                         traceback.print_exc(None, sys.__stderr__)
                     except OSError:
-                        pass    # see python issue 5971
+                        pass  # see python issue 5971
 
             handler.handleError = WithSafeHandleError().handleError
+
         return [wrap_handler(h) for h in self.logger.handlers]
 
     def write(self, data):
@@ -221,13 +228,13 @@ class LoggingProxy:
             safe_data = safe_str(data)
             print(safe_data, file=sys.__stderr__)
             return len(safe_data)
-        if getattr(self._thread, 'recurse_protection', False):
+        if getattr(self._thread, "recurse_protection", False):
             # Logger is logging back to this file, so stop recursing.
             return 0
         if data and not self.closed:
             self._thread.recurse_protection = True
             try:
-                safe_data = safe_str(data).rstrip('\n')
+                safe_data = safe_str(data).rstrip("\n")
                 if safe_data:
                     self.logger.log(self.loglevel, safe_data)
                     return len(safe_data)
@@ -265,7 +272,7 @@ def get_multiprocessing_logger():
 
     In asyncio mode, we don't use billiard multiprocessing logging.
     """
-    return None
+    return
 
 
 def reset_multiprocessing_logger():
@@ -273,7 +280,6 @@ def reset_multiprocessing_logger():
 
     In asyncio mode, this is a no-op.
     """
-    pass
 
 
 def current_process():
@@ -284,5 +290,5 @@ def current_process():
 
 
 def current_process_index(base=1):
-    index = getattr(current_process(), 'index', None)
+    index = getattr(current_process(), "index", None)
     return index + base if index is not None else index

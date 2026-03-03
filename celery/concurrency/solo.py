@@ -1,11 +1,12 @@
 """Single-threaded execution pool."""
+
 import os
 
 from celery import signals
 
 from .base import BasePool, apply_target
 
-__all__ = ('TaskPool',)
+__all__ = ("TaskPool",)
 
 
 class TaskPool(BasePool):
@@ -21,11 +22,13 @@ class TaskPool(BasePool):
 
     def _get_info(self):
         info = super()._get_info()
-        info.update({
-            'max-concurrency': 1,
-            'processes': [os.getpid()],
-            'max-tasks-per-child': None,
-            'put-guarded-by-semaphore': True,
-            'timeouts': (),
-        })
+        info.update(
+            {
+                "max-concurrency": 1,
+                "processes": [os.getpid()],
+                "max-tasks-per-child": None,
+                "put-guarded-by-semaphore": True,
+                "timeouts": (),
+            }
+        )
         return info
