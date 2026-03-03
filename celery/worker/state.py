@@ -80,13 +80,18 @@ revoked_stamps = {}
 should_stop = None
 should_terminate = None
 
+#: Set to True when the worker is draining (no new tasks, waiting for active to finish).
+is_draining = False
+
 
 def reset_state():
+    global is_draining
     requests.clear()
     reserved_requests.clear()
     active_requests.clear()
     successful_requests.clear()
     total_count.clear()
+    is_draining = False
     all_total_count[:] = [0]
     revoked.clear()
     revoked_stamps.clear()

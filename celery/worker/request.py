@@ -464,7 +464,10 @@ class Request:
     def terminate(self, pool, signal=None):
         signal = _signals.signum(signal or TERM_SIGNAME)
         if self.time_start:
-            pool.terminate_job(self.worker_pid, signal)
+            try:
+                pool.terminate_job(self.worker_pid, signal)
+            except NotImplementedError:
+                pass
             self._announce_revoked("terminated", True, signal, False)
         else:
             self._terminate_on_ack = pool, signal
@@ -476,7 +479,10 @@ class Request:
     def cancel(self, pool, signal=None):
         signal = _signals.signum(signal or TERM_SIGNAME)
         if self.time_start:
-            pool.terminate_job(self.worker_pid, signal)
+            try:
+                pool.terminate_job(self.worker_pid, signal)
+            except NotImplementedError:
+                pass
             self._announce_cancelled()
 
         if self._apply_result is not None:

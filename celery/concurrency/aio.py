@@ -48,6 +48,15 @@ class ApplyResult:
 
             wait([self.f], timeout)
 
+    def cancel(self) -> None:
+        """Cancel the underlying task/future."""
+        if self.f is not None:
+            self.f.cancel()
+
+    def terminate(self, signal=None) -> None:
+        """Terminate the underlying task/future (alias for cancel)."""
+        self.cancel()
+
 
 class LoopWorker:
     """A worker thread running its own asyncio event loop.
@@ -66,6 +75,7 @@ class LoopWorker:
         self._semaphore: asyncio.Semaphore | None = None
         self._active_count = 0
         self._ready = threading.Event()
+        self._tasks: set[asyncio.Task] = set()
 
     def start(self) -> None:
         """Start the loop worker thread and wait until the loop is running."""
@@ -100,7 +110,9 @@ class LoopWorker:
 
     def _schedule_task(self, coro_factory: Callable, args: tuple) -> None:
         """Create and schedule the task on this loop (called from loop thread)."""
-        self._loop.create_task(self._run_with_semaphore(coro_factory, args))
+        task = self._loop.create_task(self._run_with_semaphore(coro_factory, args))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     async def _run_with_semaphore(self, coro_factory: Callable, args: tuple) -> None:
         """Acquire semaphore, run the coroutine, then release."""
@@ -110,9 +122,15 @@ class LoopWorker:
             finally:
                 self._active_count -= 1
 
+    def cancel_all(self) -> None:
+        """Cancel all running async tasks on this loop (must be called from loop thread)."""
+        for task in list(self._tasks):
+            task.cancel()
+
     def stop(self) -> None:
-        """Stop the event loop and join the thread."""
+        """Cancel all tasks, stop the event loop, and join the thread."""
         if self._loop:
+            self._loop.call_soon_threadsafe(self.cancel_all)
             self._loop.call_soon_threadsafe(self._loop.stop)
         if self._thread:
             self._thread.join(timeout=5)
@@ -141,6 +159,8 @@ class TaskPool(BasePool):
         self._sync_worker_count = sync_workers
         self._loop_workers: list[LoopWorker] = []
         self._executor: ThreadPoolExecutor | None = None
+        self._active_futures: set[Future] = set()
+        self._stuck_thread_count = 0
 
     def on_start(self) -> None:
         # Start N loop worker threads
@@ -159,12 +179,20 @@ class TaskPool(BasePool):
         signals.worker_process_init.send(sender=None)
 
     def on_stop(self) -> None:
+        for f in list(self._active_futures):
+            f.cancel()
+        self._active_futures.clear()
         for w in self._loop_workers:
             w.stop()
         self._loop_workers.clear()
         if self._executor:
             self._executor.shutdown(wait=False)
             self._executor = None
+
+    def restart(self) -> None:
+        """Restart the pool: stop all workers and start fresh."""
+        self.on_stop()
+        self.on_start()
 
     def _is_async_task(self, args: tuple) -> bool:
         """Check if the task referenced by args[0] is an async coroutine."""
@@ -188,6 +216,9 @@ class TaskPool(BasePool):
         kwargs: dict[str, Any] | None = None,
         callback: Callable | None = None,
         accept_callback: Callable | None = None,
+        timeout_callback: Callable | None = None,
+        soft_timeout: float | None = None,
+        timeout: float | None = None,
         **options: Any,
     ) -> ApplyResult:
         args = args or ()
@@ -202,10 +233,19 @@ class TaskPool(BasePool):
                 kwargs,
                 callback,
                 accept_callback,
+                timeout_callback,
+                soft_timeout,
+                timeout,
             )
             return ApplyResult(None)
         else:
-            return self._apply_sync_task(target, args, kwargs, callback, accept_callback, **options)
+            return self._apply_sync_task(
+                target, args, kwargs, callback, accept_callback,
+                timeout_callback=timeout_callback,
+                soft_timeout=soft_timeout,
+                timeout=timeout,
+                **options,
+            )
 
     async def _run_async_task(
         self,
@@ -214,6 +254,9 @@ class TaskPool(BasePool):
         kwargs: dict,
         callback: Callable | None,
         accept_callback: Callable | None,
+        timeout_callback: Callable | None = None,
+        soft_timeout: float | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Execute an async task using the async tracer."""
         from kombu.serialization import loads as loads_message
@@ -258,16 +301,69 @@ class TaskPool(BasePool):
                 task_obj,
                 app=app,
             )
-            R, I, T, Rstr = await tracer(uuid, task_args, task_kwargs, request)
+
+            R, I, T, Rstr = await self._run_tracer_with_timeouts(
+                tracer, uuid, task_args, task_kwargs, request,
+                soft_timeout=soft_timeout,
+                timeout=timeout,
+                timeout_callback=timeout_callback,
+            )
 
             result = (1, R, T) if I else (0, Rstr, T)
             if callback:
                 callback(result)
+        except asyncio.CancelledError:
+            from celery.exceptions import ExceptionInfo, Terminated
+
+            if callback:
+                exc = Terminated("cancelled")
+                callback(ExceptionInfo((type(exc), exc, None)))
         except Exception:
             from celery.exceptions import ExceptionInfo
 
             if callback:
                 callback(ExceptionInfo())
+
+    async def _run_tracer_with_timeouts(
+        self,
+        tracer: Callable,
+        uuid: str,
+        task_args: tuple,
+        task_kwargs: dict,
+        request: dict,
+        soft_timeout: float | None = None,
+        timeout: float | None = None,
+        timeout_callback: Callable | None = None,
+    ) -> tuple:
+        """Run the async tracer with soft and hard timeout support.
+
+        Soft timeout: raises SoftTimeLimitExceeded inside the task (catchable).
+        Hard timeout: cancels the task and reports failure via timeout_callback.
+        """
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        async def _run_with_soft_timeout() -> tuple:
+            if soft_timeout:
+                try:
+                    async with asyncio.timeout(soft_timeout):
+                        return await tracer(uuid, task_args, task_kwargs, request)
+                except TimeoutError:
+                    raise SoftTimeLimitExceeded(soft_timeout)
+            else:
+                return await tracer(uuid, task_args, task_kwargs, request)
+
+        if timeout:
+            try:
+                return await asyncio.wait_for(
+                    _run_with_soft_timeout(),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                if timeout_callback:
+                    timeout_callback(False, timeout)
+                raise asyncio.CancelledError(f"hard time limit ({timeout}s) exceeded")
+        else:
+            return await _run_with_soft_timeout()
 
     def _apply_sync_task(
         self,
@@ -276,6 +372,9 @@ class TaskPool(BasePool):
         kwargs: dict,
         callback: Callable | None,
         accept_callback: Callable | None,
+        timeout_callback: Callable | None = None,
+        soft_timeout: float | None = None,
+        timeout: float | None = None,
         **options: Any,
     ) -> ApplyResult:
         """Run a sync task in the thread pool."""
@@ -289,7 +388,34 @@ class TaskPool(BasePool):
             callback,
             accept_callback,
         )
+        self._active_futures.add(f)
+        f.add_done_callback(self._active_futures.discard)
+
+        if timeout:
+            self._schedule_sync_timeout(f, timeout, timeout_callback)
+
         return ApplyResult(f)
+
+    def _schedule_sync_timeout(
+        self,
+        future: Future,
+        timeout: float,
+        timeout_callback: Callable | None,
+    ) -> None:
+        """Schedule a hard timeout check for a sync task in the thread pool."""
+        def _check_timeout():
+            if not future.done():
+                logger.error(
+                    "Hard time limit (%ss) exceeded for sync task in thread pool. "
+                    "Thread cannot be killed; will trigger process restart.",
+                    timeout,
+                )
+                if timeout_callback:
+                    timeout_callback(False, timeout)
+                self._stuck_thread_count += 1
+        timer = threading.Timer(timeout, _check_timeout)
+        timer.daemon = True
+        timer.start()
 
     @staticmethod
     def _run_in_thread(

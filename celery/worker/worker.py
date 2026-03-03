@@ -402,16 +402,41 @@ class WorkController:
         self.sync_workers = either("worker_sync_workers", sync_workers)
 
     async def wait_for_soft_shutdown(self):
-        """Wait worker_soft_shutdown_timeout if soft shutdown is enabled."""
+        """Wait for active tasks to finish, up to worker_soft_shutdown_timeout.
+
+        Polls active_requests every 0.5s. If tasks finish early, proceeds
+        immediately. After timeout, force-cancels remaining tasks.
+        """
         app = self.app
-        requests = tuple(state.active_requests)
+        active = tuple(state.active_requests)
+        timeout = app.conf.worker_soft_shutdown_timeout
 
         if app.conf.worker_enable_soft_shutdown_on_idle:
-            requests = True
+            active = True
 
-        if app.conf.worker_soft_shutdown_timeout > 0 and requests:
+        if timeout > 0 and active:
+            active_count = len(tuple(state.active_requests))
             logger.warning(
-                "Initiating Soft Shutdown, terminating in %s seconds",
-                app.conf.worker_soft_shutdown_timeout,
+                "Soft shutdown: waiting up to %s seconds for %d active task(s)",
+                timeout,
+                active_count,
             )
-            await asyncio.sleep(app.conf.worker_soft_shutdown_timeout)
+
+            import time
+            deadline = time.monotonic() + timeout
+            while tuple(state.active_requests) and time.monotonic() < deadline:
+                await asyncio.sleep(0.5)
+
+            # Force-cancel any remaining tasks
+            remaining = tuple(state.active_requests)
+            if remaining:
+                logger.warning(
+                    "Force-cancelling %d remaining task(s) after %ss timeout",
+                    len(remaining),
+                    timeout,
+                )
+                for req in remaining:
+                    try:
+                        req.cancel(self.pool)
+                    except Exception as exc:
+                        logger.debug("Error cancelling task %s: %r", req.id, exc)
