@@ -1,108 +1,22 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
 *.py[cod]
-*$py.class
-
-# C extensions
-*.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-junit.xml
-
-# Translations
-*.mo
-*.pot
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# IDEs
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.ropeproject/
-.project
-.pydevproject
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# ruff
-.ruff_cache/
-
-# OS
+__pycache__/
 .DS_Store
-Thumbs.db
-
-# Redis
+*~
+*.log
+*.swp
+\#*
+.\#*
+*.egg-info
+/build/
+/dist/
+.tox
+.idea
+.venv
+.coverage
+coverage.xml
+cobertura.xml
+CLAUDE.md
 dump.rdb
-
-# uv
-uv.lock
-
-# Celery specific
-erl_crash.dump
-*.db
-test.db
-celery/tests/cover/
-cover/
-.vagrant/
-integration-tests-config.json
-statefilename.*
-
-# Documentation
-Documentation/
-_build/
-.build/
-
-# Version files
-.python-version
-.tool-versions
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/

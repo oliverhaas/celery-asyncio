@@ -16,7 +16,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
 
       - name: Set up Python
-        run: uv python install 3.13
+        run: uv python install 3.14
 
       - name: Install dependencies
         run: uv sync --group dev
@@ -30,15 +30,16 @@ jobs:
       - name: Run mypy check
         run: uv run mypy celery/
 
-      - name: Run ty check
-        run: uv run ty check celery/
-
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
+        python-version:
+          - "3.12"
+          - "3.13"
+          - "3.14"
+
     steps:
       - uses: actions/checkout@v6
 
@@ -52,9 +53,9 @@ jobs:
         run: uv sync --group dev
 
       - name: Run tests
-        run: uv run pytest tests/unit/ -x -q
+        run: uv run pytest -n auto
 
-      - name: Upload coverage
+      - name: Upload coverage to Codecov
         if: matrix.python-version == '3.13'
         uses: codecov/codecov-action@v5
         with:

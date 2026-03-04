@@ -2,8 +2,8 @@
 name = "celery-asyncio"
 version = "6.0.0a2"
 description = "Distributed Task Queue with native asyncio support"
-readme = "README.rst"
-license = "BSD-3-Clause"
+readme = "README.md"
+license = { text = "BSD-3-Clause" }
 requires-python = ">=3.12"
 keywords = [
   "actors",
@@ -48,10 +48,9 @@ dependencies = [
 ]
 
 [project.urls]
-Changelog = "https://github.com/oliverhaas/celery/blob/main-asyncio/Changelog.rst"
-Documentation = "https://docs.celeryq.dev/en/stable/"
+Homepage = "https://github.com/oliverhaas/celery"
+Repository = "https://github.com/oliverhaas/celery.git"
 Source = "https://github.com/oliverhaas/celery/tree/main-asyncio"
-Tracker = "https://github.com/oliverhaas/celery/issues"
 
 [project.scripts]
 celery = "celery.__main__:main"
@@ -101,8 +100,8 @@ dev = [
   "pytest-mock==3.15.1",
   "pytest-timeout==2.4.0",
   "pytest-xdist==3.8.0",
-  "ruff==0.15.2",
-  "ty==0.0.18",
+  "ruff==0.15.4",
+  "ty==0.0.19",
 ]
 
 [build-system]
@@ -111,6 +110,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["celery"]
+
+[tool.hatch.build.targets.sdist]
+include = ["celery", "LICENSE", "README.md"]
 
 [tool.uv.sources]
 kombu-asyncio = { path = "../kombu", editable = true }
