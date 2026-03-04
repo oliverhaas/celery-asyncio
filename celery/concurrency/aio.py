@@ -139,9 +139,13 @@ class LoopWorker:
         """Cancel all tasks, stop the event loop, and join the thread."""
         if self._loop:
             self._loop.call_soon_threadsafe(self.cancel_all)
-            self._loop.call_soon_threadsafe(self._loop.stop)
+            # Give tasks a brief interval to process their CancelledError
+            # and run cleanup (callbacks, result reporting) before stopping.
+            self._loop.call_soon_threadsafe(
+                self._loop.call_later, 0.5, self._loop.stop,
+            )
         if self._thread:
-            self._thread.join(timeout=5)
+            self._thread.join(timeout=6)
 
 
 class TaskPool(BasePool):

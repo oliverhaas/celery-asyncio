@@ -649,9 +649,9 @@ class Consumer:
                     def _ack(*args, _msg=message, **kwargs):
                         loop.call_soon_threadsafe(loop.create_task, _msg.ack_log_error(logger, self.connection_errors))
 
-                    def _reject(*args, _msg=message, **kwargs):
+                    def _reject(_logger=None, _errors=None, requeue=False, _msg=message, **kwargs):
                         loop.call_soon_threadsafe(
-                            loop.create_task, _msg.reject_log_error(logger, self.connection_errors)
+                            loop.create_task, _msg.reject_log_error(logger, self.connection_errors, requeue=requeue)
                         )
 
                     strategy(

@@ -218,6 +218,7 @@ class WorkController:
             self.exitcode = exitcode
         if self.blueprint.state == RUN:
             await self.signal_consumer_close()
+            await self.wait_for_soft_shutdown()
             await self._shutdown(warm=True)
         self._send_worker_shutdown()
 
