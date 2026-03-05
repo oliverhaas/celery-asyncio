@@ -12,8 +12,6 @@ __all__ = ("get_implementation", "get_available_pool_names")
 
 ALIASES = {
     "asyncio": "celery.concurrency.aio:TaskPool",
-    "solo": "celery.concurrency.solo:TaskPool",
-    "threads": "celery.concurrency.thread:TaskPool",
 }
 
 # Allow for an out-of-tree worker pool implementation

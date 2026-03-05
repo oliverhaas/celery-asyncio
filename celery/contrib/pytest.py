@@ -112,10 +112,9 @@ def celery_worker_pool():
     # type: () -> Union[str, Any]
     """You can override this fixture to set the worker pool.
 
-    The "solo" pool is used by default, but you can set this to
-    return e.g. "prefork".
+    The "asyncio" pool is used by default.
     """
-    return "solo"
+    return "asyncio"
 
 
 @pytest.fixture(scope="session")

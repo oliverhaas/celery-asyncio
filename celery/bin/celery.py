@@ -17,15 +17,11 @@ from celery.bin.beat import beat
 from celery.bin.call import call
 from celery.bin.control import control, inspect, status
 from celery.bin.events import events
-from celery.bin.graph import graph
 from celery.bin.list import list_
-from celery.bin.logtool import logtool
 from celery.bin.migrate import migrate
-from celery.bin.multi import multi
 from celery.bin.purge import purge
 from celery.bin.result import result
 from celery.bin.shell import shell
-from celery.bin.upgrade import upgrade
 from celery.bin.worker import worker
 
 UNABLE_TO_LOAD_APP_MODULE_NOT_FOUND = click.style(
@@ -157,9 +153,6 @@ celery.add_command(worker)
 celery.add_command(events)
 celery.add_command(inspect)
 celery.add_command(control)
-celery.add_command(graph)
-celery.add_command(upgrade)
-celery.add_command(logtool)
 try:
     from celery.bin.amqp import amqp
 
@@ -167,7 +160,6 @@ try:
 except ImportError:
     pass  # amqp module not available
 celery.add_command(shell)
-celery.add_command(multi)
 
 # Monkey-patch click to display a custom error
 # when -A or --app are used as sub-command options instead of as options

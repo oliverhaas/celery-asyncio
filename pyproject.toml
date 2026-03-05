@@ -57,27 +57,11 @@ celery = "celery.__main__:main"
 
 [project.optional-dependencies]
 # Serializers
-auth = ["cryptography"]
 msgpack = ["msgpack"]
 yaml = ["PyYAML>=3.10"]
 
 # Transports and Backends
 redis = ["kombu-asyncio[redis]"]
-
-# Result backends
-memcache = ["pylibmc"]
-pymemcache = ["python-memcached"]
-cassandra = ["cassandra-driver>=3.25.0"]
-elasticsearch = ["elasticsearch>=7.0.0"]
-dynamodb = ["boto3>=1.26.143"]
-s3 = ["boto3>=1.26.143"]
-gcs = ["google-cloud-storage>=2.10.0"]
-azureblockblob = ["azure-storage-blob>=12.15.0"]
-arangodb = ["pyArango>=2.0.2"]
-cosmosdbsql = ["pydocumentdb>=2.3.5"]
-couchbase = ["couchbase>=3.0.0"]
-couchdb = ["pycouchdb"]
-consul = ["python-consul2"]
 
 # Testing
 tblib = ["tblib>=1.3.0"]

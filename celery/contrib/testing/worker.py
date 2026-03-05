@@ -85,7 +85,7 @@ class TestWorkController(worker.WorkController):
 def start_worker(
     app,  # type: Celery
     concurrency=1,  # type: int
-    pool="solo",  # type: str
+    pool="asyncio",  # type: str
     loglevel=WORKER_LOGLEVEL,  # type: Union[str, int]
     logfile=None,  # type: str
     perform_ping_check=True,  # type: bool
@@ -128,7 +128,7 @@ def start_worker(
 def _start_worker_thread(
     app: Celery,
     concurrency: int = 1,
-    pool: str = "solo",
+    pool: str = "asyncio",
     loglevel: str | int = WORKER_LOGLEVEL,
     logfile: str | None = None,
     WorkController: Any = TestWorkController,
@@ -185,22 +185,9 @@ def _start_worker_thread(
 
 
 @contextmanager
-def _start_worker_process(app, concurrency=1, pool="solo", loglevel=WORKER_LOGLEVEL, logfile=None, **kwargs):
-    # type (Celery, int, str, Union[int, str], str, **Any) -> Iterable
-    """Start worker in separate process.
-
-    Yields:
-        celery.app.worker.Worker: worker instance.
-    """
-    from celery.apps.multi import Cluster, Node
-
-    app.set_current()
-    cluster = Cluster([Node("testworker1@%h")])
-    cluster.start()
-    try:
-        yield
-    finally:
-        cluster.stopwait()
+def _start_worker_process(app, concurrency=1, pool="asyncio", loglevel=WORKER_LOGLEVEL, logfile=None, **kwargs):
+    """Start worker in separate process (not available in celery-asyncio)."""
+    raise NotImplementedError("Multi-process workers are not available in celery-asyncio. Use _start_worker_thread.")
 
 
 def setup_app_for_worker(app: Celery, loglevel: str | int, logfile: str) -> None:

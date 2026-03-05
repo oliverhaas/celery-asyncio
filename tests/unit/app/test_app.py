@@ -115,10 +115,9 @@ class test_App:
         self.app.set_default()
         set_default_app.assert_called_with(self.app)
 
-    @patch("celery.security.setup_security")
-    def test_setup_security(self, setup_security):
-        self.app.setup_security({"json"}, "key", None, "cert", "store", "digest", "serializer")
-        setup_security.assert_called_with({"json"}, "key", None, "cert", "store", "digest", "serializer", app=self.app)
+    def test_setup_security(self):
+        with pytest.raises(NotImplementedError):
+            self.app.setup_security({"json"}, "key", None, "cert", "store", "digest", "serializer")
 
     def test_task_autofinalize_disabled(self):
         with self.Celery("xyzibari", autofinalize=False) as app:

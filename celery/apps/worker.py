@@ -300,7 +300,6 @@ class Worker(WorkController):
         install_worker_term_hard_handler(worker)
         install_worker_int_handler(worker)
         install_cry_handler()
-        install_rdb_handler()
 
     def macOS_proxy_detection_workaround(self):
         """See https://github.com/celery/celery/issues#issue/161."""
@@ -515,20 +514,6 @@ def install_cry_handler(sig="SIGUSR1"):
             safe_say(cry())
 
     platforms.signals[sig] = cry_handler
-
-
-def install_rdb_handler(envvar="CELERY_RDBSIG", sig="SIGUSR2"):  # pragma: no cover
-
-    def rdb_handler(*args):
-        """Signal handler setting a rdb breakpoint at the current frame."""
-        with in_sighandler():
-            from celery.contrib.rdb import _frame, set_trace  # noqa: T100
-
-            frame = args[1] if args else _frame().f_back
-            set_trace(frame)  # noqa: T100
-
-    if os.environ.get(envvar):
-        platforms.signals[sig] = rdb_handler
 
 
 def install_HUP_not_supported_handler(worker, sig="SIGHUP"):

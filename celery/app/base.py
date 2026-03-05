@@ -65,7 +65,35 @@ from celery.utils.objects import FallbackContext, mro_lookup
 from celery.utils.promises import starpromise
 from celery.utils.time import maybe_make_aware, timezone, to_utc
 
-from ..utils.annotations import annotation_is_class, annotation_issubclass, get_optional_arg
+import types as _types
+from inspect import isclass as _isclass
+
+
+def __get_optional_arg(annotation):
+    """Get the argument from an Optional[...] annotation, or None."""
+    origin = typing.get_origin(annotation)
+    if origin is not typing.Union and origin is not getattr(_types, "UnionType", None):
+        return None
+    union_args = typing.get_args(annotation)
+    if len(union_args) != 2:
+        return None
+    _is_none = lambda v: v is _types.NoneType
+    if any(_is_none(a) for a in union_args):
+        return next(a for a in union_args if not _is_none(a))
+    return None
+
+
+def __annotation_is_class(annotation):
+    """Test if a given annotation is a class usable with isinstance/issubclass."""
+    if isinstance(annotation, _types.GenericAlias):
+        return False
+    return _isclass(annotation)
+
+
+def __annotation_issubclass(annotation, cls):
+    """Test if a given annotation is a subclass of cls."""
+    return __annotation_is_class(annotation) and issubclass(annotation, cls)
+
 
 def _detect_quorum_queues(app, driver_type: str) -> tuple[bool, str]:
     """Detect if any queues are quorum queues (AMQP only)."""
@@ -81,7 +109,7 @@ def _detect_quorum_queues(app, driver_type: str) -> tuple[bool, str]:
 from . import backends, builtins  # noqa
 from .annotations import prepare as prepare_annotations
 from .autoretry import add_autoretry_behaviour
-from .defaults import DEFAULT_SECURITY_DIGEST, find_deprecated_settings
+from .defaults import find_deprecated_settings
 from .registry import TaskRegistry
 from .utils import (
     AppPickler,
@@ -187,11 +215,11 @@ def pydantic_wrapper(
             else:
                 arg_annotation = task_signature.parameters[arg_name].annotation
 
-            optional_arg = get_optional_arg(arg_annotation)
+            optional_arg = _get_optional_arg(arg_annotation)
             if optional_arg is not None and arg_value is not None:
                 arg_annotation = optional_arg
 
-            if annotation_issubclass(arg_annotation, BaseModel):
+            if _annotation_issubclass(arg_annotation, BaseModel):
                 bound_args.arguments[arg_name] = arg_annotation.model_validate(
                     arg_value,
                     strict=strict,
@@ -208,12 +236,12 @@ def pydantic_wrapper(
         else:
             return_annotation = task_signature.return_annotation
 
-        optional_return_annotation = get_optional_arg(return_annotation)
+        optional_return_annotation = _get_optional_arg(return_annotation)
         if optional_return_annotation is not None:
             return_annotation = optional_return_annotation
 
         if (
-            annotation_is_class(return_annotation)
+            _annotation_is_class(return_annotation)
             and isinstance(returned_value, BaseModel)
             and isinstance(returned_value, return_annotation)
         ):
@@ -778,44 +806,9 @@ class Celery:
     def config_from_cmdline(self, argv, namespace="celery"):
         self._conf.update(self.loader.cmdline_config_parser(argv, namespace))
 
-    def setup_security(
-        self,
-        allowed_serializers=None,
-        key=None,
-        key_password=None,
-        cert=None,
-        store=None,
-        digest=DEFAULT_SECURITY_DIGEST,
-        serializer="json",
-    ):
-        """Setup the message-signing serializer.
-
-        This will affect all application instances (a global operation).
-
-        Disables untrusted serializers and if configured to use the ``auth``
-        serializer will register the ``auth`` serializer with the provided
-        settings into the Kombu serializer registry.
-
-        Arguments:
-            allowed_serializers (Set[str]): List of serializer names, or
-                content_types that should be exempt from being disabled.
-            key (str): Name of private key file to use.
-                Defaults to the :setting:`security_key` setting.
-            key_password (bytes): Password to decrypt the private key.
-                Defaults to the :setting:`security_key_password` setting.
-            cert (str): Name of certificate file to use.
-                Defaults to the :setting:`security_certificate` setting.
-            store (str): Directory containing certificates.
-                Defaults to the :setting:`security_cert_store` setting.
-            digest (str): Digest algorithm used when signing messages.
-                Default is ``sha256``.
-            serializer (str): Serializer used to encode messages after
-                they've been signed.  See :setting:`task_serializer` for
-                the serializers supported.  Default is ``json``.
-        """
-        from celery.security import setup_security
-
-        return setup_security(allowed_serializers, key, key_password, cert, store, digest, serializer, app=self)
+    def setup_security(self, **kwargs):
+        """Setup the message-signing serializer (not available in celery-asyncio)."""
+        raise NotImplementedError("Message signing security is not available in celery-asyncio.")
 
     def autodiscover_tasks(self, packages=None, related_name="tasks", force=False):
         """Auto-discover task modules.
