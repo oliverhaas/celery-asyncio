@@ -5,23 +5,6 @@ import pytest
 from celery.utils import debug
 
 
-def test_on_blocking(patching):
-    getframeinfo = patching("inspect.getframeinfo")
-    frame = Mock(name="frame")
-    with pytest.raises(RuntimeError):
-        debug._on_blocking(1, frame)
-        getframeinfo.assert_called_with(frame)
-
-
-def test_blockdetection(patching):
-    signals = patching("celery.utils.debug.signals")
-    with debug.blockdetection(10):
-        signals.arm_alarm.assert_called_with(10)
-        signals.__setitem__.assert_called_with("ALRM", debug._on_blocking)
-    signals.__setitem__.assert_called_with("ALRM", signals["ALRM"])
-    signals.reset_alarm.assert_called_with()
-
-
 def test_sample_mem(patching):
     mem_rss = patching("celery.utils.debug.mem_rss")
     prev, debug._mem_sample = debug._mem_sample, []

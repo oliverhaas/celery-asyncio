@@ -18,7 +18,6 @@ from celery.contrib.testing.mocks import ContextMock
 from celery.exceptions import WorkerShutdown, WorkerTerminate
 from celery.utils.collections import LimitedSet
 from celery.app.base import _detect_quorum_queues as detect_quorum_queues
-from celery.worker.consumer.agent import Agent
 from celery.worker.consumer.consumer import CANCEL_TASKS_BY_DEFAULT, CLOSE, TERMINATE, Consumer
 from celery.worker.consumer.gossip import Gossip
 from celery.worker.consumer.heart import Heart
@@ -966,14 +965,6 @@ class test_Tasks:
             assert kwargs.get("max_prefetch") == 0
 
 
-class test_Agent:
-    def test_start(self):
-        c = Mock()
-        agent = Agent(c)
-        agent.instantiate = Mock()
-        agent.agent_cls = "foo:Agent"
-        assert agent.create(c) is not None
-        agent.instantiate.assert_called_with(agent.agent_cls, c.connection)
 
 
 class test_Mingle:

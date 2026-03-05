@@ -16,12 +16,9 @@ from celery.bin.base import CeleryCommand, CeleryOption, CLIContext
 from celery.bin.beat import beat
 from celery.bin.call import call
 from celery.bin.control import control, inspect, status
-from celery.bin.events import events
 from celery.bin.list import list_
-from celery.bin.migrate import migrate
 from celery.bin.purge import purge
 from celery.bin.result import result
-from celery.bin.shell import shell
 from celery.bin.worker import worker
 
 UNABLE_TO_LOAD_APP_MODULE_NOT_FOUND = click.style(
@@ -127,7 +124,6 @@ def celery(ctx, app, broker, result_backend, loader, config, workdir, no_color, 
     # User options
     worker.params.extend(ctx.obj.app.user_options.get("worker", []))
     beat.params.extend(ctx.obj.app.user_options.get("beat", []))
-    events.params.extend(ctx.obj.app.user_options.get("events", []))
 
     for command in celery.commands.values():
         command.params.extend(ctx.obj.app.user_options.get("preload", []))
@@ -147,19 +143,10 @@ celery.add_command(call)
 celery.add_command(beat)
 celery.add_command(list_)
 celery.add_command(result)
-celery.add_command(migrate)
 celery.add_command(status)
 celery.add_command(worker)
-celery.add_command(events)
 celery.add_command(inspect)
 celery.add_command(control)
-try:
-    from celery.bin.amqp import amqp
-
-    celery.add_command(amqp)
-except ImportError:
-    pass  # amqp module not available
-celery.add_command(shell)
 
 # Monkey-patch click to display a custom error
 # when -A or --app are used as sub-command options instead of as options

@@ -1,6 +1,5 @@
 """Worker consumer."""
 
-from .agent import Agent
 from .connection import Connection
 from .consumer import Consumer
 from .control import Control
@@ -12,7 +11,6 @@ from .tasks import Tasks
 
 __all__ = (
     "Consumer",
-    "Agent",
     "Connection",
     "Control",
     "Events",

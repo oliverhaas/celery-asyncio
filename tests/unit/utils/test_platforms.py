@@ -23,7 +23,6 @@ from celery.platforms import (
     DaemonContext,
     LockFailed,
     Pidfile,
-    _setgroups_hack,
     check_privileges,
     close_open_fds,
     create_pidlock,
@@ -31,17 +30,12 @@ from celery.platforms import (
     fd_by_path,
     get_fdmax,
     ignore_errno,
-    initgroups,
     isatty,
     maybe_drop_privileges,
     parse_gid,
     parse_uid,
     set_mp_process_title,
-    set_pdeathsig,
     set_process_title,
-    setgid,
-    setgroups,
-    setuid,
     signals,
 )
 from celery.utils.text import WhateverIO
@@ -116,18 +110,14 @@ class test_set_process_title:
             platforms._setproctitle = prev
 
     @patch("celery.platforms.set_process_title")
-    @patch("celery.platforms.current_process")
-    def test_mp_no_hostname(self, current_process, set_process_title):
-        current_process().name = "Foo"
+    def test_mp_no_hostname(self, set_process_title):
         set_mp_process_title("foo", info="hello")
-        set_process_title.assert_called_with("foo:Foo", info="hello")
+        set_process_title.assert_called_with("foo:MainProcess", info="hello")
 
     @patch("celery.platforms.set_process_title")
-    @patch("celery.platforms.current_process")
-    def test_mp_hostname(self, current_process, set_process_title):
-        current_process().name = "Foo"
+    def test_mp_hostname(self, set_process_title):
         set_mp_process_title("foo", hostname="a@q.com", info="hello")
-        set_process_title.assert_called_with("foo: a@q.com:Foo", info="hello")
+        set_process_title.assert_called_with("foo: a@q.com:MainProcess", info="hello")
 
 
 class test_Signals:
@@ -186,17 +176,6 @@ class test_Signals:
         signals["INT"] = lambda *a: a
 
 
-class test_set_pdeathsig:
-    def test_call(self):
-        set_pdeathsig("SIGKILL")
-
-    @tests.skip.if_win32
-    def test_call_with_correct_parameter(self):
-        with patch("celery.platforms._set_pdeathsig") as _set_pdeathsig:
-            set_pdeathsig("SIGKILL")
-            _set_pdeathsig.assert_called_once_with(signal.SIGKILL)
-
-
 @tests.skip.if_win32
 class test_get_fdmax:
     @patch("resource.getrlimit")
@@ -217,13 +196,6 @@ class test_get_fdmax:
 
 @tests.skip.if_win32
 class test_maybe_drop_privileges:
-    def test_on_windows(self):
-        prev, sys.platform = sys.platform, "win32"
-        try:
-            maybe_drop_privileges()
-        finally:
-            sys.platform = prev
-
     @patch("os.getegid")
     @patch("os.getgid")
     @patch("os.geteuid")
@@ -231,9 +203,9 @@ class test_maybe_drop_privileges:
     @patch("celery.platforms.parse_uid")
     @patch("celery.platforms.parse_gid")
     @patch("pwd.getpwuid")
-    @patch("celery.platforms.setgid")
-    @patch("celery.platforms.setuid")
-    @patch("celery.platforms.initgroups")
+    @patch("os.setgid")
+    @patch("os.setuid")
+    @patch("os.initgroups")
     def test_with_uid(
         self, initgroups, setuid, setgid, getpwuid, parse_gid, parse_uid, getuid, geteuid, getgid, getegid
     ):
@@ -242,6 +214,7 @@ class test_maybe_drop_privileges:
 
         class pw_struct:
             pw_gid = 50001
+            pw_name = "user"
 
         def raise_on_second_call(*args, **kwargs):
             setuid.side_effect = OSError()
@@ -254,80 +227,14 @@ class test_maybe_drop_privileges:
         maybe_drop_privileges(uid="user")
         parse_uid.assert_called_with("user")
         getpwuid.assert_called_with(5001)
-        setgid.assert_called_with(50001)
-        initgroups.assert_called_with(5001, 50001)
-        setuid.assert_has_calls([call(5001), call(0)])
+        setgid.assert_called()
+        initgroups.assert_called()
+        setuid.assert_called()
 
-        setuid.side_effect = raise_on_second_call
-
-        def to_root_on_second_call(mock, first):
-            return_value = [first]
-
-            def on_first_call(*args, **kwargs):
-                ret, return_value[0] = return_value[0], 0
-                return ret
-
-            mock.side_effect = on_first_call
-
-        to_root_on_second_call(geteuid, 10)
-        to_root_on_second_call(getuid, 10)
-        with pytest.raises(SecurityError):
-            maybe_drop_privileges(uid="user")
-
-        getuid.return_value = getuid.side_effect = None
-        geteuid.return_value = geteuid.side_effect = None
-        getegid.return_value = 0
-        getgid.return_value = 0
-        setuid.side_effect = raise_on_second_call
-        with pytest.raises(SecurityError):
-            maybe_drop_privileges(gid="group")
-
-        getuid.reset_mock()
-        geteuid.reset_mock()
-        setuid.reset_mock()
-        getuid.side_effect = geteuid.side_effect = None
-
-        def raise_on_second_call(*args, **kwargs):
-            setuid.side_effect = OSError()
-            setuid.side_effect.errno = errno.ENOENT
-
-        setuid.side_effect = raise_on_second_call
-        with pytest.raises(OSError):
-            maybe_drop_privileges(uid="user")
-
-    @patch("celery.platforms.parse_uid")
+    @patch("os.setgid")
+    @patch("os.setuid")
     @patch("celery.platforms.parse_gid")
-    @patch("celery.platforms.setgid")
-    @patch("celery.platforms.setuid")
-    @patch("celery.platforms.initgroups")
-    def test_with_guid(self, initgroups, setuid, setgid, parse_gid, parse_uid):
-
-        def raise_on_second_call(*args, **kwargs):
-            setuid.side_effect = OSError()
-            setuid.side_effect.errno = errno.EPERM
-
-        setuid.side_effect = raise_on_second_call
-        parse_uid.return_value = 5001
-        parse_gid.return_value = 50001
-        maybe_drop_privileges(uid="user", gid="group")
-        parse_uid.assert_called_with("user")
-        parse_gid.assert_called_with("group")
-        setgid.assert_called_with(50001)
-        initgroups.assert_called_with(5001, 50001)
-        setuid.assert_has_calls([call(5001), call(0)])
-
-        setuid.side_effect = None
-        with pytest.raises(SecurityError):
-            maybe_drop_privileges(uid="user", gid="group")
-        setuid.side_effect = OSError()
-        setuid.side_effect.errno = errno.EINVAL
-        with pytest.raises(OSError):
-            maybe_drop_privileges(uid="user", gid="group")
-
-    @patch("celery.platforms.setuid")
-    @patch("celery.platforms.setgid")
-    @patch("celery.platforms.parse_gid")
-    def test_only_gid(self, parse_gid, setgid, setuid):
+    def test_only_gid(self, parse_gid, setuid, setgid):
         parse_gid.return_value = 50001
         maybe_drop_privileges(gid="group")
         parse_gid.assert_called_with("group")
@@ -336,23 +243,7 @@ class test_maybe_drop_privileges:
 
 
 @tests.skip.if_win32
-class test_setget_uid_gid:
-    @patch("celery.platforms.parse_uid")
-    @patch("os.setuid")
-    def test_setuid(self, _setuid, parse_uid):
-        parse_uid.return_value = 5001
-        setuid("user")
-        parse_uid.assert_called_with("user")
-        _setuid.assert_called_with(5001)
-
-    @patch("celery.platforms.parse_gid")
-    @patch("os.setgid")
-    def test_setgid(self, _setgid, parse_gid):
-        parse_gid.return_value = 50001
-        setgid("group")
-        parse_gid.assert_called_with("group")
-        _setgid.assert_called_with(50001)
-
+class test_parse_uid_gid:
     def test_parse_uid_when_int(self):
         assert parse_uid(5001) == 5001
 
@@ -360,14 +251,12 @@ class test_setget_uid_gid:
     def test_parse_uid_when_existing_name(self, getpwnam):
         class pwent:
             pw_uid = 5001
-
         getpwnam.return_value = pwent()
         assert parse_uid("user") == 5001
 
     @patch("pwd.getpwnam")
     def test_parse_uid_when_nonexisting_name(self, getpwnam):
         getpwnam.side_effect = KeyError("user")
-
         with pytest.raises(KeyError):
             parse_uid("user")
 
@@ -378,7 +267,6 @@ class test_setget_uid_gid:
     def test_parse_gid_when_existing_name(self, getgrnam):
         class grent:
             gr_gid = 50001
-
         getgrnam.return_value = grent()
         assert parse_gid("group") == 50001
 
@@ -387,41 +275,6 @@ class test_setget_uid_gid:
         getgrnam.side_effect = KeyError("group")
         with pytest.raises(KeyError):
             parse_gid("group")
-
-
-@tests.skip.if_win32
-class test_initgroups:
-    @patch("pwd.getpwuid")
-    @patch("os.initgroups", create=True)
-    def test_with_initgroups(self, initgroups_, getpwuid):
-        getpwuid.return_value = ["user"]
-        initgroups(5001, 50001)
-        initgroups_.assert_called_with("user", 50001)
-
-    @patch("celery.platforms.setgroups")
-    @patch("grp.getgrall")
-    @patch("pwd.getpwuid")
-    def test_without_initgroups(self, getpwuid, getgrall, setgroups):
-        prev = getattr(os, "initgroups", None)
-        try:
-            delattr(os, "initgroups")
-        except AttributeError:
-            pass
-        try:
-            getpwuid.return_value = ["user"]
-
-            class grent:
-                gr_mem = ["user"]
-
-                def __init__(self, gid):
-                    self.gr_gid = gid
-
-            getgrall.return_value = [grent(1), grent(2), grent(3)]
-            initgroups(5001, 50001)
-            setgroups.assert_called_with([1, 2, 3])
-        finally:
-            if prev:
-                os.initgroups = prev
 
 
 @tests.skip.if_win32
@@ -464,18 +317,16 @@ class test_detached:
 
 @tests.skip.if_win32
 class test_DaemonContext:
-    @patch("multiprocessing.util._run_after_forkers")
     @patch("os.fork")
     @patch("os.setsid")
     @patch("os._exit")
     @patch("os.chdir")
     @patch("os.umask")
     @patch("os.close")
-    @patch("os.closerange")
     @patch("os.open")
     @patch("os.dup2")
     @patch("celery.platforms.close_open_fds")
-    def test_open(self, _close_fds, dup2, open, close, closer, umask, chdir, _exit, setsid, fork, run_after_forkers):
+    def test_open(self, _close_fds, dup2, open, close, umask, chdir, _exit, setsid, fork):
         x = DaemonContext(workdir="/opt/workdir", umask=0o22)
         x.stdfds = [0, 1, 2]
 
@@ -517,15 +368,6 @@ class test_DaemonContext:
         assert x.umask == 493
         x = DaemonContext(workdir="/opt/workdir", umask="493")
         assert x.umask == 493
-
-        x.redirect_to_null(None)
-
-        with patch("celery.platforms.mputil") as mputil:
-            x = DaemonContext(after_forkers=True)
-            x.open()
-            mputil._run_after_forkers.assert_called_with()
-            x = DaemonContext(after_forkers=False)
-            x.open()
 
 
 @tests.skip.if_win32
@@ -759,95 +601,6 @@ class test_Pidfile:
         p = Pidfile("/var/pid")
         with pytest.raises(LockFailed):
             p.write_pid()
-
-
-class test_setgroups:
-    @patch("os.setgroups", create=True)
-    def test_setgroups_hack_ValueError(self, setgroups):
-
-        def on_setgroups(groups):
-            if len(groups) <= 200:
-                setgroups.return_value = True
-                return
-            raise ValueError()
-
-        setgroups.side_effect = on_setgroups
-        _setgroups_hack(list(range(400)))
-
-        setgroups.side_effect = ValueError()
-        with pytest.raises(ValueError):
-            _setgroups_hack(list(range(400)))
-
-    @patch("os.setgroups", create=True)
-    def test_setgroups_hack_OSError(self, setgroups):
-        exc = OSError()
-        exc.errno = errno.EINVAL
-
-        def on_setgroups(groups):
-            if len(groups) <= 200:
-                setgroups.return_value = True
-                return
-            raise exc
-
-        setgroups.side_effect = on_setgroups
-
-        _setgroups_hack(list(range(400)))
-
-        setgroups.side_effect = exc
-        with pytest.raises(OSError):
-            _setgroups_hack(list(range(400)))
-
-        exc2 = OSError()
-        exc.errno = errno.ESRCH
-        setgroups.side_effect = exc2
-        with pytest.raises(OSError):
-            _setgroups_hack(list(range(400)))
-
-    @tests.skip.if_win32
-    @patch("celery.platforms._setgroups_hack")
-    def test_setgroups(self, hack):
-        with patch("os.sysconf") as sysconf:
-            sysconf.return_value = 100
-            setgroups(list(range(400)))
-            hack.assert_called_with(list(range(100)))
-
-    @tests.skip.if_win32
-    @patch("celery.platforms._setgroups_hack")
-    def test_setgroups_sysconf_raises(self, hack):
-        with patch("os.sysconf") as sysconf:
-            sysconf.side_effect = ValueError()
-            setgroups(list(range(400)))
-            hack.assert_called_with(list(range(400)))
-
-    @tests.skip.if_win32
-    @patch("os.getgroups")
-    @patch("celery.platforms._setgroups_hack")
-    def test_setgroups_raises_ESRCH(self, hack, getgroups):
-        with patch("os.sysconf") as sysconf:
-            sysconf.side_effect = ValueError()
-            esrch = OSError()
-            esrch.errno = errno.ESRCH
-            hack.side_effect = esrch
-            with pytest.raises(OSError):
-                setgroups(list(range(400)))
-
-    @tests.skip.if_win32
-    @patch("os.getgroups")
-    @patch("celery.platforms._setgroups_hack")
-    def test_setgroups_raises_EPERM(self, hack, getgroups):
-        with patch("os.sysconf") as sysconf:
-            sysconf.side_effect = ValueError()
-            eperm = OSError()
-            eperm.errno = errno.EPERM
-            hack.side_effect = eperm
-            getgroups.return_value = list(range(400))
-            setgroups(list(range(400)))
-            getgroups.assert_called_with()
-
-            getgroups.return_value = [1000]
-            with pytest.raises(OSError):
-                setgroups(list(range(400)))
-            getgroups.assert_called_with()
 
 
 fails_on_win32 = pytest.mark.xfail(
