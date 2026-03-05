@@ -11,16 +11,13 @@ try:
 except ImportError:
     ChannelError = type("ChannelError", (Exception,), {})
 
-try:
-    from billiard.exceptions import RestartFreqExceeded
-except ImportError:
-    RestartFreqExceeded = type("RestartFreqExceeded", (Exception,), {})
+from celery.exceptions import RestartFreqExceeded
 
 from celery import bootsteps
 from celery.contrib.testing.mocks import ContextMock
 from celery.exceptions import WorkerShutdown, WorkerTerminate
 from celery.utils.collections import LimitedSet
-from celery.utils.quorum_queues import detect_quorum_queues
+from celery.app.base import _detect_quorum_queues as detect_quorum_queues
 from celery.worker.consumer.agent import Agent
 from celery.worker.consumer.consumer import CANCEL_TASKS_BY_DEFAULT, CLOSE, TERMINATE, Consumer
 from celery.worker.consumer.gossip import Gossip

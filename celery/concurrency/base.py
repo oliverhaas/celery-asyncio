@@ -9,8 +9,8 @@ from typing import Any
 from kombu.utils.encoding import safe_repr
 
 from celery.exceptions import ExceptionInfo, WorkerLostError, WorkerShutdown, WorkerTerminate, reraise
-from celery.utils import timer2
 from celery.utils.log import get_logger
+from celery.utils.scheduling import Timer as _Timer
 from celery.utils.text import truncate
 
 __all__ = ("BasePool", "apply_target")
@@ -58,7 +58,7 @@ class BasePool:
     CLOSE = 0x2
     TERMINATE = 0x3
 
-    Timer = timer2.Timer
+    Timer = _Timer
 
     #: set to true if the pool can be shutdown from within
     #: a signal handler.

@@ -18,11 +18,6 @@ except ImportError:
 
 from kombu import Connection
 
-try:
-    from kombu.asynchronous import get_event_loop
-except (ImportError, ModuleNotFoundError):
-    get_event_loop = None
-
 from kombu.common import QoS, ignore_errors
 
 try:
@@ -32,7 +27,6 @@ except ImportError:
 from kombu.transport.memory import Transport
 from kombu.utils.uuid import uuid
 
-import tests.skip
 from celery.apps.worker import safe_say
 from celery.bootsteps import CLOSE, RUN, TERMINATE, StartStopStep
 from celery.concurrency.base import BasePool
@@ -40,15 +34,11 @@ from celery.exceptions import ImproperlyConfigured, InvalidTaskError, TaskRevoke
 from celery.platforms import EX_FAILURE
 from celery.utils.nodenames import worker_direct
 from celery.utils.serialization import pickle
-from celery.utils.timer2 import Timer
-from celery.worker import autoscale, components, consumer, state
+from celery.utils.scheduling import Timer
+from celery.worker import components, consumer, state
 from celery.worker import worker as worker_module
 from celery.worker.consumer import Consumer
 
-try:
-    from celery.worker.pidbox import gPidbox
-except ImportError:
-    gPidbox = None
 from celery.worker.request import Request
 
 
@@ -605,72 +595,6 @@ class test_Consumer(ConsumerCase):
         con.reset()
         chan.close.assert_called_with()
 
-    def test_reset_pidbox_node_green(self):
-        c = self.NoopConsumer(pool=Mock(is_green=True))
-        con = find_step(c, consumer.Control)
-        assert isinstance(con.box, gPidbox)
-        con.start(c)
-        c.pool.spawn_n.assert_called_with(con.box.loop, c)
-
-    def test_green_pidbox_node(self):
-        pool = Mock()
-        pool.is_green = True
-        c = self.NoopConsumer(pool=Mock(is_green=True))
-        controller = find_step(c, consumer.Control)
-
-        class BConsumer(Mock):
-            def __enter__(self):
-                self.consume()
-                return self
-
-            def __exit__(self, *exc_info):
-                self.cancel()
-
-        controller.box.node.listen = BConsumer()
-        connections = []
-
-        class Connection:
-            calls = 0
-
-            def __init__(self, obj):
-                connections.append(self)
-                self.obj = obj
-                self.default_channel = self.channel()
-                self.closed = False
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc_info):
-                self.close()
-
-            def channel(self):
-                return Mock()
-
-            def as_uri(self):
-                return "dummy://"
-
-            def drain_events(self, **kwargs):
-                if not self.calls:
-                    self.calls += 1
-                    raise TimeoutError()
-                self.obj.connection = None
-                controller.box._node_shutdown.set()
-
-            def close(self):
-                self.closed = True
-
-        c.connection_for_read = lambda: Connection(obj=c)
-        controller = find_step(c, consumer.Control)
-        controller.box.loop(c)
-
-        controller.box.node.listen.assert_called()
-        assert controller.box.consumer
-        controller.box.consumer.consume.assert_called_with()
-
-        assert c.connection is None
-        assert connections[0].closed
-
     @patch("kombu.connection.Connection._establish_connection")
     @patch("kombu.utils.functional.sleep")
     def test_connect_errback(self, sleep, connect):
@@ -788,21 +712,6 @@ class test_WorkController(ConsumerCase):
             self.worker._send_worker_shutdown()
             ws.send.assert_called_with(sender=self.worker)
 
-    @pytest.mark.skip("TODO: unstable test")
-    def test_process_shutdown_on_worker_shutdown(self):
-        from celery.concurrency.asynpool import Worker
-        from celery.concurrency.prefork import process_destructor
-
-        with patch("celery.signals.worker_process_shutdown") as ws, patch("os._exit") as _exit:
-            worker = Worker(None, None, on_exit=process_destructor)
-            worker._do_exit(22, 3.1415926)
-            ws.send.assert_called_with(
-                sender=None,
-                pid=22,
-                exitcode=3.1415926,
-            )
-            _exit.assert_called_with(3.1415926)
-
     def test_process_task_revoked_release_semaphore(self):
         self.worker._quick_release = Mock()
         req = Mock()
@@ -844,115 +753,9 @@ class test_WorkController(ConsumerCase):
         worker = self.create_worker(
             autoscale=[10, 3],
             send_events=False,
-            timer_cls="celery.utils.timer2.Timer",
+            timer_cls="celery.utils.scheduling.Timer",
         )
         assert worker.autoscaler
-
-    @tests.skip.if_win32
-    @pytest.mark.sleepdeprived_patched_module(autoscale)
-    def test_with_autoscaler_file_descriptor_safety(self, sleepdeprived):
-        # Given: a test celery worker instance with auto scaling
-        worker = self.create_worker(
-            autoscale=[10, 5],
-            use_eventloop=True,
-            timer_cls="celery.utils.timer2.Timer",
-            threads=False,
-        )
-        # Given: This test requires a QoS defined on the worker consumer
-        worker.consumer.qos = qos = QoS(lambda prefetch_count: prefetch_count, 2)
-        qos.update()
-
-        # Given: We have started the worker pool
-        worker.pool.start()
-
-        # Then: the worker pool is the same as the autoscaler pool
-        auto_scaler = worker.autoscaler
-        assert worker.pool == auto_scaler.pool
-
-        # Given: Utilize kombu to get the global hub state
-        hub = get_event_loop()
-        # Given: Initial call the Async Pool to register events works fine
-        worker.pool.register_with_event_loop(hub)
-
-        # Create some mock queue message and read from them
-        _keep = [Mock(name=f"req{i}") for i in range(20)]
-        [state.task_reserved(m) for m in _keep]
-        auto_scaler.body()
-
-        # Simulate a file descriptor from the list is closed by the OS
-        # auto_scaler.force_scale_down(5)
-        # This actually works -- it releases the semaphore properly
-        # Same with calling .terminate() on the process directly
-        for fd, proc in worker.pool._pool._fileno_to_outq.items():
-            # however opening this fd as a file and closing it will do it
-            queue_worker_socket = open(str(fd), "w")
-            queue_worker_socket.close()
-            break  # Only need to do this once
-
-        # When: Calling again to register with event loop ...
-        worker.pool.register_with_event_loop(hub)
-
-        # Then: test did not raise "OSError: [Errno 9] Bad file descriptor!"
-
-        # Finally:  Clean up so the threads before/after fixture passes
-        worker.terminate()
-        worker.pool.terminate()
-
-    @tests.skip.if_win32
-    @pytest.mark.sleepdeprived_patched_module(autoscale)
-    def test_with_file_descriptor_safety(self, sleepdeprived):
-        # Given: a test celery worker instance
-        worker = self.create_worker(
-            autoscale=[10, 5],
-            use_eventloop=True,
-            timer_cls="celery.utils.timer2.Timer",
-            threads=False,
-        )
-
-        # Given: This test requires a QoS defined on the worker consumer
-        worker.consumer.qos = qos = QoS(lambda prefetch_count: prefetch_count, 2)
-        qos.update()
-
-        # Given: We have started the worker pool
-        worker.pool.start()
-
-        # Given: Utilize kombu to get the global hub state
-        hub = get_event_loop()
-        # Given: Initial call the Async Pool to register events works fine
-        worker.pool.register_with_event_loop(hub)
-
-        # Given: Mock the Hub to return errors for add and remove
-        def throw_file_not_found_error(*args, **kwargs):
-            raise OSError()
-
-        hub.add = throw_file_not_found_error
-        hub.add_reader = throw_file_not_found_error
-        hub.remove = throw_file_not_found_error
-
-        # When: Calling again to register with event loop ...
-        worker.pool.register_with_event_loop(hub)
-        worker.pool._pool.register_with_event_loop(hub)
-        # Then: test did not raise OSError
-        # Note: worker.pool is prefork.TaskPool whereas
-        # worker.pool._pool is the asynpool.AsynPool class.
-
-        # When: Calling the tic method on_poll_start
-        worker.pool._pool.on_poll_start()
-        # Then: test did not raise OSError
-
-        # Given: a mock object that fakes what's required to do what's next
-        proc = Mock(_sentinel_poll=42)
-
-        # When: Calling again to register with event loop ...
-        worker.pool._pool._track_child_process(proc, hub)
-        # Then: test did not raise OSError
-
-        # Given:
-        worker.pool._pool._flush_outqueue = throw_file_not_found_error
-
-        # Finally:  Clean up so the threads before/after fixture passes
-        worker.terminate()
-        worker.pool.terminate()
 
     def test_dont_stop_or_terminate(self):
         worker = self.app.WorkController(concurrency=1, loglevel=0)
@@ -1201,59 +1004,11 @@ class test_WorkController(ConsumerCase):
         worker.blueprint.state = TERMINATE
         worker.terminate()
 
-    def test_Hub_create(self):
-        w = Mock()
-        x = components.Hub(w)
-        x.create(w)
-        assert w.timer.max_interval
-
-    def test_Pool_create_threaded(self):
-        w = Mock()
-        w._conninfo.connection_errors = w._conninfo.channel_errors = ()
-        w.pool_cls = Mock()
-        w.use_eventloop = False
-        pool = components.Pool(w)
-        pool.create(w)
-
     def test_Pool_pool_no_sem(self):
         w = Mock()
         w.pool_cls.uses_semaphore = False
         components.Pool(w).create(w)
         assert w.process_task is w._process_task
-
-    def test_Pool_create(self):
-        from kombu.asynchronous.semaphore import LaxBoundedSemaphore
-
-        w = Mock()
-        w._conninfo.connection_errors = w._conninfo.channel_errors = ()
-        w.hub = Mock()
-
-        PoolImp = Mock()
-        poolimp = PoolImp.return_value = Mock()
-        poolimp._pool = [Mock(), Mock()]
-        poolimp._cache = {}
-        poolimp._fileno_to_inq = {}
-        poolimp._fileno_to_outq = {}
-
-        from celery.concurrency.prefork import TaskPool as _TaskPool
-
-        class MockTaskPool(_TaskPool):
-            Pool = PoolImp
-
-            @property
-            def timers(self):
-                return {Mock(): 30}
-
-        w.pool_cls = MockTaskPool
-        w.use_eventloop = True
-        w.consumer.restart_count = -1
-        pool = components.Pool(w)
-        pool.create(w)
-        pool.register_with_event_loop(w, w.hub)
-        if sys.platform != "win32":
-            assert isinstance(w.semaphore, LaxBoundedSemaphore)
-            P = w.pool
-            P.start()
 
     def test_wait_for_soft_shutdown(self):
         worker = self.worker

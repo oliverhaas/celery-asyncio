@@ -12,16 +12,12 @@ from kombu.utils.uuid import uuid
 
 from celery.utils.collections import AttributeDict
 from celery.utils.functional import maybe_list
-from celery.utils.timer2 import Timer
+from celery.utils.scheduling import Timer
 from celery.worker import WorkController as _WC
 from celery.worker import consumer, control
 from celery.worker import state as worker_state
 from celery.worker.pidbox import Pidbox
 
-try:
-    from celery.worker.pidbox import gPidbox
-except ImportError:
-    gPidbox = None
 from celery.worker.request import Request
 from celery.worker.state import REVOKE_EXPIRES, revoked, revoked_stamps
 
@@ -70,56 +66,6 @@ class test_Pidbox:
             pbox.shutdown(parent)
             eig.assert_called_with(parent, cancel)
             pbox._close_channel.assert_called_with(parent)
-
-
-@pytest.mark.skipif(gPidbox is None, reason="gPidbox removed in asyncio rewrite")
-class test_Pidbox_green:
-    def test_stop(self):
-        parent = Mock()
-        g = gPidbox(parent)
-        stopped = g._node_stopped = Mock()
-        shutdown = g._node_shutdown = Mock()
-        close_chan = g._close_channel = Mock()
-
-        g.stop(parent)
-        shutdown.set.assert_called_with()
-        stopped.wait.assert_called_with()
-        close_chan.assert_called_with(parent)
-        assert g._node_stopped is None
-        assert g._node_shutdown is None
-
-        close_chan.reset()
-        g.stop(parent)
-        close_chan.assert_called_with(parent)
-
-    def test_resets(self):
-        parent = Mock()
-        g = gPidbox(parent)
-        g._resets = 100
-        g.reset()
-        assert g._resets == 101
-
-    def test_loop(self):
-        parent = Mock()
-        conn = self.app.connection_for_read()
-        parent.connection_for_read.return_value = conn
-        drain = conn.drain_events = Mock()
-        g = gPidbox(parent)
-        parent.connection = Mock()
-        do_reset = g._do_reset = Mock()
-
-        call_count = [0]
-
-        def se(*args, **kwargs):
-            if call_count[0] > 2:
-                g._node_shutdown.set()
-            g.reset()
-            call_count[0] += 1
-
-        drain.side_effect = se
-        g.loop(parent)
-
-        assert do_reset.call_count == 4
 
 
 class test_ControlPanel:

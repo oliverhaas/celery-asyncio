@@ -14,7 +14,6 @@ Unknown result backend: {0!r}.  Did you spell that correctly? ({1!r})
 """
 
 BACKEND_ALIASES = {
-    "rpc": "celery.backends.rpc.RPCBackend",
     "cache": "celery.backends.cache:CacheBackend",
     "redis": "celery.backends.redis:RedisBackend",
     "rediss": "celery.backends.redis:RedisBackend",

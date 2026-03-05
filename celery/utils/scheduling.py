@@ -327,6 +327,17 @@ class Timer:
                 logger.error("Timer error: %r", exc, exc_info=True)
         return None
 
+    def empty(self) -> bool:
+        """Return True if the queue is empty."""
+        return not self._queue
+
+    def stop(self) -> None:
+        """Stop the timer (clear all entries)."""
+        self.clear()
+
+    def join(self, timeout: float | None = None) -> None:
+        """No-op for compatibility (heap timer has no background thread)."""
+
     def __iter__(self) -> Iterator[tuple[float | None, Entry | None]]:
         """Iterate over scheduled entries."""
         return self

@@ -188,10 +188,6 @@ class test_default_logger:
         self.app.log.setup_logging_subsystem(colorize=None)
         self.app.log.setup_logging_subsystem(colorize=True)
 
-    @pytest.mark.masked_modules("billiard.util")
-    def test_setup_logging_subsystem_no_mputil(self, restore_logging, mask_modules):
-        self.app.log.setup_logging_subsystem()
-
     def test_setup_logger(self, restore_logging):
         logger = self.setup_logger(loglevel=logging.ERROR, logfile=None, root=False, colorize=True)
         logger.handlers = []

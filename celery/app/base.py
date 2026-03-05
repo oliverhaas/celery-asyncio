@@ -66,7 +66,16 @@ from celery.utils.promises import starpromise
 from celery.utils.time import maybe_make_aware, timezone, to_utc
 
 from ..utils.annotations import annotation_is_class, annotation_issubclass, get_optional_arg
-from ..utils.quorum_queues import detect_quorum_queues
+
+def _detect_quorum_queues(app, driver_type: str) -> tuple[bool, str]:
+    """Detect if any queues are quorum queues (AMQP only)."""
+    if driver_type == "amqp":
+        queues = app.amqp.queues
+        for qname in queues:
+            qarguments = queues[qname].queue_arguments or {}
+            if qarguments.get("x-queue-type") == "quorum":
+                return True, qname
+    return False, ""
 
 # Load all builtin tasks
 from . import backends, builtins  # noqa
@@ -944,7 +953,7 @@ class Celery:
         conn = self.async_connection
         driver_type = conn.transport.driver_type if conn.transport else conn._scheme
 
-        if (eta or countdown) and detect_quorum_queues(self, driver_type)[0]:
+        if (eta or countdown) and _detect_quorum_queues(self, driver_type)[0]:
             queue = options.get("queue")
             exchange_type = queue.exchange.type if queue else options["exchange_type"]
             routing_key = queue.routing_key if queue else options["routing_key"]

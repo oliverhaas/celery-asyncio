@@ -84,15 +84,13 @@ def test_fd_by_path():
 
 def test_close_open_fds(patching):
     _close = patching("os.close")
-    fdmax = patching("billiard.compat.get_fdmax")
-    with patch("os.closerange", create=True) as closerange:
-        fdmax.return_value = 3
-        close_open_fds()
-        if not closerange.called:
-            _close.assert_has_calls([call(2), call(1), call(0)])
-            _close.side_effect = OSError()
-            _close.side_effect.errno = errno.EBADF
-        close_open_fds()
+    fdmax = patching("celery.platforms.get_fdmax")
+    fdmax.return_value = 6
+    close_open_fds()
+    _close.assert_has_calls([call(3), call(4), call(5)])
+    _close.reset_mock()
+    _close.side_effect = OSError()
+    close_open_fds()
 
 
 class test_ignore_errno:
