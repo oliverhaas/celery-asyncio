@@ -259,8 +259,7 @@ class Scheduler:
 
     Entry = ScheduleEntry
 
-    #: The schedule dict/shelve.
-    schedule = None
+    #: The schedule dict/shelve (property backed by get_schedule/set_schedule).
 
     #: Maximum time to sleep between re-checking the schedule.
     max_interval = DEFAULT_MAX_INTERVAL
@@ -489,6 +488,8 @@ class Scheduler:
 
     def set_schedule(self, schedule):
         self.data = schedule
+
+    schedule = property(get_schedule, set_schedule)
 
     @cached_property
     def connection(self):

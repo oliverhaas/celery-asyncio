@@ -4,7 +4,7 @@ version = "6.0.0a2"
 description = "Distributed Task Queue with native asyncio support"
 readme = "README.md"
 license = { text = "BSD-3-Clause" }
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 keywords = [
   "actors",
   "amqp",
@@ -28,8 +28,6 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
   "Programming Language :: Python :: Implementation :: CPython",
   "Topic :: Software Development :: Object Brokering",
@@ -103,7 +101,7 @@ kombu-asyncio = { path = "../kombu", editable = true }
 
 [tool.ruff]
 line-length = 120
-target-version = "py312"
+target-version = "py314"
 fix = true
 
 [tool.ruff.lint]
@@ -216,7 +214,7 @@ suppress-none-returning = true
 ]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 pretty = true
 show_error_codes = true
 show_error_context = true
@@ -245,7 +243,7 @@ module = "dateutil.*"
 ignore_missing_imports = true
 
 [tool.ty.environment]
-python-version = "3.12"
+python-version = "3.14"
 
 [tool.pytest.ini_options]
 addopts = "--cov=celery --cov-report=term-missing --cov-report=xml --no-cov-on-fail"

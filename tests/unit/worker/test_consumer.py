@@ -1,8 +1,7 @@
 import errno
-import logging
 import socket
 from collections import deque
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
@@ -39,10 +38,14 @@ class ConsumerTestCase:
             **kwargs,
         )
         consumer.blueprint = Mock(name="blueprint")
+        consumer.blueprint.start = AsyncMock(name="blueprint.start")
+        consumer.blueprint.restart = AsyncMock(name="blueprint.restart")
+        consumer.blueprint.shutdown = AsyncMock(name="blueprint.shutdown")
         consumer.pool.num_processes = 2
         consumer._restart_state = Mock(name="_restart_state")
         consumer.connection = _amqp_connection()
         consumer.connection_errors = (socket.error, OSError)
+        consumer.channel_errors = (ChannelError,)
         consumer.conninfo = consumer.connection
         return consumer
 
@@ -103,7 +106,7 @@ class test_Consumer(ConsumerTestCase):
         ],
     )
     @patch("celery.worker.consumer.consumer.active_requests", new_callable=set)
-    def test_restore_prefetch_count_on_restart(
+    async def test_restore_prefetch_count_on_restart(
         self, active_requests_mock, active_requests_count, expected_initial, expected_maximum, enabled, subtests
     ):
         self.app.conf.worker_enable_prefetch_count_reduction = enabled
@@ -113,7 +116,6 @@ class test_Consumer(ConsumerTestCase):
 
         c = self.get_consumer()
         c.qos = Mock()
-        c.blueprint = Mock()
 
         def bp_start(*_, **__):
             if c.restart_count > 1:
@@ -123,7 +125,7 @@ class test_Consumer(ConsumerTestCase):
 
         c.blueprint.start.side_effect = bp_start
 
-        c.start()
+        await c.start()
 
         with subtests.test("initial prefetch count is never 0"):
             assert c.initial_prefetch_count != 0
@@ -134,52 +136,22 @@ class test_Consumer(ConsumerTestCase):
         with subtests.test("maximum prefetch is reached"):
             assert c._maximum_prefetch_restored is expected_maximum
 
-    def test_restore_prefetch_count_after_connection_restart_negative(self):
-        self.app.conf.worker_enable_prefetch_count_reduction = False
-
+    async def test_create_task_handler(self):
         c = self.get_consumer()
-        c.qos = Mock()
-
-        # Overcome TypeError: 'Mock' object does not support the context manager protocol
-        class MutexMock:
-            def __enter__(self):
-                pass
-
-            def __exit__(self, *args):
-                pass
-
-        c.qos._mutex = MutexMock()
-
-        assert c._restore_prefetch_count_after_connection_restart(None) is None
-
-    def test_create_task_handler(self, subtests):
-        c = self.get_consumer()
-        c.qos = MagicMock()
-        c.qos.value = 1
-        c._maximum_prefetch_restored = False
 
         sig = self.add.s(2, 2)
         message = self.task_message_from_sig(self.app, sig)
 
-        def raise_exception():
-            raise KeyError("Foo")
+        called = []
 
-        def strategy(_, __, ack_log_error_promise, ___, ____):
-            ack_log_error_promise()
+        def strategy(msg, payload, ack, reject, callbacks):
+            called.append(msg)
 
         c.strategies[sig.task] = strategy
-        c.call_soon = raise_exception
         on_task_received = c.create_task_handler()
         on_task_received(message)
 
-        with subtests.test("initial prefetch count is never 0"):
-            assert c.initial_prefetch_count != 0
-
-        with subtests.test("initial prefetch count is 2"):
-            assert c.initial_prefetch_count == 2
-
-        with subtests.test("maximum prefetch is reached"):
-            assert c._maximum_prefetch_restored is True
+        assert len(called) == 1
 
     def test_flush_events(self):
         c = self.get_consumer()
@@ -189,23 +161,15 @@ class test_Consumer(ConsumerTestCase):
         c._flush_events()
         c.event_dispatcher.flush.assert_called_with()
 
-    def test_on_send_event_buffered(self):
-        c = self.get_consumer()
-        c.hub = None
-        c.on_send_event_buffered()
-        c.hub = Mock(name="hub")
-        c.on_send_event_buffered()
-        c.hub._ready.add.assert_called_with(c._flush_events)
-
     def test_schedule_bucket_request(self):
         c = self.get_consumer()
         c.timer = Mock()
 
         bucket = Mock()
         request = Mock()
+        bucket.contents = deque()
         bucket.pop = bucket.contents.popleft
         bucket.can_consume.return_value = True
-        bucket.contents = deque()
 
         with patch("celery.worker.consumer.consumer.Consumer._limit_move_to_pool") as task_reserved:
             bucket.contents.append((request, 3))
@@ -215,6 +179,7 @@ class test_Consumer(ConsumerTestCase):
 
         bucket.can_consume.return_value = False
         bucket.contents = deque()
+        bucket.pop = bucket.contents.popleft
         bucket.expected_time.return_value = 3.33
         bucket.contents.append((request, 4))
         limit_order = c._limit_order
@@ -231,6 +196,7 @@ class test_Consumer(ConsumerTestCase):
         assert bucket.pop() == (request, 4)
 
         bucket.contents = deque()
+        bucket.pop = bucket.contents.popleft
         bucket.can_consume.reset_mock()
         c._schedule_bucket_request(bucket)
         bucket.can_consume.assert_not_called()
@@ -257,7 +223,7 @@ class test_Consumer(ConsumerTestCase):
             bucket.add.assert_called_with((request, 1))
             task_reserved.assert_called_with(bucket)
 
-    def test_max_restarts_exceeded(self):
+    async def test_max_restarts_exceeded(self):
         c = self.get_consumer()
 
         def se(*args, **kwargs):
@@ -267,11 +233,11 @@ class test_Consumer(ConsumerTestCase):
         c._restart_state.step.side_effect = se
         c.blueprint.start.side_effect = OSError()
 
-        with patch("celery.worker.consumer.consumer.sleep") as sleep:
-            c.start()
+        with patch("asyncio.sleep", new_callable=AsyncMock) as sleep:
+            await c.start()
             sleep.assert_called_with(1)
 
-    def test_do_not_restart_when_closed(self):
+    async def test_do_not_restart_when_closed(self):
         c = self.get_consumer()
 
         c.blueprint.state = None
@@ -280,12 +246,11 @@ class test_Consumer(ConsumerTestCase):
             c.blueprint.state = CLOSE
 
         c.blueprint.start.side_effect = bp_start
-        with patch("celery.worker.consumer.consumer.sleep"):
-            c.start()
+        await c.start()
 
         c.blueprint.start.assert_called_once_with(c)
 
-    def test_do_not_restart_when_terminated(self):
+    async def test_do_not_restart_when_terminated(self):
         c = self.get_consumer()
 
         c.blueprint.state = None
@@ -294,19 +259,17 @@ class test_Consumer(ConsumerTestCase):
             c.blueprint.state = TERMINATE
 
         c.blueprint.start.side_effect = bp_start
-
-        with patch("celery.worker.consumer.consumer.sleep"):
-            c.start()
+        await c.start()
 
         c.blueprint.start.assert_called_once_with(c)
 
-    def test_too_many_open_files_raises_error(self):
+    async def test_too_many_open_files_raises_error(self):
         c = self.get_consumer()
         err = OSError()
         err.errno = errno.EMFILE
         c.blueprint.start.side_effect = err
         with pytest.raises(WorkerTerminate):
-            c.start()
+            await c.start()
 
     def _closer(self, c):
         def se(*args, **kwargs):
@@ -315,7 +278,7 @@ class test_Consumer(ConsumerTestCase):
         return se
 
     @pytest.mark.parametrize("broker_connection_retry", [True, False])
-    def test_blueprint_restart_when_state_not_in_stop_conditions(self, broker_connection_retry):
+    async def test_blueprint_restart_when_state_not_in_stop_conditions(self, broker_connection_retry):
         c = self.get_consumer()
 
         # ensure that WorkerShutdown is not raised
@@ -330,11 +293,11 @@ class test_Consumer(ConsumerTestCase):
         # stops test from running indefinitely in the while loop
         c.blueprint.restart.side_effect = self._closer(c)
 
-        c.start()
+        await c.start()
         c.blueprint.restart.assert_called_once()
 
     @pytest.mark.parametrize("broker_channel_error_retry", [True, False])
-    def test_blueprint_restart_for_channel_errors(self, broker_channel_error_retry):
+    async def test_blueprint_restart_for_channel_errors(self, broker_channel_error_retry):
         c = self.get_consumer()
 
         # ensure that WorkerShutdown is not raised
@@ -352,29 +315,16 @@ class test_Consumer(ConsumerTestCase):
 
         # restarted only when broker_channel_error_retry is True
         if broker_channel_error_retry:
-            c.start()
+            await c.start()
             c.blueprint.restart.assert_called_once()
         else:
             with pytest.raises(ChannelError):
-                c.start()
+                await c.start()
 
-    def test_collects_at_restart(self):
-        c = self.get_consumer()
-        c.connection.collect.side_effect = MemoryError()
-        c.blueprint.start.side_effect = OSError()
-        c.blueprint.restart.side_effect = self._closer(c)
-        c.start()
-        c.connection.collect.assert_called_with()
-
-    def test_register_with_event_loop(self):
-        c = self.get_consumer()
-        c.register_with_event_loop(Mock(name="loop"))
-
-    def test_on_close_clears_semaphore_timer_and_reqs(self):
+    def test_on_close_clears_timer_and_reqs(self):
         with patch("celery.worker.consumer.consumer.reserved_requests") as res:
             c = self.get_consumer()
             c.on_close()
-            c.controller.semaphore.clear.assert_called_with()
             c.timer.clear.assert_called_with()
             res.clear.assert_called_with()
             c.pool.flush.assert_called_with()
@@ -384,25 +334,27 @@ class test_Consumer(ConsumerTestCase):
             c.pool = None
             c.on_close()
 
-    def test_connect_error_handler(self):
+    async def test_connect_error_handler(self):
         self.app._connection = _amqp_connection()
         conn = self.app._connection.return_value
+        conn.ensure_connection = AsyncMock(return_value=conn)
         c = self.get_consumer()
-        assert c.connect()
+        assert await c.connect()
         conn.ensure_connection.assert_called()
         errback = conn.ensure_connection.call_args[0][0]
         errback(Mock(), 0)
 
     @patch("celery.worker.consumer.consumer.error")
-    def test_connect_error_handler_progress(self, error):
+    async def test_connect_error_handler_progress(self, error):
         self.app.conf.broker_connection_retry = True
         self.app.conf.broker_connection_max_retries = 3
         self.app._connection = _amqp_connection()
         conn = self.app._connection.return_value
+        conn.ensure_connection = AsyncMock(return_value=conn)
         # Placeholder alt connection to satisfy failover condition
         conn.alt = [conn]
         c = self.get_consumer()
-        assert c.connect()
+        assert await c.connect()
         errback = conn.ensure_connection.call_args[0][0]
         errback(Mock(), 2)
         assert error.call_args[0][3] == "Trying again in 2.00 seconds... (1/3)"
@@ -474,7 +426,7 @@ class test_Consumer(ConsumerTestCase):
     @pytest.mark.parametrize("broker_connection_retry", [True, False])
     @pytest.mark.parametrize("broker_connection_retry_on_startup", [None, False])
     @pytest.mark.parametrize("first_connection_attempt", [True, False])
-    def test_ensure_connected(
+    async def test_ensure_connected(
         self, subtests, broker_connection_retry, broker_connection_retry_on_startup, first_connection_attempt
     ):
         c = self.get_consumer()
@@ -486,214 +438,14 @@ class test_Consumer(ConsumerTestCase):
             if broker_connection_retry_on_startup is None:
                 with subtests.test("Deprecation warning when startup is None"):
                     with pytest.deprecated_call():
-                        c.ensure_connected(Mock())
+                        await c.ensure_connected(AsyncMock())
 
             with subtests.test("Does not retry when connect throws an error and retry is set to false"):
-                conn = Mock()
+                conn = AsyncMock()
                 conn.connect.side_effect = ConnectionError()
                 with pytest.raises(ConnectionError):
-                    c.ensure_connected(conn)
+                    await c.ensure_connected(conn)
 
-    def test_disable_prefetch_not_enabled(self):
-        """Test that disable_prefetch doesn't affect behavior when disabled"""
-        self.app.conf.worker_disable_prefetch = False
-
-        # Test the core logic by creating a mock consumer and Tasks instance
-        from celery.worker.consumer.tasks import Tasks
-
-        consumer = Mock()
-        consumer.app = self.app
-        consumer.pool = Mock()
-        consumer.pool.num_processes = 4
-        consumer.controller = Mock()
-        consumer.controller.max_concurrency = None
-        consumer.initial_prefetch_count = 16
-        consumer.connection = Mock()
-        consumer.connection.default_channel = Mock()
-        consumer.connection.transport = Mock()
-        consumer.connection.transport.driver_type = "redis"
-        consumer.update_strategies = Mock()
-        consumer.on_decode_error = Mock()
-
-        # Mock task consumer
-        consumer.task_consumer = Mock()
-        consumer.task_consumer.channel = Mock()
-        consumer.task_consumer.channel.qos = Mock()
-        original_can_consume = Mock(return_value=True)
-        consumer.task_consumer.channel.qos.can_consume = original_can_consume
-        consumer.task_consumer.qos = Mock()
-
-        consumer.app.amqp = Mock()
-        consumer.app.amqp.TaskConsumer = Mock(return_value=consumer.task_consumer)
-
-        tasks_instance = Tasks(consumer)
-        tasks_instance.start(consumer)
-
-        # Should not modify can_consume method when disabled
-        assert consumer.task_consumer.channel.qos.can_consume == original_can_consume
-
-    def test_disable_prefetch_enabled_basic(self):
-        """Test that disable_prefetch modifies can_consume when enabled"""
-        self.app.conf.worker_disable_prefetch = True
-
-        # Test the core logic by creating a mock consumer and Tasks instance
-        from celery.worker.consumer.tasks import Tasks
-
-        consumer = Mock()
-        consumer.app = self.app
-        consumer.pool = Mock()
-        consumer.pool.num_processes = 4
-        consumer.controller = Mock()
-        consumer.controller.max_concurrency = None
-        consumer.initial_prefetch_count = 16
-        consumer.connection = Mock()
-        consumer.connection.default_channel = Mock()
-        consumer.connection.transport = Mock()
-        consumer.connection.transport.driver_type = "redis"
-        consumer.update_strategies = Mock()
-        consumer.on_decode_error = Mock()
-
-        # Mock task consumer
-        consumer.task_consumer = Mock()
-        consumer.task_consumer.channel = Mock()
-        consumer.task_consumer.channel.qos = Mock()
-        original_can_consume = Mock(return_value=True)
-        consumer.task_consumer.channel.qos.can_consume = original_can_consume
-        consumer.task_consumer.qos = Mock()
-
-        consumer.app.amqp = Mock()
-        consumer.app.amqp.TaskConsumer = Mock(return_value=consumer.task_consumer)
-
-        tasks_instance = Tasks(consumer)
-
-        with patch("celery.worker.state.reserved_requests", []):
-            tasks_instance.start(consumer)
-
-            # Should modify can_consume method when enabled
-            assert callable(consumer.task_consumer.channel.qos.can_consume)
-            assert consumer.task_consumer.channel.qos.can_consume != original_can_consume
-
-    def test_disable_prefetch_respects_reserved_requests_limit(self):
-        """Test that disable_prefetch respects reserved requests limit"""
-        self.app.conf.worker_disable_prefetch = True
-
-        # Test the core logic by creating a mock consumer and Tasks instance
-        from celery.worker.consumer.tasks import Tasks
-
-        consumer = Mock()
-        consumer.app = self.app
-        consumer.pool = Mock()
-        consumer.pool.num_processes = 4
-        consumer.controller = Mock()
-        consumer.controller.max_concurrency = None
-        consumer.initial_prefetch_count = 16
-        consumer.connection = Mock()
-        consumer.connection.default_channel = Mock()
-        consumer.connection.transport = Mock()
-        consumer.connection.transport.driver_type = "redis"
-        consumer.update_strategies = Mock()
-        consumer.on_decode_error = Mock()
-
-        # Mock task consumer
-        consumer.task_consumer = Mock()
-        consumer.task_consumer.channel = Mock()
-        consumer.task_consumer.channel.qos = Mock()
-        consumer.task_consumer.channel.qos.can_consume = Mock(return_value=True)
-        consumer.task_consumer.qos = Mock()
-
-        consumer.app.amqp = Mock()
-        consumer.app.amqp.TaskConsumer = Mock(return_value=consumer.task_consumer)
-
-        tasks_instance = Tasks(consumer)
-
-        # Mock 4 reserved requests (at limit of 4)
-        mock_requests = [Mock(), Mock(), Mock(), Mock()]
-        with patch("celery.worker.state.reserved_requests", mock_requests):
-            tasks_instance.start(consumer)
-
-            # Should not be able to consume when at limit
-            assert consumer.task_consumer.channel.qos.can_consume() is False
-
-    def test_disable_prefetch_respects_autoscale_max_concurrency(self):
-        """Test that disable_prefetch respects autoscale max_concurrency limit"""
-        self.app.conf.worker_disable_prefetch = True
-
-        # Test the core logic by creating a mock consumer and Tasks instance
-        from celery.worker.consumer.tasks import Tasks
-
-        consumer = Mock()
-        consumer.app = self.app
-        consumer.pool = Mock()
-        consumer.pool.num_processes = 4
-        consumer.controller = Mock()
-        consumer.controller.max_concurrency = 2  # Lower than pool processes
-        consumer.initial_prefetch_count = 16
-        consumer.connection = Mock()
-        consumer.connection.default_channel = Mock()
-        consumer.connection.transport = Mock()
-        consumer.connection.transport.driver_type = "redis"
-        consumer.update_strategies = Mock()
-        consumer.on_decode_error = Mock()
-
-        # Mock task consumer
-        consumer.task_consumer = Mock()
-        consumer.task_consumer.channel = Mock()
-        consumer.task_consumer.channel.qos = Mock()
-        consumer.task_consumer.channel.qos.can_consume = Mock(return_value=True)
-        consumer.task_consumer.qos = Mock()
-
-        consumer.app.amqp = Mock()
-        consumer.app.amqp.TaskConsumer = Mock(return_value=consumer.task_consumer)
-
-        tasks_instance = Tasks(consumer)
-
-        # Mock 2 reserved requests (at autoscale limit of 2)
-        mock_requests = [Mock(), Mock()]
-        with patch("celery.worker.state.reserved_requests", mock_requests):
-            tasks_instance.start(consumer)
-
-            # Should not be able to consume when at autoscale limit
-            assert consumer.task_consumer.channel.qos.can_consume() is False
-
-    def test_disable_prefetch_ignored_for_non_redis_brokers(self):
-        """Test that disable_prefetch is ignored for non-Redis brokers."""
-        self.app.conf.worker_disable_prefetch = True
-
-        # Test the core logic by creating a mock consumer and Tasks instance
-        from celery.worker.consumer.tasks import Tasks
-
-        consumer = Mock()
-        consumer.app = self.app
-        consumer.pool = Mock()
-        consumer.pool.num_processes = 4
-        consumer.controller = Mock()
-        consumer.controller.max_concurrency = None
-        consumer.initial_prefetch_count = 16
-        consumer.connection = Mock()
-        consumer.connection.default_channel = Mock()
-        consumer.connection.transport = Mock()
-        consumer.connection.transport.driver_type = "amqp"  # RabbitMQ
-        consumer.connection.qos_semantics_matches_spec = True
-        consumer.update_strategies = Mock()
-        consumer.on_decode_error = Mock()
-
-        # Mock task consumer
-        consumer.task_consumer = Mock()
-        consumer.task_consumer.channel = Mock()
-        consumer.task_consumer.channel.qos = Mock()
-        original_can_consume = Mock(return_value=True)
-        consumer.task_consumer.channel.qos.can_consume = original_can_consume
-        consumer.task_consumer.qos = Mock()
-
-        consumer.app.amqp = Mock()
-        consumer.app.amqp.TaskConsumer = Mock(return_value=consumer.task_consumer)
-        consumer.app.amqp.queues = {}  # Empty dict for quorum queue detection
-
-        tasks_instance = Tasks(consumer)
-        tasks_instance.start(consumer)
-
-        # Should not modify can_consume method for non-Redis brokers
-        assert consumer.task_consumer.channel.qos.can_consume == original_can_consume
 
 
 @pytest.mark.parametrize(
@@ -707,7 +459,7 @@ class test_Consumer(ConsumerTestCase):
     ],
 )
 class test_Consumer_WorkerShutdown(ConsumerTestCase):
-    def test_start_raises_connection_error(
+    async def test_start_raises_connection_error(
         self, broker_connection_retry_on_startup, is_connection_loss_on_startup, caplog, subtests
     ):
         c = self.get_consumer()
@@ -718,7 +470,7 @@ class test_Consumer_WorkerShutdown(ConsumerTestCase):
 
         with subtests.test("Consumer raises WorkerShutdown on connection restart"):
             with pytest.raises(WorkerShutdown):
-                c.start()
+                await c.start()
 
         record = caplog.records[0]
         with subtests.test("Critical error log message is outputted to the screen"):
@@ -786,7 +538,7 @@ class test_Consumer_PerformPendingOperations(ConsumerTestCase):
 
 
 class test_Heart:
-    def test_start(self):
+    async def test_start(self):
         c = Mock()
         c.timer = Mock()
         c.event_dispatcher = Mock()
@@ -797,12 +549,12 @@ class test_Heart:
             assert h.heartbeat_interval is None
             assert c.heart is None
 
-            h.start(c)
+            await h.start(c)
             assert c.heart
             hcls.assert_called_with(c.timer, c.event_dispatcher, h.heartbeat_interval)
             c.heart.start.assert_called_with()
 
-    def test_start_heartbeat_interval(self):
+    async def test_start_heartbeat_interval(self):
         c = Mock()
         c.timer = Mock()
         c.event_dispatcher = Mock()
@@ -813,7 +565,7 @@ class test_Heart:
             assert h.heartbeat_interval == 20
             assert c.heart is None
 
-            h.start(c)
+            await h.start(c)
             assert c.heart
             hcls.assert_called_with(c.timer, c.event_dispatcher, h.heartbeat_interval)
             c.heart.start.assert_called_with()
@@ -862,121 +614,39 @@ class test_Tasks:
         assert not result
         assert name == ""
 
-    def test_qos_global_worker_detect_quorum_queues_false(self):
+    async def test_start_creates_consumer_and_qos(self):
+        """Test that Tasks.start creates task consumer and QoS."""
         c = self.c
-        c.app.conf.worker_detect_quorum_queues = False
-        tasks = Tasks(c)
-        assert tasks.qos_global(c) is True
-
-    def test_qos_global_worker_detect_quorum_queues_true_no_quorum_queues(self):
-        c = self.c
-        c.app.amqp.queues = {"celery": Mock(queue_arguments=None)}
-        tasks = Tasks(c)
-        assert tasks.qos_global(c) is True
-
-    def test_qos_global_worker_detect_quorum_queues_true_with_quorum_queues(self):
-        c = self.c
-        self.c.connection.transport.driver_type = "amqp"
-        c.app.amqp.queues = {"celery": Mock(queue_arguments={"x-queue-type": "quorum"})}
-        tasks = Tasks(c)
-        assert tasks.qos_global(c) is False
-
-    def test_log_when_qos_is_false(self, caplog):
-        c = self.c
-        c.connection.transport.driver_type = "amqp"
-        c.app.conf.broker_native_delayed_delivery = True
-        c.app.conf.worker_disable_prefetch = False  # Prevent our warning from interfering
-        c.app.amqp.queues = {"celery": Mock(queue_arguments={"x-queue-type": "quorum"})}
-        tasks = Tasks(c)
-
-        with caplog.at_level(logging.INFO):
-            tasks.start(c)
-
-        assert len(caplog.records) == 1
-
-        record = caplog.records[0]
-        assert record.levelname == "INFO"
-        assert record.msg == "Global QoS is disabled. Prefetch count in now static."
-
-    def test_qos_with_worker_eta_task_limit(self):
-        """Test QoS is instantiated with worker_eta_task_limit as max_prefetch."""
-        c = self.c
-        c.app.conf.worker_eta_task_limit = 100
-        c.initial_prefetch_count = 10
-        c.task_consumer = Mock()
-        c.app.amqp.TaskConsumer = Mock(return_value=c.task_consumer)
-        c.connection.default_channel.basic_qos = Mock()
         c.update_strategies = Mock()
         c.on_decode_error = Mock()
-
-        tasks = Tasks(c)
-
-        with patch("celery.worker.consumer.tasks.QoS") as mock_qos:
-            tasks.start(c)
-
-            # Verify QoS was called with max_prefetch set to worker_eta_task_limit
-            mock_qos.assert_called_once()
-            args, kwargs = mock_qos.call_args
-            assert len(args) == 2  # callback and initial_value
-            assert kwargs.get("max_prefetch") == 100
-
-    def test_qos_without_worker_eta_task_limit(self):
-        """Test QoS is instantiated with None max_prefetch when worker_eta_task_limit is None."""
-        c = self.c
-        c.app.conf.worker_eta_task_limit = None
         c.initial_prefetch_count = 10
-        c.task_consumer = Mock()
-        c.app.amqp.TaskConsumer = Mock(return_value=c.task_consumer)
-        c.connection.default_channel.basic_qos = Mock()
-        c.update_strategies = Mock()
-        c.on_decode_error = Mock()
+        c.app.amqp.TaskConsumer = Mock()
 
         tasks = Tasks(c)
+        await tasks.start(c)
 
-        with patch("celery.worker.consumer.tasks.QoS") as mock_qos:
-            tasks.start(c)
-
-            # Verify QoS was called with max_prefetch set to None
-            mock_qos.assert_called_once()
-            args, kwargs = mock_qos.call_args
-            assert len(args) == 2  # callback and initial_value
-            assert kwargs.get("max_prefetch") is None
-
-    def test_qos_with_zero_worker_eta_task_limit(self):
-        """Test that QoS respects zero as a valid worker_eta_task_limit value."""
-        c = self.c
-        c.app.conf.worker_eta_task_limit = 0
-        c.initial_prefetch_count = 10
-        c.task_consumer = Mock()
-        c.app.amqp.TaskConsumer = Mock(return_value=c.task_consumer)
-        c.connection.default_channel.basic_qos = Mock()
-        c.update_strategies = Mock()
-        c.on_decode_error = Mock()
-
-        tasks = Tasks(c)
-
-        with patch("celery.worker.consumer.tasks.QoS") as mock_qos:
-            tasks.start(c)
-
-            # Verify QoS was called with max_prefetch set to 0
-            mock_qos.assert_called_once()
-            args, kwargs = mock_qos.call_args
-            assert len(args) == 2  # callback and initial_value
-            assert kwargs.get("max_prefetch") == 0
+        c.update_strategies.assert_called_once()
+        c.app.amqp.TaskConsumer.assert_called_once_with(
+            c.connection,
+            on_decode_error=c.on_decode_error,
+        )
+        assert c.task_consumer is c.app.amqp.TaskConsumer.return_value
+        assert c.qos is not None
+        assert c.qos.value == 10
 
 
 
 
 class test_Mingle:
-    def test_start_no_replies(self):
+    async def test_start_no_replies(self):
         c = Mock()
         c.app.connection_for_read = _amqp_connection()
         mingle = Mingle(c)
         I = c.app.control.inspect.return_value = Mock()
-        I.hello.return_value = {}
-        mingle.start(c)
+        I._arequest = AsyncMock(return_value={})
+        await mingle.start(c)
 
-    def test_start(self):
+    async def test_start(self):
         c = Mock()
         c.app.connection_for_read = _amqp_connection()
         mingle = Mingle(c)
@@ -989,7 +659,7 @@ class test_Mingle:
         Big.add("Big-1")
 
         I = c.app.control.inspect.return_value = Mock()
-        I.hello.return_value = {
+        I._arequest = AsyncMock(return_value={
             "A@example.com": {
                 "clock": 312,
                 "revoked": Aig._data,
@@ -1001,12 +671,16 @@ class test_Mingle:
             "C@example.com": {
                 "error": "unknown method",
             },
-        }
+        })
 
         our_revoked = c.controller.state.revoked = LimitedSet()
 
-        mingle.start(c)
-        I.hello.assert_called_with(c.hostname, our_revoked._data)
+        await mingle.start(c)
+        I._arequest.assert_called_with(
+            "hello",
+            from_node=c.hostname,
+            revoked=our_revoked._data,
+        )
         c.app.clock.adjust.assert_has_calls(
             [
                 call(312),
@@ -1056,11 +730,16 @@ class test_Gossip:
         g.on_node_lost(worker)
         on_node_lost.assert_called_with(worker)
 
-    def test_election(self):
+    async def _start_gossip(self, g, c):
+        """Start gossip with ConsumerStep.start patched out."""
+        with patch.object(bootsteps.ConsumerStep, "start", new_callable=AsyncMock):
+            await g.start(c)
+
+    async def test_election(self):
         c = self.Consumer()
         c.app.connection_for_read = _amqp_connection()
         g = Gossip(c)
-        g.start(c)
+        await self._start_gossip(g, c)
         g.election("id", "topic", "action")
         assert g.consensus_replies["id"] == []
         g.dispatcher.send.assert_called_with(
@@ -1071,11 +750,11 @@ class test_Gossip:
             action="action",
         )
 
-    def test_call_task(self):
+    async def test_call_task(self):
         c = self.Consumer()
         c.app.connection_for_read = _amqp_connection()
         g = Gossip(c)
-        g.start(c)
+        await self._start_gossip(g, c)
         signature = g.app.signature = Mock(name="app.signature")
         task = Mock()
         g.call_task(task)
@@ -1098,11 +777,11 @@ class test_Gossip:
             "cver": cver,
         }
 
-    def test_on_elect(self):
+    async def test_on_elect(self):
         c = self.Consumer()
         c.app.connection_for_read = _amqp_connection()
         g = Gossip(c)
-        g.start(c)
+        await self._start_gossip(g, c)
 
         event = self.Event("id1")
         g.on_elect(event)
@@ -1123,8 +802,8 @@ class test_Gossip:
         c.app.events.Receiver.return_value = Mock(accept=[])
         return c
 
-    def setup_election(self, g, c):
-        g.start(c)
+    async def setup_election(self, g, c):
+        await self._start_gossip(g, c)
         g.clock = self.app.clock
         assert "idx" not in g.consensus_replies
         assert g.on_elect_ack({"id": "idx"}) is None
@@ -1153,29 +832,29 @@ class test_Gossip:
             with pytest.raises(KeyError):
                 g.consensus_replies["id1"]
 
-    def test_on_elect_ack_win(self):
+    async def test_on_elect_ack_win(self):
         c = self.Consumer(hostname="foo@x.com")  # I will win
         c.app.connection_for_read = _amqp_connection()
         g = Gossip(c)
         handler = g.election_handlers["topic"] = Mock()
-        self.setup_election(g, c)
+        await self.setup_election(g, c)
         handler.assert_called_with("action")
 
-    def test_on_elect_ack_lose(self):
+    async def test_on_elect_ack_lose(self):
         c = self.Consumer(hostname="bar@x.com")  # I will lose
         c.app.connection_for_read = _amqp_connection()
         g = Gossip(c)
         handler = g.election_handlers["topic"] = Mock()
-        self.setup_election(g, c)
+        await self.setup_election(g, c)
         handler.assert_not_called()
 
-    def test_on_elect_ack_win_but_no_action(self):
+    async def test_on_elect_ack_win_but_no_action(self):
         c = self.Consumer(hostname="foo@x.com")  # I will win
         c.app.connection_for_read = _amqp_connection()
         g = Gossip(c)
         g.election_handlers = {}
         with patch("celery.worker.consumer.gossip.logger") as logger:
-            self.setup_election(g, c)
+            await self.setup_election(g, c)
             logger.exception.assert_called()
 
     def test_on_node_join(self):

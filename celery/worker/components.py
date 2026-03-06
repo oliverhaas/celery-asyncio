@@ -7,6 +7,9 @@ import atexit
 
 from celery import bootsteps
 from celery._state import _set_task_join_will_block
+from celery.utils.log import get_logger
+
+logger = get_logger(__name__)
 
 __all__ = ("Timer", "Pool", "Beat", "StateDB", "Consumer")
 

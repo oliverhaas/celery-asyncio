@@ -11,10 +11,7 @@ from itertools import takewhile
 
 from kombu.utils.encoding import bytes_to_str, safe_repr, str_to_bytes
 
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
+import pickle
 
 __all__ = (
     "UnpickleableExceptionWrapper",

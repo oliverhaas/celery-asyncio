@@ -162,8 +162,6 @@ class test_get_available_pool_names:
     def test_returns_asyncio_pool_names(self):
         expected_pool_names = (
             "asyncio",
-            "solo",
-            "threads",
         )
         assert concurrency.get_available_pool_names() == expected_pool_names
 

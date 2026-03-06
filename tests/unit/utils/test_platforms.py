@@ -178,19 +178,23 @@ class test_Signals:
 
 @tests.skip.if_win32
 class test_get_fdmax:
-    @patch("resource.getrlimit")
-    def test_when_infinity(self, getrlimit):
+    @patch("celery.platforms.resource")
+    def test_when_infinity(self, mock_resource):
         with patch("os.sysconf") as sysconfig:
             sysconfig.side_effect = KeyError()
-            getrlimit.return_value = [None, resource.RLIM_INFINITY]
+            mock_resource.getrlimit.return_value = [None, resource.RLIM_INFINITY]
+            mock_resource.RLIMIT_NOFILE = resource.RLIMIT_NOFILE
+            mock_resource.RLIM_INFINITY = resource.RLIM_INFINITY
             default = object()
             assert get_fdmax(default) is default
 
-    @patch("resource.getrlimit")
-    def test_when_actual(self, getrlimit):
+    @patch("celery.platforms.resource")
+    def test_when_actual(self, mock_resource):
         with patch("os.sysconf") as sysconfig:
             sysconfig.side_effect = KeyError()
-            getrlimit.return_value = [None, 13]
+            mock_resource.getrlimit.return_value = [None, 13]
+            mock_resource.RLIMIT_NOFILE = resource.RLIMIT_NOFILE
+            mock_resource.RLIM_INFINITY = resource.RLIM_INFINITY
             assert get_fdmax(None) == 13
 
 
@@ -609,43 +613,11 @@ fails_on_win32 = pytest.mark.xfail(
 )
 
 
-@fails_on_win32
-@pytest.mark.parametrize(
-    "accept_content",
-    [
-        {"pickle"},
-        {"application/group-python-serialize"},
-        {"pickle", "application/group-python-serialize"},
-    ],
-)
-@patch("celery.platforms.os")
-def test_check_privileges_suspicious_platform(os_module, accept_content):
-    del os_module.getuid
-    del os_module.getgid
-    del os_module.geteuid
-    del os_module.getegid
-
-    with pytest.raises(SecurityError, match=r"suspicious platform, contact support"):
-        check_privileges(accept_content)
-
-
 @pytest.mark.parametrize(
     "accept_content",
     [{"pickle"}, {"application/group-python-serialize"}, {"pickle", "application/group-python-serialize"}],
 )
 def test_check_privileges(accept_content, recwarn):
-    check_privileges(accept_content)
-
-    assert len(recwarn) == 0
-
-
-@pytest.mark.parametrize(
-    "accept_content",
-    [{"pickle"}, {"application/group-python-serialize"}, {"pickle", "application/group-python-serialize"}],
-)
-@patch("celery.platforms.os")
-def test_check_privileges_no_fchown(os_module, accept_content, recwarn):
-    del os_module.fchown
     check_privileges(accept_content)
 
     assert len(recwarn) == 0

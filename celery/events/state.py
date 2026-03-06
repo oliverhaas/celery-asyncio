@@ -14,7 +14,6 @@ to for example, store that in a database.
 """
 
 import bisect
-import sys
 import threading
 from collections import defaultdict
 from collections.abc import Callable
@@ -40,8 +39,6 @@ __all__ = ("Worker", "Task", "State", "heartbeat_expires")
 # pylint: disable=too-many-function-args
 # For some reason pylint thinks ._event is a method, when it's a property.
 
-#: Set if running PyPy
-PYPY = hasattr(sys, "pypy_version_info")
 
 #: The window (in percentage) is added to the workers heartbeat
 #: frequency.  If the time between updates exceeds this window,
@@ -166,8 +163,7 @@ class Worker:
         "sw_ver",
         "sw_sys",
     )
-    if not PYPY:  # pragma: no cover
-        __slots__ = _fields + ("event", "__dict__", "__weakref__")
+    __slots__ = _fields + ("event", "__dict__", "__weakref__")
 
     def __init__(
         self,
@@ -321,8 +317,7 @@ class Task:
         "parent_id",
         "children",
     )
-    if not PYPY:  # pragma: no cover
-        __slots__ = ("__dict__", "__weakref__")
+    __slots__ = ("__dict__", "__weakref__")
 
     #: How to merge out of order events.
     #: Disorder is detected by logical ordering (e.g., :event:`task-received`

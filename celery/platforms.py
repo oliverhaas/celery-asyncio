@@ -267,10 +267,17 @@ def _create_pidlock(pidfile):
 def get_fdmax(default=1024):
     """Return the maximum file descriptor number."""
     try:
-        import resource
-        return resource.getrlimit(resource.RLIMIT_NOFILE)[0]
-    except (ImportError, ValueError):
+        fdmax = os.sysconf("SC_OPEN_MAX")
+    except (AttributeError, KeyError, ValueError):
+        fdmax = None
+    if fdmax is None and resource:
+        try:
+            _soft, fdmax = resource.getrlimit(resource.RLIMIT_NOFILE)
+        except (ValueError, resource.error):
+            fdmax = None
+    if fdmax is None or fdmax == resource.RLIM_INFINITY if resource else False:
         return default
+    return fdmax
 
 
 def close_open_fds(keep=None):

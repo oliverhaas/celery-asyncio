@@ -1,6 +1,5 @@
 """Worker Task Consumer Bootstep - async implementation."""
 
-from __future__ import annotations
 
 from kombu.common import QoS
 

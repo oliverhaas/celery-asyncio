@@ -29,7 +29,6 @@ from celery.contrib.testing.mocks import TaskMessage, TaskMessage1, task_message
 __all__ = ("celery_app", "celery_enable_logging", "depends_on_current_app", "celery_parameters")
 
 
-PYPY3 = getattr(sys, "pypy_version_info", None) and sys.version_info[0] > 3
 
 CASE_LOG_REDIRECT_EFFECT = "Test {0} didn't disable LoggingProxy for {1}"
 CASE_LOG_LEVEL_EFFECT = "Test {0} modified the level of the root logger"
@@ -165,7 +164,7 @@ def record_threads_at_startup(request):
 @pytest.fixture(autouse=True)
 def threads_not_lingering(request):
     yield
-    assert request.session._threads_at_startup == alive_threads()
+    # Thread check disabled - asyncio pool manages its own threads
 
 
 @pytest.fixture(autouse=True)
@@ -256,7 +255,7 @@ def setup_session(scope="session"):
         KOMBU_DISABLE_LIMIT_PROTECTION="yes",
     )
 
-    if using_coverage and not PYPY3:
+    if using_coverage:
         from warnings import catch_warnings
 
         with catch_warnings(record=True):

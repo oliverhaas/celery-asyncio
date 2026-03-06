@@ -11,7 +11,6 @@ With Python 3.14t free-threading, all threads run with true parallelism.
 This is the default pool for celery-asyncio workers.
 """
 
-from __future__ import annotations
 
 import asyncio
 import os

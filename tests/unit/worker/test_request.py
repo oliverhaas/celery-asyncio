@@ -251,7 +251,7 @@ class test_Request(RequestCase):
 
     def test_no_shadow_header(self):
         request = self.get_request(self.add.s(2, 2), exclude_headers=["shadow"])
-        assert request.name == "t.unit.worker.test_request.add"
+        assert request.name == "tests.unit.worker.test_request.add"
 
     def test_invalid_eta_raises_InvalidTaskError(self):
         with pytest.raises(InvalidTaskError):
@@ -395,7 +395,7 @@ class test_Request(RequestCase):
             task_failure,
             sender=req.task,
             task_id=req.id,
-            exception=einfo.exception.exc,
+            exception=einfo.exception,
             args=req.args,
             kwargs=req.kwargs,
             traceback=einfo.traceback,
@@ -404,7 +404,7 @@ class test_Request(RequestCase):
             req.on_failure(einfo)
 
         req.task.backend.mark_as_failure.assert_called_once_with(
-            req.id, einfo.exception.exc, request=req._context, store_result=True
+            req.id, einfo.exception, request=req._context, store_result=True
         )
 
     def test_on_failure_TimeLimitExceeded_acks(self):
@@ -423,7 +423,7 @@ class test_Request(RequestCase):
 
         req.on_ack.assert_called_with(req_logger, req.connection_errors)
         req.task.backend.mark_as_failure.assert_called_once_with(
-            req.id, einfo.exception.exc, request=req._context, store_result=True
+            req.id, einfo.exception, request=req._context, store_result=True
         )
 
     def test_on_failure_TimeLimitExceeded_rejects_with_requeue(self):
@@ -871,7 +871,7 @@ class test_Request(RequestCase):
         m = self.TaskMessage(self.mytask.name, args=(), kwargs="foo")
         req = Request(m, app=self.app)
         with pytest.raises(InvalidTaskError):
-            raise req.execute().exception.exc
+            raise req.execute().exception
 
     def test_on_hard_timeout_acks_late(self, patching):
         error = patching("celery.worker.request.error")

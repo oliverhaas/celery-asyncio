@@ -7,7 +7,6 @@ as an actual application, like installing signal handlers
 and so on.
 """
 
-from __future__ import annotations
 
 import numbers
 import socket

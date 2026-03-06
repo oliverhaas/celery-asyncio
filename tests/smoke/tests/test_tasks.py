@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 import pytest
 from pytest_celery import RESULT_TIMEOUT, CeleryTestSetup, CeleryTestWorker, CeleryWorkerCluster

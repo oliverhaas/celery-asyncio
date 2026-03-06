@@ -4,7 +4,6 @@ Provides Timer, Hub, and related scheduling components for the asyncio-based
 worker. These are native asyncio implementations.
 """
 
-from __future__ import annotations
 
 import asyncio
 import heapq

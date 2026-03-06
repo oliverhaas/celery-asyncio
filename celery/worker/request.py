@@ -45,7 +45,6 @@ __all__ = ("Request",)
 # pylint: disable=redefined-outer-name
 # We cache globals and attribute lookups, so disable this warning.
 
-IS_PYPY = hasattr(sys, "pypy_version_info")
 
 logger = get_logger(__name__)
 debug, info, warn, error = (logger.debug, logger.info, logger.warning, logger.error)
@@ -87,8 +86,7 @@ class Request:
     _apply_result = None
     _tzlocal = None
 
-    if not IS_PYPY:  # pragma: no cover
-        __slots__ = (
+    __slots__ = (
             "__dict__",
             "__payload",
             "__weakref__",

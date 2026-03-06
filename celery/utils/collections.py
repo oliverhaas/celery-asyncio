@@ -12,11 +12,7 @@ from typing import Any, Dict, Iterable, List  # noqa
 from .functional import first, uniq
 from .text import match_case
 
-try:
-    # pypy: dicts are ordered in recent versions
-    from __pypy__ import reversed_dict as _dict_is_ordered
-except ImportError:
-    _dict_is_ordered = None
+_dict_is_ordered = True  # dicts are ordered in Python 3.7+
 
 try:
     from django.utils.functional import LazyObject, LazySettings

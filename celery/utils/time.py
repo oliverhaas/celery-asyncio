@@ -1,6 +1,5 @@
 """Utilities related to dates, times, intervals, and timezones."""
 
-from __future__ import annotations
 
 import logging
 import numbers

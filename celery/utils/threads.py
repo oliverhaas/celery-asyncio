@@ -10,19 +10,7 @@ from threading import TIMEOUT_MAX as THREAD_TIMEOUT_MAX
 
 from celery.local import Proxy
 
-try:
-    from greenlet import getcurrent as get_ident
-except ImportError:
-    try:
-        from _thread import get_ident
-    except ImportError:
-        try:
-            from thread import get_ident
-        except ImportError:
-            try:
-                from _dummy_thread import get_ident
-            except ImportError:
-                from dummy_thread import get_ident
+from threading import get_ident
 
 
 __all__ = (

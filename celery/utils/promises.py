@@ -4,7 +4,6 @@ Simple promise implementations for celery-asyncio. These provide callback
 chaining without the full vine dependency.
 """
 
-from __future__ import annotations
 
 import weakref
 from abc import ABC, abstractmethod
