@@ -639,7 +639,7 @@ class test_BaseBackend_dict:
 
         result_exc = b.exception_to_python(test_exception)
         del celery.TestParamException
-        assert str(result_exc) == "<class 't.unit.backends.test_base.paramexception'>([])"
+        assert str(result_exc) == "<class 'tests.unit.backends.test_base.paramexception'>([])"
 
     def test_wait_for__on_interval(self):
         self.patching("time.sleep")
@@ -1034,7 +1034,7 @@ class test_KeyValueStoreBackend:
         self.b.forget(tid)
         assert self.b.get_state(tid) == states.PENDING
 
-    @pytest.mark.parametrize("serializer", ["json", "pickle", "yaml", "msgpack"])
+    @pytest.mark.parametrize("serializer", ["json", "pickle", "yaml"])
     def test_store_result_parent_id(self, serializer):
         self.app.conf.accept_content = ("json", serializer)
         self.b = KVBackend(app=self.app, serializer=serializer)

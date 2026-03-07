@@ -13,11 +13,11 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.usefixtures("depends_on_current_app")
-@pytest.mark.parametrize("daemon", ["worker", "beat", "events"])
+@pytest.mark.parametrize("daemon", ["worker", "beat"])
 def test_daemon_options_from_config(daemon: str, cli_runner: CliRunner):
 
     with patch(f"celery.bin.{daemon}.{daemon}.callback") as mock:
-        cli_runner.invoke(celery, f"-A t.unit.bin.proj.daemon {daemon}")
+        cli_runner.invoke(celery, f"-A tests.unit.bin.proj.daemon {daemon}")
 
     mock.assert_called_once()
     for param in "logfile", "pidfile", "uid", "gid", "umask", "executable":

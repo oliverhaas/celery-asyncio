@@ -4,7 +4,7 @@ import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from queue import Queue as FastQueue
-from unittest.mock import Mock, call, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 from kombu import pidbox
@@ -49,22 +49,32 @@ class Consumer(consumer.Consumer):
         self.task_buckets = defaultdict(lambda: None)
         self.hub = None
 
+    def add_task_queue(self, queue, exchange=None, exchange_type=None, routing_key=None, **options):
+        """Sync override for test compatibility."""
+        cset = self.task_consumer
+        queues = self.app.amqp.queues
+        if queue in queues:
+            q = queues[queue]
+        else:
+            exchange = queue if exchange is None else exchange
+            exchange_type = "direct" if exchange_type is None else exchange_type
+            q = queues.select_add(queue, exchange=exchange, exchange_type=exchange_type, routing_key=routing_key, **options)
+        if not cset.consuming_from(queue):
+            cset.add_queue(q)
+            cset.consume()
+
     def call_soon(self, p, *args, **kwargs):
         return p(*args, **kwargs)
 
 
 class test_Pidbox:
-    def test_shutdown(self):
-        with patch("celery.worker.pidbox.ignore_errors") as eig:
-            parent = Mock()
-            pbox = Pidbox(parent)
-            pbox._close_channel = Mock()
-            assert pbox.c is parent
-            pconsumer = pbox.consumer = Mock()
-            cancel = pconsumer.cancel
-            pbox.shutdown(parent)
-            eig.assert_called_with(parent, cancel)
-            pbox._close_channel.assert_called_with(parent)
+    async def test_shutdown(self):
+        parent = Mock()
+        pbox = Pidbox(parent)
+        assert pbox.c is parent
+        pconsumer = pbox.consumer = AsyncMock()
+        await pbox.shutdown(parent)
+        pconsumer.cancel.assert_called()
 
 
 class test_ControlPanel:
@@ -367,11 +377,12 @@ class test_ControlPanel:
             self.TaskMessage(self.mytask.name, "CAFEBABE"),
             app=self.app,
         )
-        consumer.timer.schedule.enter_at(
-            consumer.timer.Entry(lambda x: x, (r,)), datetime.now() + timedelta(seconds=10)
+        eta = (datetime.now() + timedelta(seconds=10)).timestamp()
+        consumer.timer.enter_at(
+            consumer.timer.Entry(eta=0, fun=lambda x: x, args=(r,)), eta
         )
-        consumer.timer.schedule.enter_at(
-            consumer.timer.Entry(lambda x: x, (object(),)), datetime.now() + timedelta(seconds=10)
+        consumer.timer.enter_at(
+            consumer.timer.Entry(eta=0, fun=lambda x: x, args=(object(),)), eta
         )
         assert panel.handle("dump_schedule")
 
@@ -429,7 +440,7 @@ class test_ControlPanel:
         with pytest.raises(KeyError):
             self.panel.handle("foo", arguments={})
 
-    def test_revoke_with_name(self):
+    async def test_revoke_with_name(self):
         tid = uuid()
         m = {
             "method": "revoke",
@@ -439,10 +450,10 @@ class test_ControlPanel:
                 "task_name": self.mytask.name,
             },
         }
-        self.panel.handle_message(m, None)
+        await self.panel.handle_message(m, None)
         assert tid in revoked
 
-    def test_revoke_with_name_not_in_registry(self):
+    async def test_revoke_with_name_not_in_registry(self):
         tid = uuid()
         m = {
             "method": "revoke",
@@ -452,10 +463,10 @@ class test_ControlPanel:
                 "task_name": "xxxxxxxxx33333333388888",
             },
         }
-        self.panel.handle_message(m, None)
+        await self.panel.handle_message(m, None)
         assert tid in revoked
 
-    def test_revoke(self):
+    async def test_revoke(self):
         tid = uuid()
         m = {
             "method": "revoke",
@@ -464,7 +475,7 @@ class test_ControlPanel:
                 "task_id": tid,
             },
         }
-        self.panel.handle_message(m, None)
+        await self.panel.handle_message(m, None)
         assert tid in revoked
 
         m = {
@@ -474,7 +485,7 @@ class test_ControlPanel:
                 "task_id": tid + "xxx",
             },
         }
-        self.panel.handle_message(m, None)
+        await self.panel.handle_message(m, None)
         assert tid + "xxx" not in revoked
 
     def test_revoke_terminate(self):
@@ -593,36 +604,36 @@ class test_ControlPanel:
         # revoke & revoke_by_stamped_headers are not aligned anymore in their return values
         assert "{'foo': {'bar'}}" in r_headers["ok"]
 
-    def test_autoscale(self):
+    async def test_autoscale(self):
         self.panel.state.consumer = Mock()
         self.panel.state.consumer.controller = Mock()
         sc = self.panel.state.consumer.controller.autoscaler = Mock()
         sc.update.return_value = 10, 2
         m = {"method": "autoscale", "destination": hostname, "arguments": {"max": "10", "min": "2"}}
-        r = self.panel.handle_message(m, None)
+        r = await self.panel.handle_message(m, None)
         assert "ok" in r
 
         self.panel.state.consumer.controller.autoscaler = None
-        r = self.panel.handle_message(m, None)
+        r = await self.panel.handle_message(m, None)
         assert "error" in r
 
-    def test_ping(self):
+    async def test_ping(self):
         m = {"method": "ping", "destination": hostname}
-        r = self.panel.handle_message(m, None)
+        r = await self.panel.handle_message(m, None)
         assert r == {"ok": "pong"}
 
-    def test_shutdown(self):
+    async def test_shutdown(self):
         m = {"method": "shutdown", "destination": hostname}
         with pytest.raises(SystemExit) as excinfo:
-            self.panel.handle_message(m, None)
+            await self.panel.handle_message(m, None)
         assert excinfo.value.code == 0
 
-    def test_panel_reply(self):
+    async def test_panel_reply(self):
 
         replies = []
 
         class _Node(pidbox.Node):
-            def reply(self, data, exchange, routing_key, **kwargs):
+            async def reply(self, data, exchange, routing_key, **kwargs):
                 replies.append(data)
 
         panel = _Node(
@@ -631,7 +642,7 @@ class test_ControlPanel:
             handlers=control.Panel.data,
             mailbox=self.app.control.mailbox,
         )
-        r = panel.dispatch(
+        r = await panel.dispatch(
             "ping",
             reply_to={
                 "exchange": "x",

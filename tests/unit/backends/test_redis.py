@@ -406,6 +406,7 @@ class test_RedisBackend(basetest_RedisBackend):
         assert x.connparams["password"] == "password"
 
     def test_credential_provider_from_redis_conf(self):
+        pytest.importorskip("redis")
         self.app.conf.redis_backend_credential_provider = "redis.CredentialProvider"
         x = self.Backend(app=self.app)
 
@@ -462,6 +463,7 @@ class test_RedisBackend(basetest_RedisBackend):
         assert x.connparams["socket_connect_timeout"] == 100.0
 
     def test_url_with_credential_provider(self):
+        pytest.importorskip("redis")
         self.app.conf.redis_socket_timeout = 30.0
         self.app.conf.redis_socket_connect_timeout = 100.0
         x = self.Backend(
@@ -830,6 +832,7 @@ class test_RedisBackend(basetest_RedisBackend):
         )
 
     def test_exception_safe_to_retry(self):
+        pytest.importorskip("redis")
         b = self.Backend(app=self.app)
         assert not b.exception_safe_to_retry(Exception("failed"))
         assert not b.exception_safe_to_retry(BaseException("failed"))

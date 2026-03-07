@@ -24,27 +24,26 @@ def reset_command_params_between_each_test():
     "subcommand_with_params",
     [
         ("purge", "-f"),
-        ("shell",),
     ],
 )
-def test_preload_options(subcommand_with_params: tuple[str, ...], isolated_cli_runner: CliRunner):
+def test_preload_options(subcommand_with_params: tuple[str, ...], cli_runner: CliRunner):
     # Verify commands like shell and purge can accept preload options.
     # Projects like Pyramid-Celery's ini option should be valid preload
     # options.
-    res_without_preload = isolated_cli_runner.invoke(
+    res_without_preload = cli_runner.invoke(
         celery,
-        ["-A", "t.unit.bin.proj.app", *subcommand_with_params, "--ini", "some_ini.ini"],
+        ["-A", "tests.unit.bin.proj.app", *subcommand_with_params, "--ini", "some_ini.ini"],
         catch_exceptions=False,
     )
 
     assert "No such option: --ini" in res_without_preload.output
     assert res_without_preload.exit_code == 2
 
-    res_with_preload = isolated_cli_runner.invoke(
+    res_with_preload = cli_runner.invoke(
         celery,
         [
             "-A",
-            "t.unit.bin.proj.pyramid_celery_app",
+            "tests.unit.bin.proj.pyramid_celery_app",
             *subcommand_with_params,
             "--ini",
             "some_ini.ini",

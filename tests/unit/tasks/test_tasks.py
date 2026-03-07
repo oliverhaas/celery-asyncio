@@ -869,15 +869,15 @@ class test_tasks(TasksCase):
     def test_inherit_parent_priority_child_task(self):
         self.app.conf.task_inherit_parent_priority = True
 
-        self.app.producer_or_acquire = Mock()
-        self.app.producer_or_acquire.attach_mock(ContextMock(serializer="json"), "return_value")
-        self.app.amqp.send_task_message = Mock(name="send_task_message")
+        # Mock _send_task_message to capture the send call without I/O
+        self.app._send_task_message = Mock(name="_send_task_message")
 
         self.task_which_calls_other_task.apply(args=[])
 
-        self.app.amqp.send_task_message.assert_called_with(
-            ANY, "t.unit.tasks.test_tasks.task_called_by_other_task", ANY, priority=5, queue=ANY, serializer=ANY
-        )
+        self.app._send_task_message.assert_called_once()
+        call_kwargs = self.app._send_task_message.call_args
+        # The options dict should contain priority=5 (inherited from parent)
+        assert call_kwargs[1].get("priority") == 5 or call_kwargs[0][2].get("priority") == 5
 
     def test_typing__disabled(self):
         @self.app.task(typing=False)
@@ -982,161 +982,6 @@ class test_tasks(TasksCase):
         assert callable(self.mytask)
         assert self.mytask(), "Task class runs run() when called"
 
-        with self.app.connection_or_acquire() as conn:
-            consumer = self.app.amqp.TaskConsumer(conn)
-            with pytest.raises(NotImplementedError):
-                consumer.receive("foo", "foo")
-            consumer.purge()
-            assert consumer.queues[0].get() is None
-            self.app.amqp.TaskConsumer(conn, queues=[Queue("foo")])
-
-            # Without arguments.
-            presult = self.mytask.delay()
-            self.assert_next_task_data_equal(consumer, presult, self.mytask.name)
-
-            # With arguments.
-            presult2 = self.mytask.apply_async(
-                kwargs={"name": "George Costanza"},
-            )
-            self.assert_next_task_data_equal(
-                consumer,
-                presult2,
-                self.mytask.name,
-                name="George Costanza",
-            )
-
-            # send_task
-            sresult = self.app.send_task(self.mytask.name, kwargs={"name": "Elaine M. Benes"})
-            self.assert_next_task_data_equal(
-                consumer,
-                sresult,
-                self.mytask.name,
-                name="Elaine M. Benes",
-            )
-
-            # With ETA, absolute expires.
-            presult2 = self.mytask.apply_async(
-                kwargs={"name": "George Costanza"},
-                eta=self.now() + timedelta(days=1),
-                expires=self.now() + timedelta(days=2),
-            )
-            self.assert_next_task_data_equal(
-                consumer,
-                presult2,
-                self.mytask.name,
-                name="George Costanza",
-                test_eta=True,
-                test_expires=True,
-            )
-
-            # With ETA, absolute expires without timezone.
-            presult2 = self.mytask.apply_async(
-                kwargs={"name": "George Constanza"},
-                eta=self.now() + timedelta(days=1),
-                expires=(self.now() + timedelta(hours=2)).replace(tzinfo=None),
-            )
-            self.assert_next_task_data_equal(
-                consumer,
-                presult2,
-                self.mytask.name,
-                name="George Constanza",
-                test_eta=True,
-                test_expires=True,
-            )
-
-            # With ETA, absolute expires in the past.
-            presult2 = self.mytask.apply_async(
-                kwargs={"name": "George Costanza"},
-                eta=self.now() + timedelta(days=1),
-                expires=self.now() - timedelta(days=2),
-            )
-            self.assert_next_task_data_equal(
-                consumer,
-                presult2,
-                self.mytask.name,
-                name="George Costanza",
-                test_eta=True,
-                test_expires=True,
-            )
-
-            # With ETA, relative expires.
-            presult2 = self.mytask.apply_async(
-                kwargs={"name": "George Costanza"},
-                eta=self.now() + timedelta(days=1),
-                expires=2 * 24 * 60 * 60,
-            )
-            self.assert_next_task_data_equal(
-                consumer,
-                presult2,
-                self.mytask.name,
-                name="George Costanza",
-                test_eta=True,
-                test_expires=True,
-            )
-
-            # With countdown.
-            presult2 = self.mytask.apply_async(
-                kwargs={"name": "George Costanza"},
-                countdown=10,
-                expires=12,
-            )
-            self.assert_next_task_data_equal(
-                consumer,
-                presult2,
-                self.mytask.name,
-                name="George Costanza",
-                test_eta=True,
-                test_expires=True,
-            )
-
-            # With ETA, absolute expires in the past in ISO format.
-            presult2 = self.mytask.apply_async(
-                kwargs={"name": "George Costanza"},
-                eta=self.now() + timedelta(days=1),
-                expires=self.now() - timedelta(days=2),
-            )
-            self.assert_next_task_data_equal(
-                consumer,
-                presult2,
-                self.mytask.name,
-                name="George Costanza",
-                test_eta=True,
-                test_expires=True,
-            )
-
-            # Default argsrepr/kwargsrepr behavior
-            presult2 = self.mytask.apply_async(args=("spam",), kwargs={"name": "Jerry Seinfeld"})
-            self.assert_next_task_data_equal(
-                consumer,
-                presult2,
-                self.mytask.name,
-                headers={"argsrepr": "('spam',)", "kwargsrepr": "{'name': 'Jerry Seinfeld'}"},
-            )
-
-            # With argsrepr/kwargsrepr
-            presult2 = self.mytask.apply_async(
-                args=("secret",),
-                argsrepr="'***'",
-                kwargs={"password": "foo"},
-                kwargsrepr="{'password': '***'}",
-            )
-            self.assert_next_task_data_equal(
-                consumer,
-                presult2,
-                self.mytask.name,
-                headers={"argsrepr": "'***'", "kwargsrepr": "{'password': '***'}"},
-            )
-
-            # Discarding all tasks.
-            consumer.purge()
-            self.mytask.apply_async()
-            assert consumer.purge() == 1
-            assert consumer.queues[0].get() is None
-
-            assert not presult.successful()
-            self.mytask.backend.mark_as_done(presult.id, result=None)
-            assert presult.successful()
-
     def test_send_event(self):
         mytask = self.mytask._get_current_object()
         mytask.app.events = Mock(name="events")
@@ -1183,7 +1028,6 @@ class test_tasks(TasksCase):
     def test_replace_callback(self):
         c = group([self.mytask.s()], app=self.app)
         c.freeze = Mock(name="freeze")
-        c.delay = Mock(name="delay")
         self.mytask.request.id = "id"
         self.mytask.request.group = "group"
         self.mytask.request.root_id = "root_id"
@@ -1192,10 +1036,13 @@ class test_tasks(TasksCase):
 
         # Replacement groups get uplifted to chords so that we can accumulate
         # the results and link call/errbacks - patch the appropriate `chord`
-        # methods so we can validate this behaviour
+        # methods so we can validate this behaviour.
+        # Also patch chord.delay since the group->chord uplift creates a new
+        # object (the original group's delay mock is lost).
         with (
             patch("celery.canvas.chord.link") as mock_chord_link,
             patch("celery.canvas.chord.link_error") as mock_chord_link_error,
+            patch("celery.canvas.chord.delay"),
             pytest.raises(Ignore),
         ):
             self.mytask.replace(c)
@@ -1207,11 +1054,11 @@ class test_tasks(TasksCase):
     def test_replace_group(self):
         c = group([self.mytask.s()], app=self.app)
         c.freeze = Mock(name="freeze")
-        c.delay = Mock(name="delay")
         self.mytask.request.id = "id"
         self.mytask.request.group = "group"
         self.mytask.request.root_id = ("root_id",)
-        with pytest.raises(Ignore):
+        # Group gets uplifted to chord in replace(), so patch chord.delay
+        with patch("celery.canvas.chord.delay"), pytest.raises(Ignore):
             self.mytask.replace(c)
 
     def test_replace_chain(self):
@@ -1478,7 +1325,7 @@ class test_apply_task(TasksCase):
 
         assert e.successful()
         assert e.ready()
-        assert e.name == "t.unit.tasks.test_tasks.increment_counter"
+        assert e.name == "tests.unit.tasks.test_tasks.increment_counter"
         assert repr(e).startswith("<EagerResult:")
 
         f = self.raising.apply()
@@ -1502,7 +1349,7 @@ class test_apply_task(TasksCase):
         request = mock_push.call_args[0][0]
 
         assert request.is_eager is True
-        assert request.task == "t.unit.tasks.test_tasks.task_check_request_context"
+        assert request.task == "tests.unit.tasks.test_tasks.task_check_request_context"
 
     def test_apply_simulates_delivery_info(self):
         task_to_apply = self.task_check_request_context

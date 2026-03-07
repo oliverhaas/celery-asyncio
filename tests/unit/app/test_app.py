@@ -696,7 +696,7 @@ class test_App:
             def validate_context(self, info: ValidationInfo):
                 context = info.context
                 assert context
-                assert context.get("celery_task_name") == "t.unit.app.test_app.task"
+                assert context.get("celery_task_name") == "tests.unit.app.test_app.task"
                 return self
 
         with self.Celery() as app:
@@ -901,7 +901,7 @@ class test_App:
         mocked_celery.main.assert_called_with(args=["worker", "--help"], standalone_mode=False)
 
     def test_config_from_envvar(self, monkeypatch):
-        monkeypatch.setenv("CELERYTEST_CONFIG_OBJECT", "t.unit.app.test_app")
+        monkeypatch.setenv("CELERYTEST_CONFIG_OBJECT", "tests.unit.app.test_app")
         self.app.config_from_envvar("CELERYTEST_CONFIG_OBJECT")
         assert self.app.conf.THIS_IS_A_KEY == "this is a value"
 
@@ -1298,7 +1298,7 @@ class test_App:
 
         assert len(self.app.conf.beat_schedule) == 1
         assert caplog.records[0].message == (
-            "Periodic task key='t.unit.app.test_app.add(2, 2)' shadowed a"
+            "Periodic task key='tests.unit.app.test_app.add(2, 2)' shadowed a"
             " previous unnamed periodic task. Pass a name kwarg to"
             " add_periodic_task to silence this warning."
         )

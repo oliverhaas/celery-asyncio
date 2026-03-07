@@ -10,11 +10,11 @@ def use_celery_app_trap():
     return False
 
 
-def test_cli(isolated_cli_runner: CliRunner):
+def test_cli(cli_runner: CliRunner):
     Logging._setup = True  # To avoid hitting the logging sanity checks
-    res = isolated_cli_runner.invoke(
+    res = cli_runner.invoke(
         celery,
-        ["-A", "t.unit.bin.proj.app", "beat", "-S", "t.unit.bin.proj.scheduler.mScheduler"],
+        ["-A", "tests.unit.bin.proj.app", "beat", "-S", "tests.unit.bin.proj.scheduler.mScheduler"],
         catch_exceptions=True,
     )
     assert res.exit_code == 1, (res, res.stdout)
@@ -22,11 +22,11 @@ def test_cli(isolated_cli_runner: CliRunner):
     assert "Configuration ->" in res.stdout
 
 
-def test_cli_quiet(isolated_cli_runner: CliRunner):
+def test_cli_quiet(cli_runner: CliRunner):
     Logging._setup = True  # To avoid hitting the logging sanity checks
-    res = isolated_cli_runner.invoke(
+    res = cli_runner.invoke(
         celery,
-        ["-A", "t.unit.bin.proj.app", "--quiet", "beat", "-S", "t.unit.bin.proj.scheduler.mScheduler"],
+        ["-A", "tests.unit.bin.proj.app", "--quiet", "beat", "-S", "tests.unit.bin.proj.scheduler.mScheduler"],
         catch_exceptions=True,
     )
     assert res.exit_code == 1, (res, res.stdout)

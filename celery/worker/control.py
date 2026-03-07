@@ -417,16 +417,16 @@ def scheduled(state, **kwargs):
 
 
 def _iter_schedule_requests(timer):
-    for waiting in timer.schedule.queue:
+    for entry in timer.queue:
         try:
-            arg0 = waiting.entry.args[0]
+            arg0 = entry.args[0]
         except (IndexError, TypeError):
             continue
         else:
             if isinstance(arg0, Request):
                 yield {
                     "eta": arg0.eta.isoformat() if arg0.eta else None,
-                    "priority": waiting.priority,
+                    "priority": entry.priority,
                     "request": arg0.info(),
                 }
 

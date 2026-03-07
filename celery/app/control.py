@@ -480,7 +480,8 @@ class Control:
             queue_durable=app.conf.control_queue_durable,
             reply_queue_expires=app.conf.control_queue_expires,
         )
-        register_after_fork(self, _after_fork_cleanup_control)
+        if register_after_fork is not None:
+            register_after_fork(self, _after_fork_cleanup_control)
 
     def _after_fork(self):
         del self.mailbox.producer_pool

@@ -14,6 +14,7 @@ from importlib import import_module, reload
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+from click.testing import CliRunner
 from kombu import Queue
 
 from celery.backends.cache import CacheBackend, DummyClient
@@ -111,6 +112,20 @@ def assert_signal_called(signal, **expected):
 @pytest.fixture
 def app(celery_app):
     return celery_app
+
+
+@pytest.fixture
+def cli_runner():
+    """Basic Click CLI runner for testing."""
+    return CliRunner()
+
+
+@pytest.fixture
+def isolated_cli_runner():
+    """Click CLI runner with isolated filesystem."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        yield runner
 
 
 @pytest.fixture(autouse=True, scope="session")

@@ -373,9 +373,9 @@ class TraceInfo:
                 del tb_ref
 
     def _log_error(self, task, req, einfo):
-        eobj = einfo.exception = get_pickled_exception(einfo.exception)
+        eobj = get_pickled_exception(einfo.exception)
         if isinstance(eobj, ExceptionWithTraceback):
-            eobj = einfo.exception = eobj.exc
+            eobj = eobj.exc
         exception, traceback, exc_info, sargs, skwargs = (
             safe_repr(eobj),
             safe_str(einfo.traceback),
