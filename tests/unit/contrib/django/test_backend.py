@@ -17,7 +17,14 @@ from django.tasks.base import Task as DjangoTask
 from django.tasks.base import TaskContext, TaskResult, TaskResultStatus
 from django.tasks.exceptions import TaskResultDoesNotExist
 
-from celery.contrib.django.backend import CeleryBackend, _build_task_context, _django_task_registry, _map_priority
+from celery.contrib.django.backend import (
+    CeleryBackend,
+    _build_worker_task_result,
+    _django_task_registry,
+    _map_priority,
+    _record_failure,
+    _record_success,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -46,6 +53,10 @@ async def _async_sample_func(x, y):
 
 def _context_func(context, x):
     return context.attempt
+
+
+def _failing_func():
+    raise RuntimeError("boom")
 
 
 # ---------------------------------------------------------------------------
@@ -166,12 +177,15 @@ class test_validate_task:
         assert run_fn.__module__ == _context_func.__module__
         assert run_fn.__qualname__ == _context_func.__qualname__
 
-    def test_no_context_passes_func_directly(self, backend, task):
+    def test_always_wraps_function(self, backend, task):
+        """_make_run_fn always wraps to fire Django signals."""
         with patch("celery.contrib.django.backend.CeleryBackend._register_shared") as mock_reg:
             backend.validate_task(task)
 
         _, run_fn = mock_reg.call_args.args
-        assert run_fn is _sample_func
+        # Even non-context functions get wrapped for signal dispatch.
+        assert run_fn is not _sample_func
+        assert run_fn.__name__ == _sample_func.__name__
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +241,7 @@ class test_register_shared:
 class test_build_send_options:
     def test_default_options(self, backend, task):
         opts = backend._build_send_options(task)
-        assert opts == {"serializer": "json"}
+        assert opts == {"serializer": "json", "priority": 128}
 
     def test_custom_queue(self, backend):
         t = _make_django_task(_sample_func, queue_name="high")
@@ -238,6 +252,11 @@ class test_build_send_options:
         t = _make_django_task(_sample_func, priority=50)
         opts = backend._build_send_options(t)
         assert opts["priority"] == _map_priority(50)
+
+    def test_zero_priority_sends_middle(self, backend, task):
+        """Priority 0 (Django default) maps to Celery 128, not omitted."""
+        opts = backend._build_send_options(task)
+        assert opts["priority"] == 128
 
     def test_run_after_timedelta(self, backend):
         t = _make_django_task(_sample_func, run_after=timedelta(seconds=30))
@@ -276,6 +295,7 @@ class test_enqueue:
             args=[1, 2],
             kwargs={"z": 3},
             serializer="json",
+            priority=128,
         )
         assert isinstance(result, TaskResult)
         assert result.id == "abc-123"
@@ -301,7 +321,10 @@ class test_enqueue:
         celery_result.id = "ghi-789"
         celery_app.asend_task = AsyncMock(return_value=celery_result)
 
-        with patch.object(backend, "validate_task"):
+        with patch.object(backend, "validate_task"), patch(
+            "celery.contrib.django.backend.task_enqueued"
+        ) as mock_signal:
+            mock_signal.asend = AsyncMock()
             result = await backend.aenqueue(task, (10,), {})
 
         celery_app.asend_task.assert_called_once_with(
@@ -309,9 +332,26 @@ class test_enqueue:
             args=[10],
             kwargs={},
             serializer="json",
+            priority=128,
         )
         assert result.id == "ghi-789"
         assert result.status == TaskResultStatus.READY
+        # Verify async signal dispatch was used.
+        mock_signal.asend.assert_called_once()
+
+    def test_enqueue_fires_task_enqueued_signal(self, backend, celery_app, task):
+        celery_result = MagicMock()
+        celery_result.id = "sig-111"
+        celery_app.send_task.return_value = celery_result
+
+        with patch.object(backend, "validate_task"), patch(
+            "celery.contrib.django.backend.task_enqueued"
+        ) as mock_signal:
+            backend.enqueue(task, (), {})
+
+        mock_signal.send.assert_called_once()
+        call_kwargs = mock_signal.send.call_args.kwargs
+        assert call_kwargs["task_result"].id == "sig-111"
 
 
 # ---------------------------------------------------------------------------
@@ -448,12 +488,12 @@ class test_supports_get_result:
 
 
 # ---------------------------------------------------------------------------
-# _build_task_context
+# _build_worker_task_result
 # ---------------------------------------------------------------------------
 
 
-class test_build_task_context:
-    def test_context_has_correct_attempt(self, task):
+class test_build_worker_task_result:
+    def test_builds_running_result(self, task):
         _django_task_registry[task.module_path] = task
 
         mock_celery_task = MagicMock()
@@ -465,13 +505,15 @@ class test_build_task_context:
         mock_celery_task.request.kwargs = {"z": 3}
 
         with patch("celery._state.get_current_task", return_value=mock_celery_task):
-            ctx = _build_task_context("default")
+            result = _build_worker_task_result("default")
 
-        assert isinstance(ctx, TaskContext)
-        assert ctx.task_result.id == "ctx-task-id"
-        assert ctx.attempt == 3  # retries=2 -> attempt = retries + 1
+        assert result.id == "ctx-task-id"
+        assert result.status == TaskResultStatus.RUNNING
+        assert result.started_at is not None
+        assert result.last_attempted_at is not None
+        assert result.attempts == 3  # retries=2 -> 3 worker_ids entries
 
-    def test_context_first_attempt(self, task):
+    def test_first_attempt(self, task):
         _django_task_registry[task.module_path] = task
 
         mock_celery_task = MagicMock()
@@ -483,9 +525,181 @@ class test_build_task_context:
         mock_celery_task.request.kwargs = {}
 
         with patch("celery._state.get_current_task", return_value=mock_celery_task):
-            ctx = _build_task_context("default")
+            result = _build_worker_task_result("default")
 
-        assert ctx.attempt == 1
+        assert result.attempts == 1
+
+    def test_context_from_result(self, task):
+        """TaskContext can be built from the worker task result."""
+        _django_task_registry[task.module_path] = task
+
+        mock_celery_task = MagicMock()
+        mock_celery_task.request.id = "ctx-test"
+        mock_celery_task.request.task = task.module_path
+        mock_celery_task.request.retries = 1
+        mock_celery_task.request.hostname = "w1"
+        mock_celery_task.request.args = []
+        mock_celery_task.request.kwargs = {}
+
+        with patch("celery._state.get_current_task", return_value=mock_celery_task):
+            result = _build_worker_task_result("default")
+            ctx = TaskContext(task_result=result)
+
+        assert ctx.attempt == 2  # retries=1 -> attempt = retries + 1
+
+
+# ---------------------------------------------------------------------------
+# _record_success / _record_failure
+# ---------------------------------------------------------------------------
+
+
+class test_record_success:
+    def test_sets_status_and_return_value(self, task):
+        result = TaskResult(
+            task=task, id="rs-1", status=TaskResultStatus.RUNNING,
+            enqueued_at=None, started_at=None, last_attempted_at=None,
+            finished_at=None, args=[], kwargs={}, backend="default",
+            errors=[], worker_ids=["w1"],
+        )
+        _record_success(result, 42)
+        assert result.status == TaskResultStatus.SUCCESSFUL
+        assert result.return_value == 42
+        assert result.finished_at is not None
+
+    def test_normalizes_return_value(self, task):
+        """Tuples are normalized to lists (JSON-compatible)."""
+        result = TaskResult(
+            task=task, id="rs-2", status=TaskResultStatus.RUNNING,
+            enqueued_at=None, started_at=None, last_attempted_at=None,
+            finished_at=None, args=[], kwargs={}, backend="default",
+            errors=[], worker_ids=["w1"],
+        )
+        _record_success(result, (1, 2, 3))
+        assert result.return_value == [1, 2, 3]
+
+
+class test_record_failure:
+    def test_sets_status_and_error(self, task):
+        result = TaskResult(
+            task=task, id="rf-1", status=TaskResultStatus.RUNNING,
+            enqueued_at=None, started_at=None, last_attempted_at=None,
+            finished_at=None, args=[], kwargs={}, backend="default",
+            errors=[], worker_ids=["w1"],
+        )
+        exc = ValueError("test error")
+        _record_failure(result, exc)
+        assert result.status == TaskResultStatus.FAILED
+        assert result.finished_at is not None
+        assert len(result.errors) == 1
+        assert result.errors[0].exception_class_path == "builtins.ValueError"
+        assert "test error" in result.errors[0].traceback
+
+
+# ---------------------------------------------------------------------------
+# Worker-side signal dispatch (_make_run_fn)
+# ---------------------------------------------------------------------------
+
+
+class test_worker_signals:
+    def test_sync_wrapper_fires_signals(self, backend, task):
+        """Sync function wrapper fires task_started and task_finished."""
+        with patch("celery.contrib.django.backend.CeleryBackend._register_shared") as mock_reg:
+            backend.validate_task(task)
+        _, run_fn = mock_reg.call_args.args
+
+        mock_celery_task = MagicMock()
+        mock_celery_task.request.id = "sig-sync"
+        mock_celery_task.request.task = task.module_path
+        mock_celery_task.request.retries = 0
+        mock_celery_task.request.hostname = "w1"
+        mock_celery_task.request.args = [1, 2]
+        mock_celery_task.request.kwargs = {}
+
+        with patch("celery._state.get_current_task", return_value=mock_celery_task), \
+             patch("celery.contrib.django.backend.task_started") as mock_started, \
+             patch("celery.contrib.django.backend.task_finished") as mock_finished:
+            result = run_fn(1, 2)
+
+        assert result == 3
+        mock_started.send.assert_called_once()
+        mock_finished.send.assert_called_once()
+        # Verify the finished signal has SUCCESSFUL status
+        finished_result = mock_finished.send.call_args.kwargs["task_result"]
+        assert finished_result.status == TaskResultStatus.SUCCESSFUL
+
+    def test_sync_wrapper_fires_signals_on_failure(self, backend):
+        failing_task = _make_django_task(_failing_func)
+        with patch("celery.contrib.django.backend.CeleryBackend._register_shared") as mock_reg:
+            backend.validate_task(failing_task)
+        _, run_fn = mock_reg.call_args.args
+
+        mock_celery_task = MagicMock()
+        mock_celery_task.request.id = "sig-fail"
+        mock_celery_task.request.task = failing_task.module_path
+        mock_celery_task.request.retries = 0
+        mock_celery_task.request.hostname = "w1"
+        mock_celery_task.request.args = []
+        mock_celery_task.request.kwargs = {}
+
+        with patch("celery._state.get_current_task", return_value=mock_celery_task), \
+             patch("celery.contrib.django.backend.task_started") as mock_started, \
+             patch("celery.contrib.django.backend.task_finished") as mock_finished, \
+             pytest.raises(RuntimeError, match="boom"):
+            run_fn()
+
+        mock_started.send.assert_called_once()
+        mock_finished.send.assert_called_once()
+        finished_result = mock_finished.send.call_args.kwargs["task_result"]
+        assert finished_result.status == TaskResultStatus.FAILED
+
+    @pytest.mark.asyncio
+    async def test_async_wrapper_fires_signals(self, backend, async_task):
+        """Async function wrapper fires async task_started and task_finished."""
+        with patch("celery.contrib.django.backend.CeleryBackend._register_shared") as mock_reg:
+            backend.validate_task(async_task)
+        _, run_fn = mock_reg.call_args.args
+
+        mock_celery_task = MagicMock()
+        mock_celery_task.request.id = "sig-async"
+        mock_celery_task.request.task = async_task.module_path
+        mock_celery_task.request.retries = 0
+        mock_celery_task.request.hostname = "w1"
+        mock_celery_task.request.args = [10, 20]
+        mock_celery_task.request.kwargs = {}
+
+        with patch("celery._state.get_current_task", return_value=mock_celery_task), \
+             patch("celery.contrib.django.backend.task_started") as mock_started, \
+             patch("celery.contrib.django.backend.task_finished") as mock_finished:
+            mock_started.asend = AsyncMock()
+            mock_finished.asend = AsyncMock()
+            result = await run_fn(10, 20)
+
+        assert result == 30
+        mock_started.asend.assert_called_once()
+        mock_finished.asend.assert_called_once()
+
+    def test_sync_context_wrapper(self, backend):
+        """takes_context=True wraps and injects TaskContext."""
+        ctx_task = _make_django_task(_context_func, takes_context=True)
+        with patch("celery.contrib.django.backend.CeleryBackend._register_shared") as mock_reg:
+            backend.validate_task(ctx_task)
+        _, run_fn = mock_reg.call_args.args
+
+        mock_celery_task = MagicMock()
+        mock_celery_task.request.id = "ctx-sig"
+        mock_celery_task.request.task = ctx_task.module_path
+        mock_celery_task.request.retries = 1
+        mock_celery_task.request.hostname = "w1"
+        mock_celery_task.request.args = [42]
+        mock_celery_task.request.kwargs = {}
+
+        with patch("celery._state.get_current_task", return_value=mock_celery_task), \
+             patch("celery.contrib.django.backend.task_started"), \
+             patch("celery.contrib.django.backend.task_finished"):
+            result = run_fn(42)
+
+        # _context_func returns context.attempt; retries=1 → attempt=2
+        assert result == 2
 
 
 # ---------------------------------------------------------------------------

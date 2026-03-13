@@ -26,8 +26,9 @@ from inspect import iscoroutinefunction
 from django.tasks.backends.base import BaseTaskBackend
 from django.tasks.base import TaskContext, TaskError, TaskResult, TaskResultStatus
 from django.tasks.exceptions import TaskResultDoesNotExist
-from django.tasks.signals import task_enqueued
+from django.tasks.signals import task_enqueued, task_finished, task_started
 from django.utils import timezone
+from django.utils.json import normalize_json
 from django.utils.module_loading import import_string
 
 # Module-level registry: celery task name -> Django Task object.
@@ -111,25 +112,57 @@ class CeleryBackend(BaseTaskBackend):
         self._register_shared(celery_name, run_fn)
 
     def _make_run_fn(self, task):
-        """Build the callable that Celery workers will execute."""
-        func = task.func
-        if not task.takes_context:
-            return func
+        """Build the callable that Celery workers will execute.
 
+        Wraps the function to fire Django's ``task_started`` /
+        ``task_finished`` signals and, when ``takes_context`` is True,
+        to prepend a :class:`~django.tasks.base.TaskContext` argument.
+        """
+        func = task.func
+        takes_context = task.takes_context
         backend_alias = self.alias
 
         if iscoroutinefunction(func):
 
             async def _run(*args, **kwargs):
-                ctx = _build_task_context(backend_alias)
-                return await func(ctx, *args, **kwargs)
+                task_result = _build_worker_task_result(backend_alias)
+                await task_started.asend(sender=CeleryBackend, task_result=task_result)
+                try:
+                    if takes_context:
+                        result = await func(TaskContext(task_result=task_result), *args, **kwargs)
+                    else:
+                        result = await func(*args, **kwargs)
+                except KeyboardInterrupt:
+                    raise
+                except BaseException as e:
+                    _record_failure(task_result, e)
+                    await task_finished.asend(sender=CeleryBackend, task_result=task_result)
+                    raise
+                else:
+                    _record_success(task_result, result)
+                    await task_finished.asend(sender=CeleryBackend, task_result=task_result)
+                    return result
         else:
 
             def _run(*args, **kwargs):
-                ctx = _build_task_context(backend_alias)
-                return func(ctx, *args, **kwargs)
+                task_result = _build_worker_task_result(backend_alias)
+                task_started.send(sender=CeleryBackend, task_result=task_result)
+                try:
+                    if takes_context:
+                        result = func(TaskContext(task_result=task_result), *args, **kwargs)
+                    else:
+                        result = func(*args, **kwargs)
+                except KeyboardInterrupt:
+                    raise
+                except BaseException as e:
+                    _record_failure(task_result, e)
+                    task_finished.send(sender=CeleryBackend, task_result=task_result)
+                    raise
+                else:
+                    _record_success(task_result, result)
+                    task_finished.send(sender=CeleryBackend, task_result=task_result)
+                    return result
 
-        # Preserve identity so Celery generates the right name if needed.
         _run.__module__ = func.__module__
         _run.__qualname__ = func.__qualname__
         _run.__name__ = func.__name__
@@ -182,7 +215,7 @@ class CeleryBackend(BaseTaskBackend):
         )
 
         task_result = self._build_initial_result(task, celery_result.id, args, kwargs)
-        task_enqueued.send(sender=type(self), task_result=task_result)
+        await task_enqueued.asend(sender=type(self), task_result=task_result)
         return task_result
 
     # -- Result retrieval --------------------------------------------------
@@ -229,8 +262,7 @@ class CeleryBackend(BaseTaskBackend):
         if task.queue_name != "default":
             options["queue"] = task.queue_name
 
-        if task.priority != 0:
-            options["priority"] = _map_priority(task.priority)
+        options["priority"] = _map_priority(task.priority)
 
         if task.run_after is not None:
             if isinstance(task.run_after, timedelta):
@@ -358,8 +390,8 @@ def _map_priority(django_priority: int) -> int:
     return max(0, min(255, celery_priority))
 
 
-def _build_task_context(backend_alias: str) -> TaskContext:
-    """Build a Django TaskContext on the worker side."""
+def _build_worker_task_result(backend_alias: str) -> TaskResult:
+    """Build a Django TaskResult on the worker side for signal dispatch."""
     from celery._state import get_current_task
 
     celery_task = get_current_task()
@@ -389,13 +421,14 @@ def _build_task_context(backend_alias: str) -> TaskContext:
     retries = getattr(request, "retries", 0)
     hostname = getattr(request, "hostname", "unknown") or "unknown"
 
-    task_result = TaskResult(
+    now = timezone.now()
+    return TaskResult(
         task=django_task,
         id=request.id,
         status=TaskResultStatus.RUNNING,
         enqueued_at=None,
-        started_at=None,
-        last_attempted_at=None,
+        started_at=now,
+        last_attempted_at=now,
         finished_at=None,
         args=list(request.args or []),
         kwargs=dict(request.kwargs or {}),
@@ -404,4 +437,24 @@ def _build_task_context(backend_alias: str) -> TaskContext:
         worker_ids=[hostname] * (retries + 1),
     )
 
-    return TaskContext(task_result=task_result)
+
+def _record_success(task_result: TaskResult, result) -> None:
+    """Mutate a frozen TaskResult to record a successful outcome."""
+    object.__setattr__(task_result, "finished_at", timezone.now())
+    object.__setattr__(task_result, "status", TaskResultStatus.SUCCESSFUL)
+    object.__setattr__(task_result, "_return_value", normalize_json(result))
+
+
+def _record_failure(task_result: TaskResult, exc: BaseException) -> None:
+    """Mutate a frozen TaskResult to record a failure."""
+    object.__setattr__(task_result, "finished_at", timezone.now())
+    object.__setattr__(task_result, "status", TaskResultStatus.FAILED)
+    exc_type = type(exc)
+    from traceback import format_exception
+
+    task_result.errors.append(
+        TaskError(
+            exception_class_path=f"{exc_type.__module__}.{exc_type.__qualname__}",
+            traceback="".join(format_exception(exc)),
+        )
+    )
