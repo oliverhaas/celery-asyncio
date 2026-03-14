@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://oliverhaas.github.io/celery-asyncio/main/getting-started/quickstart/">
+        <link rel="canonical" href="https://oliverhaas.github.io/celery-asyncio/main/getting-started/migration/">
       
       
-        <link rel="prev" href="../installation/">
+        <link rel="prev" href="../quickstart/">
       
       
-        <link rel="next" href="../migration/">
+        <link rel="next" href="../../user-guide/architecture/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Quick Start - celery-asyncio</title>
+        <title>Migration Guide - celery-asyncio</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#quick-start" class="md-skip">
+        <a href="#migration-guide" class="md-skip">
           Skip to content
         </a>
       
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Quick Start
+              Migration Guide
             
           </span>
         </div>
@@ -372,6 +372,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -391,7 +419,7 @@
   <span class="md-ellipsis">
     
   
-    Quick Start
+    Migration Guide
   
 
     
@@ -409,7 +437,7 @@
   <span class="md-ellipsis">
     
   
-    Quick Start
+    Migration Guide
   
 
     
@@ -435,10 +463,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-start-a-broker" class="md-nav__link">
+  <a href="#what-changed" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Start a broker
+        What changed
       
     </span>
   </a>
@@ -446,10 +474,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-create-your-app" class="md-nav__link">
+  <a href="#installation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Create your app
+        Installation
       
     </span>
   </a>
@@ -457,10 +485,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-define-tasks" class="md-nav__link">
+  <a href="#task-definitions" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Define tasks
+        Task definitions
       
     </span>
   </a>
@@ -468,10 +496,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-start-the-worker" class="md-nav__link">
+  <a href="#configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Start the worker
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#removed-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Removed settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#worker-startup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worker startup
       
     </span>
   </a>
@@ -479,10 +535,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-send-tasks" class="md-nav__link">
+  <a href="#canvas-primitives" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Send tasks
+        Canvas primitives
       
     </span>
   </a>
@@ -490,10 +546,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-monitor-with-flower-optional" class="md-nav__link">
+  <a href="#result-retrieval" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. Monitor with Flower (optional)
+        Result retrieval
       
     </span>
   </a>
@@ -501,10 +557,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#using-rabbitmq" class="md-nav__link">
+  <a href="#monitoring-with-flower" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Using RabbitMQ
+        Monitoring with Flower
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's removed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-new" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's new
       
     </span>
   </a>
@@ -515,34 +593,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../migration/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Migration Guide
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -1039,10 +1089,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-start-a-broker" class="md-nav__link">
+  <a href="#what-changed" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Start a broker
+        What changed
       
     </span>
   </a>
@@ -1050,10 +1100,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-create-your-app" class="md-nav__link">
+  <a href="#installation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Create your app
+        Installation
       
     </span>
   </a>
@@ -1061,10 +1111,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-define-tasks" class="md-nav__link">
+  <a href="#task-definitions" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Define tasks
+        Task definitions
       
     </span>
   </a>
@@ -1072,10 +1122,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-start-the-worker" class="md-nav__link">
+  <a href="#configuration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Start the worker
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#removed-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Removed settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#worker-startup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worker startup
       
     </span>
   </a>
@@ -1083,10 +1161,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-send-tasks" class="md-nav__link">
+  <a href="#canvas-primitives" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Send tasks
+        Canvas primitives
       
     </span>
   </a>
@@ -1094,10 +1172,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-monitor-with-flower-optional" class="md-nav__link">
+  <a href="#result-retrieval" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. Monitor with Flower (optional)
+        Result retrieval
       
     </span>
   </a>
@@ -1105,10 +1183,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#using-rabbitmq" class="md-nav__link">
+  <a href="#monitoring-with-flower" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Using RabbitMQ
+        Monitoring with Flower
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-removed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's removed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-new" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What's new
       
     </span>
   </a>
@@ -1135,72 +1235,169 @@
   
 
 
-<h1 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h1>
-<h2 id="1-start-a-broker">1. Start a broker<a class="headerlink" href="#1-start-a-broker" title="Permanent link">&para;</a></h2>
-<p>Valkey/Redis:</p>
-<div class="language-console highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="go">docker run -d -p 6379:6379 valkey/valkey:8</span>
+<h1 id="migration-guide">Migration Guide<a class="headerlink" href="#migration-guide" title="Permanent link">&para;</a></h1>
+<p>How to migrate from upstream Celery to celery-asyncio.</p>
+<div class="admonition warning">
+<p class="admonition-title">Alpha software</p>
+<p>celery-asyncio is in alpha. APIs may change between releases.
+This guide covers the current state of the project.</p>
+</div>
+<h2 id="what-changed">What changed<a class="headerlink" href="#what-changed" title="Permanent link">&para;</a></h2>
+<p>celery-asyncio is a ground-up asyncio rewrite. The worker, transport layer,
+and concurrency model are completely different from upstream Celery.</p>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Upstream Celery</th>
+<th>celery-asyncio</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python</td>
+<td>3.8+</td>
+<td>3.14+ only</td>
+</tr>
+<tr>
+<td>Concurrency</td>
+<td>prefork, eventlet, gevent, threads</td>
+<td>asyncio + threads</td>
+</tr>
+<tr>
+<td>Messaging</td>
+<td>kombu (sync)</td>
+<td>kombu-asyncio (pure async)</td>
+</tr>
+<tr>
+<td>Transport</td>
+<td>AMQP, Redis, SQS, ...</td>
+<td>Valkey/Redis, AMQP, Memory, Filesystem</td>
+</tr>
+<tr>
+<td>Result backend</td>
+<td>Redis, DB, memcached, ...</td>
+<td>Valkey/Redis, Filesystem</td>
+</tr>
+<tr>
+<td>Dependencies</td>
+<td>billiard, vine, kombu</td>
+<td>kombu-asyncio, asgiref</td>
+</tr>
+<tr>
+<td>Task types</td>
+<td>sync only (async via eventlet/gevent)</td>
+<td>native <code>async def</code> + sync</td>
+</tr>
+</tbody>
+</table>
+<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
+<p>Replace <code>celery</code> with <code>celery-asyncio</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Before</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pip<span class="w"> </span>install<span class="w"> </span>celery<span class="o">[</span>redis<span class="o">]</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># After</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>pip<span class="w"> </span>install<span class="w"> </span>celery-asyncio<span class="o">[</span>redis<span class="o">]</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># or</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>pip<span class="w"> </span>install<span class="w"> </span>celery-asyncio<span class="o">[</span>valkey<span class="o">]</span>
 </span></code></pre></div>
-<p>Or RabbitMQ:</p>
-<div class="language-console highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="go">docker run -d -p 5672:5672 -p 15672:15672 rabbitmq:4-management</span>
+<h2 id="task-definitions">Task definitions<a class="headerlink" href="#task-definitions" title="Permanent link">&para;</a></h2>
+<p><strong>Sync tasks work unchanged.</strong> No code changes needed:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nd">@app</span><span class="o">.</span><span class="n">task</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="k">return</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span>
 </span></code></pre></div>
-<h2 id="2-create-your-app">2. Create your app<a class="headerlink" href="#2-create-your-app" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># celeryapp.py</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">celery</span><span class="w"> </span><span class="kn">import</span> <span class="n">Celery</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">app</span> <span class="o">=</span> <span class="n">Celery</span><span class="p">(</span><span class="s2">&quot;myapp&quot;</span><span class="p">)</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">app</span><span class="o">.</span><span class="n">config_from_object</span><span class="p">({</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="s2">&quot;broker_url&quot;</span><span class="p">:</span> <span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">,</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="s2">&quot;result_backend&quot;</span><span class="p">:</span> <span class="s2">&quot;redis://localhost:6379/1&quot;</span><span class="p">,</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="s2">&quot;include&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;tasks&quot;</span><span class="p">],</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="p">})</span>
+<p><strong>Async tasks are now native.</strong> No eventlet/gevent needed:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nd">@app</span><span class="o">.</span><span class="n">task</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">fetch_url</span><span class="p">(</span><span class="n">url</span><span class="p">):</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">aiohttp</span><span class="o">.</span><span class="n">ClientSession</span><span class="p">()</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url</span><span class="p">)</span> <span class="k">as</span> <span class="n">resp</span><span class="p">:</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>            <span class="k">return</span> <span class="k">await</span> <span class="n">resp</span><span class="o">.</span><span class="n">text</span><span class="p">()</span>
 </span></code></pre></div>
-<h2 id="3-define-tasks">3. Define tasks<a class="headerlink" href="#3-define-tasks" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># tasks.py</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">celeryapp</span><span class="w"> </span><span class="kn">import</span> <span class="n">app</span>
+<p>Async tasks run directly on the asyncio event loop. Sync tasks run in a
+thread pool. Both can coexist in the same worker.</p>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
+<p>Most configuration keys are the same. Key differences:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Worker pool — only &#39;asyncio&#39; is supported</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c1"># (prefork, eventlet, gevent are removed)</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">worker_pool</span> <span class="o">=</span> <span class="s1">&#39;asyncio&#39;</span>          <span class="c1"># default, no need to set</span>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nd">@app</span><span class="o">.</span><span class="n">task</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="k">def</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="k">return</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="nd">@app</span><span class="o">.</span><span class="n">task</span>
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">slow_add</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
-</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>    <span class="k">return</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># Broker URL — valkey:// scheme now supported</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">broker_url</span> <span class="o">=</span> <span class="s1">&#39;valkey://localhost:6379/0&#39;</span>  <span class="c1"># or redis:// still works</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="c1"># Result backend — same</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">result_backend</span> <span class="o">=</span> <span class="s1">&#39;valkey://localhost:6379/1&#39;</span>  <span class="c1"># or redis://</span>
 </span></code></pre></div>
-<p>Sync tasks (<code>add</code>) run in a thread pool. Async tasks (<code>slow_add</code>) run directly on the asyncio event loop.</p>
-<h2 id="4-start-the-worker">4. Start the worker<a class="headerlink" href="#4-start-the-worker" title="Permanent link">&para;</a></h2>
-<div class="language-console highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="go">PYTHONPATH=. celery -A celeryapp worker --loglevel=info -E</span>
+<h3 id="removed-settings">Removed settings<a class="headerlink" href="#removed-settings" title="Permanent link">&para;</a></h3>
+<p>These settings no longer apply:</p>
+<ul>
+<li><code>worker_pool</code> choices: <code>prefork</code>, <code>eventlet</code>, <code>gevent</code>, <code>solo</code> (only <code>asyncio</code>)</li>
+<li><code>worker_prefetch_multiplier</code> (asyncio pool uses semaphore-based concurrency)</li>
+<li>Eventlet/gevent-specific settings</li>
+</ul>
+<h2 id="worker-startup">Worker startup<a class="headerlink" href="#worker-startup" title="Permanent link">&para;</a></h2>
+<p>The CLI is the same:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Before</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>celery<span class="w"> </span>-A<span class="w"> </span>myapp<span class="w"> </span>worker<span class="w"> </span>--loglevel<span class="o">=</span>info
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># After — identical</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>celery<span class="w"> </span>-A<span class="w"> </span>myapp<span class="w"> </span>worker<span class="w"> </span>--loglevel<span class="o">=</span>info
 </span></code></pre></div>
-<p>The <code>-E</code> flag enables events for monitoring with Flower.</p>
-<h2 id="5-send-tasks">5. Send tasks<a class="headerlink" href="#5-send-tasks" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">tasks</span><span class="w"> </span><span class="kn">import</span> <span class="n">add</span><span class="p">,</span> <span class="n">slow_add</span>
+<p>The <code>-P</code> flag only accepts <code>asyncio</code> (or omit it — it's the default).</p>
+<h2 id="canvas-primitives">Canvas primitives<a class="headerlink" href="#canvas-primitives" title="Permanent link">&para;</a></h2>
+<p><code>chain</code>, <code>group</code>, <code>chord</code>, <code>chunks</code> work the same way:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">celery</span><span class="w"> </span><span class="kn">import</span> <span class="n">chain</span><span class="p">,</span> <span class="n">group</span><span class="p">,</span> <span class="n">chord</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># Fire and forget</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">add</span><span class="o">.</span><span class="n">delay</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="c1"># With options</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">add</span><span class="o">.</span><span class="n">apply_async</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span> <span class="n">countdown</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="c1"># Async task</span>
-</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="n">slow_add</span><span class="o">.</span><span class="n">delay</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># All of these work as before</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">chain</span><span class="p">(</span><span class="n">add</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="n">add</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="mi">3</span><span class="p">))</span><span class="o">.</span><span class="n">delay</span><span class="p">()</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="n">group</span><span class="p">(</span><span class="n">add</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">))</span><span class="o">.</span><span class="n">delay</span><span class="p">()</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="n">chord</span><span class="p">(</span><span class="n">group</span><span class="p">(</span><span class="n">add</span><span class="o">.</span><span class="n">s</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">)),</span> <span class="n">add</span><span class="o">.</span><span class="n">s</span><span class="p">())</span><span class="o">.</span><span class="n">delay</span><span class="p">()</span>
 </span></code></pre></div>
-<h2 id="6-monitor-with-flower-optional">6. Monitor with Flower (optional)<a class="headerlink" href="#6-monitor-with-flower-optional" title="Permanent link">&para;</a></h2>
-<div class="language-console highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="go">pip install flower</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="go">celery -A celeryapp flower</span>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Canvas primitives are carried over from upstream and need an async audit
+(see <a href="https://github.com/oliverhaas/celery-asyncio/issues/4">GitHub issue #4</a>).</p>
+</div>
+<h2 id="result-retrieval">Result retrieval<a class="headerlink" href="#result-retrieval" title="Permanent link">&para;</a></h2>
+<p><code>AsyncResult</code> works the same:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">add</span><span class="o">.</span><span class="n">delay</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">meta</span> <span class="o">=</span> <span class="n">app</span><span class="o">.</span><span class="n">backend</span><span class="o">.</span><span class="n">get_task_meta</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
 </span></code></pre></div>
-<p>Open <a href="http://localhost:5555">http://localhost:5555</a> to see workers, tasks, and live graphs.</p>
-<h2 id="using-rabbitmq">Using RabbitMQ<a class="headerlink" href="#using-rabbitmq" title="Permanent link">&para;</a></h2>
-<p>Same setup, just change the broker URL:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">app</span><span class="o">.</span><span class="n">config_from_object</span><span class="p">({</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="s2">&quot;broker_url&quot;</span><span class="p">:</span> <span class="s2">&quot;amqp://guest:guest@localhost:5672//&quot;</span><span class="p">,</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="s2">&quot;result_backend&quot;</span><span class="p">:</span> <span class="s2">&quot;redis://localhost:6379/1&quot;</span><span class="p">,</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="s2">&quot;include&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;tasks&quot;</span><span class="p">],</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="p">})</span>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The result backend currently uses synchronous Redis calls internally.
+Native async result methods are planned
+(see <a href="https://github.com/oliverhaas/celery-asyncio/issues/7">GitHub issue #7</a>).</p>
+</div>
+<h2 id="monitoring-with-flower">Monitoring with Flower<a class="headerlink" href="#monitoring-with-flower" title="Permanent link">&para;</a></h2>
+<p>Flower works but requires special installation since it depends on
+upstream <code>celery</code> from PyPI:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>pip<span class="w"> </span>install<span class="w"> </span>flower<span class="w"> </span>--no-deps
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>pip<span class="w"> </span>install<span class="w"> </span>celery-asyncio<span class="o">[</span>flower<span class="o">]</span>
 </span></code></pre></div>
-<p>The AMQP transport uses <a href="https://github.com/mosquito/aio-pika">aio-pika</a> under the hood. Install it with:</p>
-<div class="language-console highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="go">uv add aio-pika</span>
+<p>Or with uv (handles the dependency conflict automatically):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>flower
 </span></code></pre></div>
+<p>Then start as usual:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>celery<span class="w"> </span>-A<span class="w"> </span>myapp<span class="w"> </span>flower
+</span></code></pre></div>
+<h2 id="whats-removed">What's removed<a class="headerlink" href="#whats-removed" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>prefork pool</strong> — replaced by asyncio + thread pool</li>
+<li><strong>eventlet/gevent</strong> — native <code>async def</code> replaces green threads</li>
+<li><strong>billiard</strong> — no longer needed (no forking)</li>
+<li><strong>vine</strong> — promises replaced by asyncio futures</li>
+<li><strong>SQS, Zookeeper, Consul</strong> transports — not yet ported</li>
+<li><strong>Database, Memcached, S3</strong> result backends — not yet ported</li>
+</ul>
+<h2 id="whats-new">What's new<a class="headerlink" href="#whats-new" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Native async tasks</strong> — <code>async def</code> tasks run on the event loop</li>
+<li><strong>Valkey support</strong> — first-class <code>valkey://</code> URL scheme</li>
+<li><strong>AMQP via aio-pika</strong> — native asyncio RabbitMQ support</li>
+<li><strong>Python 3.14 only</strong> — leverages latest language features</li>
+<li><strong>Free-threading ready</strong> — designed for Python 3.14t</li>
+</ul>
 
 
 
