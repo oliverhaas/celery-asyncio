@@ -17,12 +17,10 @@ from celery.worker import WorkController as _WC
 from celery.worker import consumer, control
 from celery.worker import state as worker_state
 from celery.worker.pidbox import Pidbox
-
 from celery.worker.request import Request
 from celery.worker.state import REVOKE_EXPIRES, revoked, revoked_stamps
 
 hostname = socket.gethostname()
-
 
 
 class WorkController:
@@ -58,7 +56,9 @@ class Consumer(consumer.Consumer):
         else:
             exchange = queue if exchange is None else exchange
             exchange_type = "direct" if exchange_type is None else exchange_type
-            q = queues.select_add(queue, exchange=exchange, exchange_type=exchange_type, routing_key=routing_key, **options)
+            q = queues.select_add(
+                queue, exchange=exchange, exchange_type=exchange_type, routing_key=routing_key, **options
+            )
         if not cset.consuming_from(queue):
             cset.add_queue(q)
             cset.consume()
@@ -378,12 +378,8 @@ class test_ControlPanel:
             app=self.app,
         )
         eta = (datetime.now() + timedelta(seconds=10)).timestamp()
-        consumer.timer.enter_at(
-            consumer.timer.Entry(eta=0, fun=lambda x: x, args=(r,)), eta
-        )
-        consumer.timer.enter_at(
-            consumer.timer.Entry(eta=0, fun=lambda x: x, args=(object(),)), eta
-        )
+        consumer.timer.enter_at(consumer.timer.Entry(eta=0, fun=lambda x: x, args=(r,)), eta)
+        consumer.timer.enter_at(consumer.timer.Entry(eta=0, fun=lambda x: x, args=(object(),)), eta)
         assert panel.handle("dump_schedule")
 
     def test_dump_reserved(self):

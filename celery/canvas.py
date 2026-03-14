@@ -56,7 +56,7 @@ def maybe_unroll_group(group):
     except TypeError:
         try:
             size = group.tasks.__length_hint__()
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             return group
         else:
             return list(group.tasks)[0] if size == 1 else group
@@ -2818,7 +2818,7 @@ class _chord(Signature):
         # need to make copy of body
         try:
             signature.kwargs["body"] = maybe_signature(signature.kwargs["body"], clone=True)
-        except (AttributeError, KeyError):
+        except AttributeError, KeyError:
             pass
         return signature
 

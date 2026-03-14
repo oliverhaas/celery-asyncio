@@ -1,6 +1,5 @@
 """Schedules define the intervals at which periodic tasks run."""
 
-
 import re
 from bisect import bisect, bisect_left
 from collections import namedtuple

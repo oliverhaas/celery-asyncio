@@ -147,7 +147,7 @@ class Logging:
 
         try:
             stream = logging.getLogger().handlers[0].stream
-        except (AttributeError, IndexError):
+        except AttributeError, IndexError:
             pass
         else:
             set_default_encoding_file(stream)

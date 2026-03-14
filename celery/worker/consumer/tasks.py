@@ -1,6 +1,5 @@
 """Worker Task Consumer Bootstep - async implementation."""
 
-
 from kombu.common import QoS
 
 from celery import bootsteps

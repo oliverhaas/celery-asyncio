@@ -124,7 +124,7 @@ class BaseLoader:
         if isinstance(obj, str):
             try:
                 obj = self._smart_import(obj, imp=self.import_from_cwd)
-            except (ImportError, AttributeError):
+            except ImportError, AttributeError:
                 if silent:
                     return False
                 raise

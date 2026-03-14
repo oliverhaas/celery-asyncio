@@ -7,7 +7,6 @@ as an actual application, like installing signal handlers
 and so on.
 """
 
-
 import numbers
 import socket
 import sys

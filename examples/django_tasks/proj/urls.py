@@ -58,8 +58,7 @@ def get_result(request, task_id):
             response["return_value"] = result.return_value
         else:
             response["errors"] = [
-                {"exception": e.exception_class_path, "traceback": e.traceback}
-                for e in result.errors
+                {"exception": e.exception_class_path, "traceback": e.traceback} for e in result.errors
             ]
     return JsonResponse(response)
 

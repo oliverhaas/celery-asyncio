@@ -6,7 +6,6 @@ from click.testing import CliRunner
 
 from celery.app.log import Logging
 from celery.bin.celery import celery
-from celery.worker.consumer.tasks import Tasks
 
 
 @pytest.fixture(scope="session")
@@ -80,7 +79,6 @@ def test_cli_disable_prefetch_flag(cli_runner: CliRunner):
         assert res.exit_code == 0
         _, kwargs = worker_callback_mock.call_args
         assert kwargs["disable_prefetch"] is True
-
 
 
 # disable_prefetch tests removed - feature not yet implemented in async Tasks.start

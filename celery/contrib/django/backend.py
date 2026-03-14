@@ -227,8 +227,7 @@ class CeleryBackend(BaseTaskBackend):
 
         if isinstance(app.backend, DisabledBackend):
             raise NotImplementedError(
-                "Celery result backend is disabled. "
-                "Configure a result backend to use get_result()."
+                "Celery result backend is disabled. Configure a result backend to use get_result()."
             )
 
         meta = app.backend.get_task_meta(result_id)
@@ -241,8 +240,7 @@ class CeleryBackend(BaseTaskBackend):
 
         if isinstance(app.backend, DisabledBackend):
             raise NotImplementedError(
-                "Celery result backend is disabled. "
-                "Configure a result backend to use aget_result()."
+                "Celery result backend is disabled. Configure a result backend to use aget_result()."
             )
 
         if hasattr(app.backend, "aget_task_meta"):
@@ -367,12 +365,11 @@ class CeleryBackend(BaseTaskBackend):
                     queue_name="default",
                     run_after=None,
                 )
-            except (ImportError, AttributeError):
+            except ImportError, AttributeError:
                 pass
 
         raise TaskResultDoesNotExist(
-            f"Cannot resolve task for result '{result_id}'. "
-            "Ensure CELERY_RESULT_EXTENDED=True is set in your settings."
+            f"Cannot resolve task for result '{result_id}'. Ensure CELERY_RESULT_EXTENDED=True is set in your settings."
         )
 
 
@@ -413,10 +410,8 @@ def _build_worker_task_result(backend_alias: str) -> TaskResult:
                 queue_name="default",
                 run_after=None,
             )
-        except (ImportError, AttributeError):
-            raise RuntimeError(
-                f"Cannot resolve Django task '{celery_name}' for TaskContext."
-            )
+        except ImportError, AttributeError:
+            raise RuntimeError(f"Cannot resolve Django task '{celery_name}' for TaskContext.")
 
     retries = getattr(request, "retries", 0)
     hostname = getattr(request, "hostname", "unknown") or "unknown"

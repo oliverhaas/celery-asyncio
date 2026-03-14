@@ -424,6 +424,7 @@ class WorkController:
             )
 
             import time
+
             deadline = time.monotonic() + timeout
             while tuple(state.active_requests) and time.monotonic() < deadline:
                 await asyncio.sleep(0.5)

@@ -11,7 +11,6 @@ With Python 3.14t free-threading, all threads run with true parallelism.
 This is the default pool for celery-asyncio workers.
 """
 
-
 import asyncio
 import os
 import threading
@@ -141,7 +140,9 @@ class LoopWorker:
             # Give tasks a brief interval to process their CancelledError
             # and run cleanup (callbacks, result reporting) before stopping.
             self._loop.call_soon_threadsafe(
-                self._loop.call_later, 0.5, self._loop.stop,
+                self._loop.call_later,
+                0.5,
+                self._loop.stop,
             )
         if self._thread:
             self._thread.join(timeout=6)
@@ -213,7 +214,7 @@ class TaskPool(BasePool):
             try:
                 task = self.app.tasks[task_name]
                 return asyncio.iscoroutinefunction(task.run)
-            except (KeyError, AttributeError):
+            except KeyError, AttributeError:
                 pass
         return False
 
@@ -252,7 +253,11 @@ class TaskPool(BasePool):
             return ApplyResult(None)
         else:
             return self._apply_sync_task(
-                target, args, kwargs, callback, accept_callback,
+                target,
+                args,
+                kwargs,
+                callback,
+                accept_callback,
                 timeout_callback=timeout_callback,
                 soft_timeout=soft_timeout,
                 timeout=timeout,
@@ -315,7 +320,11 @@ class TaskPool(BasePool):
             )
 
             tracer_result = await self._run_tracer_with_timeouts(
-                tracer, uuid, task_args, task_kwargs, request,
+                tracer,
+                uuid,
+                task_args,
+                task_kwargs,
+                request,
                 soft_timeout=soft_timeout,
                 timeout=timeout,
                 timeout_callback=timeout_callback,
@@ -445,6 +454,7 @@ class TaskPool(BasePool):
         timeout_callback: Callable | None,
     ) -> None:
         """Schedule a hard timeout check for a sync task in the thread pool."""
+
         def _check_timeout():
             if not future.done():
                 logger.error(
@@ -456,6 +466,7 @@ class TaskPool(BasePool):
                     timeout_callback(False, timeout)
                 with self._stuck_lock:
                     self._stuck_thread_count += 1
+
         timer = threading.Timer(timeout, _check_timeout)
         timer.daemon = True
         timer.start()

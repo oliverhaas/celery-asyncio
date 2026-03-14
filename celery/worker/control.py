@@ -420,7 +420,7 @@ def _iter_schedule_requests(timer):
     for entry in timer.queue:
         try:
             arg0 = entry.args[0]
-        except (IndexError, TypeError):
+        except IndexError, TypeError:
             continue
         else:
             if isinstance(arg0, Request):

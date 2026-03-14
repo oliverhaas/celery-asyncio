@@ -26,7 +26,7 @@ def reset_signals():
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
             signal.signal(sig, signal.SIG_DFL)
-        except (OSError, ValueError):
+        except OSError, ValueError:
             pass
 
 
@@ -571,7 +571,7 @@ class PersistentScheduler(Scheduler):
         for _ in (1, 2):
             try:
                 self._store["entries"]
-            except (KeyError, UnicodeDecodeError, TypeError, UnpicklingError):
+            except KeyError, UnicodeDecodeError, TypeError, UnpicklingError:
                 # new schedule db
                 try:
                     self._store["entries"] = {}
@@ -645,7 +645,7 @@ class Service:
                     time.sleep(interval)
                     if self.scheduler.should_sync():
                         self.scheduler._do_sync()
-        except (KeyboardInterrupt, SystemExit):
+        except KeyboardInterrupt, SystemExit:
             self._is_shutdown.set()
         finally:
             self.sync()

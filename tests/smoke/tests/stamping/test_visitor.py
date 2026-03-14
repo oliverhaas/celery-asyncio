@@ -1,4 +1,3 @@
-
 import json
 
 from pytest_celery import RESULT_TIMEOUT, CeleryTestWorker

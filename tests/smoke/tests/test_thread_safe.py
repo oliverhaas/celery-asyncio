@@ -1,4 +1,3 @@
-
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 from unittest.mock import Mock

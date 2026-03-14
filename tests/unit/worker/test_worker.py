@@ -1,6 +1,4 @@
 import sys
-
-import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -337,8 +335,10 @@ class test_WorkController(ConsumerCase):
         request = Mock(name="task", id="1234213")
         state.task_accepted(request)
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+
             async def clear_active(*args):
                 state.active_requests.discard(request)
+
             mock_sleep.side_effect = clear_active
             await worker.wait_for_soft_shutdown()
             mock_sleep.assert_called_with(0.5)

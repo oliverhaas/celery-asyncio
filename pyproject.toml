@@ -113,6 +113,7 @@ ignore = [
   "ANN",      # Type annotations — will add incrementally (separate task)
   "ARG",      # Unused arguments — signal handlers, overrides, API compat
   "ASYNC109", # timeout param is task TTL, not asyncio.timeout
+  "ASYNC110", # asyncio.Event suggestion — not always appropriate
   "B007",     # Unused loop control variable — sometimes intentional
   "B018",     # Useless expression — intentional in some celery patterns
   "B020",     # Loop variable overrides iterator
@@ -131,9 +132,11 @@ ignore = [
   "E741",     # Ambiguous variable name — l, O, I used in celery
   "EM",       # Exception strings inline are fine
   "ERA001",   # Commented-out code — keeping for reference during rewrite
+  "EXE",      # Shebang — examples have shebangs for convenience
   "FBT",      # Boolean params match task APIs (ignore_result, bind, etc.)
   "FIX",      # TODO/FIXME/XXX comments — allowed during development
   "G",        # Logging format — celery uses % formatting in logging
+  "INP001",   # Implicit namespace package — examples are standalone scripts
   "ISC002",   # Implicit string concatenation
   "N",        # Naming conventions: celery has its own patterns
   "PERF",     # Performance suggestions — readability over micro-optimization
@@ -178,7 +181,7 @@ ignore = [
   "SLF001",   # Private member access needed for internals
   "SLOT000",  # No __slots__ in str subclass
   "T201",     # Print statements — for debugging during rewrite
-  "TC003",    # Typing-only imports: style preference
+  "TC",       # Typing-only imports: style preference
   "TD",       # TODO comments — allowed during development
   "TID252",   # Relative imports
   "TRY",      # tryceratops — style preference throughout

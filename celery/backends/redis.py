@@ -12,6 +12,7 @@ from kombu.utils.encoding import bytes_to_str
 from kombu.utils.functional import retry_over_time
 from kombu.utils.objects import cached_property
 from kombu.utils.url import _parse_url, maybe_sanitize_url
+
 try:
     from redis import CredentialProvider
 except ImportError:

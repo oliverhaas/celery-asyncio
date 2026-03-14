@@ -1,6 +1,5 @@
 """Utilities related to dates, times, intervals, and timezones."""
 
-
 import logging
 import numbers
 import os

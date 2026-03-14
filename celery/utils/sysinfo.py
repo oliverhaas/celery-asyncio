@@ -1,6 +1,5 @@
 """System information utilities."""
 
-
 import os
 from math import ceil
 

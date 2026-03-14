@@ -34,7 +34,7 @@ def mro_lookup(cls, attr, stop=None, monkey_patched=None):
             try:
                 value = node.__dict__[attr]
                 module_origin = value.__module__
-            except (AttributeError, KeyError):
+            except AttributeError, KeyError:
                 pass
             else:
                 if module_origin not in monkey_patched:

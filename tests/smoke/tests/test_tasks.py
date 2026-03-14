@@ -1,4 +1,3 @@
-
 import pytest
 from pytest_celery import RESULT_TIMEOUT, CeleryTestSetup, CeleryTestWorker, CeleryWorkerCluster
 from tenacity import retry, stop_after_attempt, wait_fixed

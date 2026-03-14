@@ -2,6 +2,7 @@
 
 import datetime
 import numbers
+import pickle
 import sys
 from base64 import b64decode as base64decode
 from base64 import b64encode as base64encode
@@ -10,8 +11,6 @@ from inspect import getmro
 from itertools import takewhile
 
 from kombu.utils.encoding import bytes_to_str, safe_repr, str_to_bytes
-
-import pickle
 
 __all__ = (
     "UnpickleableExceptionWrapper",

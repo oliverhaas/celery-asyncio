@@ -51,7 +51,7 @@ def main():
 
     # --- Delayed task (run_after with timedelta-style datetime) ---
     eta = datetime.now(tz=UTC) + timedelta(seconds=3)
-    print(f"\n3) Delayed task: add(10, 20) with run_after=+3s")
+    print("\n3) Delayed task: add(10, 20) with run_after=+3s")
     delayed = add.using(run_after=eta)
     result = wait_for_result(add, delayed.enqueue(10, 20))
     print(f"   result = {result.return_value}")

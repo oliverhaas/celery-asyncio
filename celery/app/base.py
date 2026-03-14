@@ -37,6 +37,9 @@ def calculate_routing_key(countdown, routing_key):
     )
 
 
+import types as _types
+from inspect import isclass as _isclass
+
 from kombu.utils.objects import cached_property
 from kombu.utils.uuid import uuid
 
@@ -65,11 +68,8 @@ from celery.utils.objects import FallbackContext, mro_lookup
 from celery.utils.promises import starpromise
 from celery.utils.time import maybe_make_aware, timezone, to_utc
 
-import types as _types
-from inspect import isclass as _isclass
 
-
-def __get_optional_arg(annotation):
+def _get_optional_arg(annotation):
     """Get the argument from an Optional[...] annotation, or None."""
     origin = typing.get_origin(annotation)
     if origin is not typing.Union and origin is not getattr(_types, "UnionType", None):
@@ -77,22 +77,25 @@ def __get_optional_arg(annotation):
     union_args = typing.get_args(annotation)
     if len(union_args) != 2:
         return None
-    _is_none = lambda v: v is _types.NoneType
+
+    def _is_none(v):
+        return v is _types.NoneType
+
     if any(_is_none(a) for a in union_args):
         return next(a for a in union_args if not _is_none(a))
     return None
 
 
-def __annotation_is_class(annotation):
+def _annotation_is_class(annotation):
     """Test if a given annotation is a class usable with isinstance/issubclass."""
     if isinstance(annotation, _types.GenericAlias):
         return False
     return _isclass(annotation)
 
 
-def __annotation_issubclass(annotation, cls):
+def _annotation_issubclass(annotation, cls):
     """Test if a given annotation is a subclass of cls."""
-    return __annotation_is_class(annotation) and issubclass(annotation, cls)
+    return _annotation_is_class(annotation) and issubclass(annotation, cls)
 
 
 def _detect_quorum_queues(app, driver_type: str) -> tuple[bool, str]:
@@ -104,6 +107,7 @@ def _detect_quorum_queues(app, driver_type: str) -> tuple[bool, str]:
             if qarguments.get("x-queue-type") == "quorum":
                 return True, qname
     return False, ""
+
 
 # Load all builtin tasks
 from . import backends, builtins  # noqa
@@ -172,7 +176,7 @@ def _after_fork_cleanup_app(app):
 
 
 def pydantic_wrapper(
-    app: "Celery",
+    app: Celery,
     task_fun: typing.Callable[..., typing.Any],
     task_name: str,
     strict: bool = True,
@@ -201,7 +205,7 @@ def pydantic_wrapper(
 
     try:
         type_hints = typing.get_type_hints(task_fun)
-    except (NameError, AttributeError, TypeError):
+    except NameError, AttributeError, TypeError:
         # Fall back to raw annotations from inspect if get_type_hints fails
         type_hints = None
 

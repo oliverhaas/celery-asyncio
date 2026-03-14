@@ -201,8 +201,10 @@ class EventDispatcher:
         exc = task.exception()
         if exc is not None:
             import logging
+
             logging.getLogger(__name__).debug(
-                "Event publish failed (non-fatal): %s", exc,
+                "Event publish failed (non-fatal): %s",
+                exc,
             )
 
     @staticmethod
@@ -213,8 +215,10 @@ class EventDispatcher:
         exc = future.exception()
         if exc is not None:
             import logging
+
             logging.getLogger(__name__).debug(
-                "Event publish failed (non-fatal): %s", exc,
+                "Event publish failed (non-fatal): %s",
+                exc,
             )
 
     def send(self, type, blind=False, utcoffset=utcoffset, retry=False, retry_policy=None, Event=Event, **fields):

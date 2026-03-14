@@ -635,7 +635,7 @@ class Consumer:
                     return self.on_decode_error(message, exc)
                 try:
                     type_, payload = payload["task"], payload  # protocol v1
-                except (TypeError, KeyError):
+                except TypeError, KeyError:
                     return on_unknown_message(payload, message)
             try:
                 strategy = strategies[type_]

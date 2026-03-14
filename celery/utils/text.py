@@ -1,6 +1,5 @@
 """Text formatting utilities."""
 
-
 import io
 import re
 from collections.abc import Callable

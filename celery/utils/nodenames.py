@@ -1,6 +1,5 @@
 """Worker name utilities."""
 
-
 import os
 import socket
 from functools import partial

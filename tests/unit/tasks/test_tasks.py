@@ -1,10 +1,9 @@
 import socket
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime
 from unittest.mock import ANY, MagicMock, Mock, patch, sentinel
 
 import pytest
-from kombu import Queue
 from kombu.exceptions import EncodeError
 
 from celery import Task, chain, group, uuid

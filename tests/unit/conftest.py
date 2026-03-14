@@ -30,7 +30,6 @@ from celery.contrib.testing.mocks import TaskMessage, TaskMessage1, task_message
 __all__ = ("celery_app", "celery_enable_logging", "depends_on_current_app", "celery_parameters")
 
 
-
 CASE_LOG_REDIRECT_EFFECT = "Test {0} didn't disable LoggingProxy for {1}"
 CASE_LOG_LEVEL_EFFECT = "Test {0} modified the level of the root logger"
 CASE_LOG_HANDLER_EFFECT = "Test {0} modified handlers for the root logger"

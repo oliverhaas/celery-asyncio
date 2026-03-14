@@ -274,7 +274,7 @@ class ISO8601DateTimeOrFloat(ParamType):
     def convert(self, value, param, ctx):
         try:
             return float(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
 
         try:

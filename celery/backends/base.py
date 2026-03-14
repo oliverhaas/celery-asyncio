@@ -222,7 +222,7 @@ class Backend:
             # have non-iterable objects here in tests and it's easier this way.
             try:
                 chain_data = iter(request.chain)
-            except (AttributeError, TypeError):
+            except AttributeError, TypeError:
                 chain_data = ()
             for chain_elem in chain_data:
                 # Reconstruct a `Context` object for the chained task which has
@@ -471,7 +471,7 @@ class Backend:
                 # The type can contain qualified name with parent classes
                 for name in exc_type.split("."):
                     cls = getattr(cls, name)
-            except (KeyError, AttributeError):
+            except KeyError, AttributeError:
                 cls = create_exception_cls(exc_type, celery.exceptions.__name__)
         exc_msg = exc.get("exc_message", "")
 
@@ -883,7 +883,7 @@ class Backend:
                 self.on_chord_part_return(request, state, exc)
             try:
                 chain_data = iter(request.chain)
-            except (AttributeError, TypeError):
+            except AttributeError, TypeError:
                 chain_data = ()
             for chain_elem in chain_data:
                 chain_elem_ctx = Context(chain_elem)

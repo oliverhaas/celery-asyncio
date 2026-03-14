@@ -7,11 +7,9 @@ import threading
 import traceback
 from contextlib import contextmanager
 from threading import TIMEOUT_MAX as THREAD_TIMEOUT_MAX
-
-from celery.local import Proxy
-
 from threading import get_ident
 
+from celery.local import Proxy
 
 __all__ = (
     "bgThread",
@@ -243,7 +241,7 @@ class _LocalStack:
         """
         try:
             return self._local.stack[-1]
-        except (AttributeError, IndexError):
+        except AttributeError, IndexError:
             return None
 
 
@@ -307,7 +305,7 @@ class _FastLocalStack(threading.local):
     def top(self):
         try:
             return self.stack[-1]
-        except (AttributeError, IndexError):
+        except AttributeError, IndexError:
             return None
 
     def __len__(self):

@@ -11,10 +11,9 @@ import os
 import platform as _platform
 import signal as _signal
 import sys
+import threading
 import warnings
 from contextlib import contextmanager
-
-import threading
 
 from kombu.utils.encoding import safe_str
 
@@ -268,12 +267,12 @@ def get_fdmax(default=1024):
     """Return the maximum file descriptor number."""
     try:
         fdmax = os.sysconf("SC_OPEN_MAX")
-    except (AttributeError, KeyError, ValueError):
+    except AttributeError, KeyError, ValueError:
         fdmax = None
     if fdmax is None and resource:
         try:
             _soft, fdmax = resource.getrlimit(resource.RLIMIT_NOFILE)
-        except (ValueError, resource.error):
+        except ValueError, resource.error:
             fdmax = None
     if fdmax is None or fdmax == resource.RLIM_INFINITY if resource else False:
         return default
@@ -340,6 +339,7 @@ class DaemonContext:
                 self.after_chdir()
             if not self.fake:
                 from kombu.utils.compat import maybe_fileno
+
                 keep = list(self.stdfds) + fd_by_path(["/dev/urandom"])
                 close_open_fds(keep)
                 for fd in self.stdfds:
@@ -391,7 +391,7 @@ def parse_uid(uid):
     except ValueError:
         try:
             return pwd.getpwnam(uid).pw_uid
-        except (AttributeError, KeyError):
+        except AttributeError, KeyError:
             raise KeyError(f"User does not exist: {uid}")
 
 
@@ -402,7 +402,7 @@ def parse_gid(gid):
     except ValueError:
         try:
             return grp.getgrnam(gid).gr_gid
-        except (AttributeError, KeyError):
+        except AttributeError, KeyError:
             raise KeyError(f"Group does not exist: {gid}")
 
 
@@ -488,7 +488,7 @@ class Signals:
         """Install signal handler."""
         try:
             _signal.signal(self.signum(name), handler)
-        except (AttributeError, ValueError):
+        except AttributeError, ValueError:
             pass
 
     def update(self, _d_=None, **sigmap):

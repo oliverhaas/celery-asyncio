@@ -3,6 +3,7 @@
 In celery-asyncio, this is a thin wrapper around connection.drain_events().
 The old Hub-based asynloop and blocking synloop are removed.
 """
+
 import time
 
 from celery.platforms import EX_OK
@@ -34,7 +35,7 @@ def _get_rss_kib() -> int:
             for line in f:
                 if line.startswith("VmRSS:"):
                     return int(line.split()[1])
-    except (OSError, ValueError):
+    except OSError, ValueError:
         pass
     try:
         import resource
@@ -70,8 +71,7 @@ async def _enter_draining(consumer, reason: str) -> None:
     state.is_draining = True
     active_count = len(tuple(state.active_requests))
     logger.info(
-        "Worker draining: %s. Stopped accepting new tasks, "
-        "waiting for %d active task(s) to finish.",
+        "Worker draining: %s. Stopped accepting new tasks, waiting for %d active task(s) to finish.",
         reason,
         active_count,
     )
@@ -125,9 +125,7 @@ def _check_restart_conditions(obj, consumer, pool) -> str | None:
         _last_memory_check = now
         rss = _get_rss_kib()
         if rss > max_memory:
-            reason_parts.append(
-                f"memory limit exceeded (RSS {rss} KiB > {max_memory} KiB)"
-            )
+            reason_parts.append(f"memory limit exceeded (RSS {rss} KiB > {max_memory} KiB)")
 
     # --- stuck threads ---
     if pool and getattr(pool, "_stuck_thread_count", 0) > 0:

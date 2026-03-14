@@ -849,7 +849,7 @@ class BufferMap(OrderedDict, Evictable):
             buf = self[key]
             try:
                 buf.take()
-            except (IndexError, self.Empty):
+            except IndexError, self.Empty:
                 # buffer empty, remove it from mapping.
                 self.pop(key)
             else:

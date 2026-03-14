@@ -472,7 +472,7 @@ def add_pydantic(data: AddParameterModel) -> AddResultModel:
 
 
 @shared_task(pydantic=True)
-def add_pydantic_string_annotations(data: "AddParameterModel") -> "AddResultModel":
+def add_pydantic_string_annotations(data: AddParameterModel) -> AddResultModel:
     """Add two numbers, but with string-annotated Pydantic models (__future__.annotations bug)."""
     value = data.x + data.y
     return AddResultModel(result=value)

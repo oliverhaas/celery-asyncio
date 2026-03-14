@@ -743,7 +743,7 @@ def build_tracer(
                         try:
                             task.backend.process_cleanup()
                             loader_cleanup()
-                        except (KeyboardInterrupt, SystemExit, MemoryError):
+                        except KeyboardInterrupt, SystemExit, MemoryError:
                             raise
                         except Exception as exc:
                             logger.error("Process cleanup failed: %r", exc, exc_info=True)
@@ -1013,7 +1013,7 @@ def build_async_tracer(
                         try:
                             task.backend.process_cleanup()
                             loader_cleanup()
-                        except (KeyboardInterrupt, SystemExit, MemoryError):
+                        except KeyboardInterrupt, SystemExit, MemoryError:
                             raise
                         except Exception as exc:
                             logger.error("Process cleanup failed: %r", exc, exc_info=True)

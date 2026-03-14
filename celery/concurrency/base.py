@@ -40,7 +40,7 @@ def apply_target(
         raise
     except Exception:
         raise
-    except (WorkerShutdown, WorkerTerminate):
+    except WorkerShutdown, WorkerTerminate:
         raise
     except BaseException as exc:
         try:

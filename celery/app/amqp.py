@@ -47,7 +47,7 @@ def _convert_eta_to_properties(body, properties, **kwargs):
             if eta_dt.tzinfo is None:
                 eta_dt = eta_dt.replace(tzinfo=UTC)
             properties["eta"] = eta_dt.timestamp()
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             pass
     elif isinstance(eta_value, datetime):
         if eta_value.tzinfo is None:

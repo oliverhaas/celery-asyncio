@@ -1,6 +1,5 @@
 """Smoke tests tasks."""
 
-
 import os
 import sys
 from signal import SIGKILL

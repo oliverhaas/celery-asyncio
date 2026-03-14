@@ -255,6 +255,7 @@ class test_parse_uid_gid:
     def test_parse_uid_when_existing_name(self, getpwnam):
         class pwent:
             pw_uid = 5001
+
         getpwnam.return_value = pwent()
         assert parse_uid("user") == 5001
 
@@ -271,6 +272,7 @@ class test_parse_uid_gid:
     def test_parse_gid_when_existing_name(self, getgrnam):
         class grent:
             gr_gid = 50001
+
         getgrnam.return_value = grent()
         assert parse_gid("group") == 50001
 

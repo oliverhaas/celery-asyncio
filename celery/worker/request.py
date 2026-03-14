@@ -5,7 +5,6 @@ how tasks are executed.
 """
 
 import logging
-import sys
 from datetime import datetime
 from time import monotonic, time
 from weakref import ref
@@ -87,34 +86,34 @@ class Request:
     _tzlocal = None
 
     __slots__ = (
-            "__dict__",
-            "__payload",
-            "__weakref__",
-            "_app",
-            "_args",
-            "_argsrepr",
-            "_body",
-            "_connection_errors",
-            "_content_encoding",
-            "_content_type",
-            "_decoded",
-            "_eta",
-            "_eventer",
-            "_expires",
-            "_hostname",
-            "_kwargs",
-            "_kwargsrepr",
-            "_on_ack",
-            "_on_reject",
-            "_parent_id",
-            "_request_dict",
-            "_root_id",
-            "_task",
-            "_type",
-            "_utc",
-            "id",
-            "name",
-        )
+        "__dict__",
+        "__payload",
+        "__weakref__",
+        "_app",
+        "_args",
+        "_argsrepr",
+        "_body",
+        "_connection_errors",
+        "_content_encoding",
+        "_content_type",
+        "_decoded",
+        "_eta",
+        "_eventer",
+        "_expires",
+        "_hostname",
+        "_kwargs",
+        "_kwargsrepr",
+        "_on_ack",
+        "_on_reject",
+        "_parent_id",
+        "_request_dict",
+        "_root_id",
+        "_task",
+        "_type",
+        "_utc",
+        "id",
+        "name",
+    )
 
     def __init__(
         self,

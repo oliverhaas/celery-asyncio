@@ -1,7 +1,7 @@
 import errno
 import socket
 from collections import deque
-from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
@@ -10,13 +10,11 @@ try:
 except ImportError:
     ChannelError = type("ChannelError", (Exception,), {})
 
-from celery.exceptions import RestartFreqExceeded
-
 from celery import bootsteps
-from celery.contrib.testing.mocks import ContextMock
-from celery.exceptions import WorkerShutdown, WorkerTerminate
-from celery.utils.collections import LimitedSet
 from celery.app.base import _detect_quorum_queues as detect_quorum_queues
+from celery.contrib.testing.mocks import ContextMock
+from celery.exceptions import RestartFreqExceeded, WorkerShutdown, WorkerTerminate
+from celery.utils.collections import LimitedSet
 from celery.worker.consumer.consumer import CANCEL_TASKS_BY_DEFAULT, CLOSE, TERMINATE, Consumer
 from celery.worker.consumer.gossip import Gossip
 from celery.worker.consumer.heart import Heart
@@ -447,7 +445,6 @@ class test_Consumer(ConsumerTestCase):
                     await c.ensure_connected(conn)
 
 
-
 @pytest.mark.parametrize(
     "broker_connection_retry_on_startup,is_connection_loss_on_startup",
     [
@@ -635,8 +632,6 @@ class test_Tasks:
         assert c.qos.value == 10
 
 
-
-
 class test_Mingle:
     async def test_start_no_replies(self):
         c = Mock()
@@ -659,19 +654,21 @@ class test_Mingle:
         Big.add("Big-1")
 
         I = c.app.control.inspect.return_value = Mock()
-        I._arequest = AsyncMock(return_value={
-            "A@example.com": {
-                "clock": 312,
-                "revoked": Aig._data,
-            },
-            "B@example.com": {
-                "clock": 29,
-                "revoked": Big._data,
-            },
-            "C@example.com": {
-                "error": "unknown method",
-            },
-        })
+        I._arequest = AsyncMock(
+            return_value={
+                "A@example.com": {
+                    "clock": 312,
+                    "revoked": Aig._data,
+                },
+                "B@example.com": {
+                    "clock": 29,
+                    "revoked": Big._data,
+                },
+                "C@example.com": {
+                    "error": "unknown method",
+                },
+            }
+        )
 
         our_revoked = c.controller.state.revoked = LimitedSet()
 

@@ -354,5 +354,5 @@ class ExceptionWithTraceback:
         self.exc = exc
         self.tb = tb or ""
 
-    def __reduce__(self) -> tuple["Callable", tuple[BaseException, str]]:
+    def __reduce__(self) -> tuple[Callable, tuple[BaseException, str]]:
         return self.__class__, (self.exc, self.tb)
