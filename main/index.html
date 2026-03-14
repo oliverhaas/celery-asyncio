@@ -872,7 +872,7 @@
 <li><strong>Native asyncio worker</strong> with hybrid thread pool for mixed async/sync workloads</li>
 <li><strong><code>async def</code> tasks</strong> run directly on the event loop, no thread overhead</li>
 <li><strong>Sync tasks</strong> run in a thread pool alongside async tasks in the same worker</li>
-<li><strong>Redis and AMQP transports</strong> via <a href="https://github.com/oliverhaas/kombu-asyncio">kombu-asyncio</a></li>
+<li><strong>Valkey/Redis and AMQP transports</strong> via <a href="https://github.com/oliverhaas/kombu-asyncio">kombu-asyncio</a></li>
 <li><strong>Full CLI compatibility</strong> with upstream Celery (<code>celery -A app worker</code>, <code>celery inspect</code>, etc.)</li>
 <li><strong>Celery Flower</strong> works out of the box for monitoring</li>
 <li><strong>Django 6.0 Tasks</strong> integration via <code>CeleryBackend</code></li>
@@ -898,7 +898,7 @@
 <ul>
 <li>Python 3.14+</li>
 <li>kombu-asyncio 6.0+</li>
-<li>Redis 7+ or RabbitMQ 4+</li>
+<li>Valkey 8+ or Redis 7+ or RabbitMQ 4+</li>
 </ul>
 <h2 id="license">License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h2>
 <p>BSD-3-Clause (same as Celery)</p>

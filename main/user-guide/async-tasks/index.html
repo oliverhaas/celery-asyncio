@@ -980,8 +980,8 @@
 </span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">async_task</span><span class="o">.</span><span class="n">apply_async</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="mi">42</span><span class="p">,),</span> <span class="n">eta</span><span class="o">=</span><span class="n">eta</span><span class="p">)</span>
 </span></code></pre></div>
 <h2 id="priority">Priority<a class="headerlink" href="#priority" title="Permanent link">&para;</a></h2>
-<p>Task priority is supported on both Redis and AMQP transports:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Higher number = executed sooner (0-255 for Redis, 0-9 for AMQP)</span>
+<p>Task priority is supported on both Valkey/Redis and AMQP transports:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Higher number = executed sooner (0-255 for Valkey/Redis, 0-9 for AMQP)</span>
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">async_task</span><span class="o">.</span><span class="n">apply_async</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="mi">42</span><span class="p">,),</span> <span class="n">priority</span><span class="o">=</span><span class="mi">255</span><span class="p">)</span>
 </span></code></pre></div>
 
