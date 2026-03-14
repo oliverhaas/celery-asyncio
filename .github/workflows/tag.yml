@@ -4,11 +4,10 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [main-asyncio]
+    branches: [main]
 
 jobs:
   tag:
-    # Only run if CI succeeded and was triggered by push (not PR)
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push'
@@ -24,27 +23,20 @@ jobs:
       - name: Check version status
         id: version
         run: |
-          # Get current version
           CURRENT_VERSION=$(grep -m1 'version = ' pyproject.toml | cut -d'"' -f2)
           echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
 
-          # Check if version is already published on PyPI
           if curl -s "https://pypi.org/pypi/celery-asyncio/$CURRENT_VERSION/json" | grep -q '"version"'; then
             echo "on_pypi=true" >> $GITHUB_OUTPUT
-            echo "Version $CURRENT_VERSION already published on PyPI"
           else
             echo "on_pypi=false" >> $GITHUB_OUTPUT
-            echo "Version $CURRENT_VERSION not on PyPI"
           fi
 
-          # Check if tag already exists (fetch tags first)
           git fetch --tags
           if git rev-parse "v$CURRENT_VERSION" >/dev/null 2>&1; then
             echo "tag_exists=true" >> $GITHUB_OUTPUT
-            echo "Tag v$CURRENT_VERSION already exists"
           else
             echo "tag_exists=false" >> $GITHUB_OUTPUT
-            echo "Tag v$CURRENT_VERSION does not exist"
           fi
 
       - name: Create and push tag

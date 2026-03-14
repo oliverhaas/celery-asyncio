@@ -21,3 +21,4 @@ dump.rdb
 .mypy_cache/
 .pytest_cache/
 /site/
+statefilename
