@@ -31,6 +31,23 @@ theme:
     - content.code.copy
     - content.code.annotate
 
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [.]
+          options:
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 2
+            members_order: source
+            show_signature_annotations: true
+            separate_signature: true
+            docstring_style: sphinx
+
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
@@ -54,10 +71,18 @@ nav:
   - Getting Started:
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quickstart.md
+      - Migration Guide: getting-started/migration.md
   - User Guide:
       - Architecture: user-guide/architecture.md
       - Async Tasks: user-guide/async-tasks.md
       - Configuration: user-guide/configuration.md
       - Django Integration: user-guide/django.md
-  - Reference:
-      - Changelog: reference/changelog.md
+  - API Reference:
+      - Application: reference/app.md
+      - Task: reference/task.md
+      - Canvas: reference/canvas.md
+      - Results: reference/result.md
+      - Signals: reference/signals.md
+      - Schedules: reference/schedules.md
+      - States: reference/states.md
+  - Changelog: reference/changelog.md
