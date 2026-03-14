@@ -10,11 +10,12 @@ This project is **exploratory**. It is not affiliated with or endorsed by the Ce
 - **`async def` tasks** run directly on the event loop, no thread overhead
 - **Sync tasks** run in a thread pool alongside async tasks in the same worker
 - **Redis and AMQP transports** via [kombu-asyncio](https://github.com/oliverhaas/kombu-asyncio)
+- **Full CLI compatibility** with upstream Celery (`celery -A app worker`, `celery inspect`, etc.)
 - **Celery Flower** works out of the box for monitoring
 - **Django 6.0 Tasks** integration via `CeleryBackend`
 - **Targeting Python 3.14t** free-threading for true parallelism
 
-## Quick Start
+## Quick example
 
 ```python
 from celery import Celery
@@ -34,11 +35,7 @@ def multiply(x, y):
 celery -A tasks worker --loglevel=info -E
 ```
 
-Both `add` (async) and `multiply` (sync) run in the same worker.
-
-## Documentation
-
-Full documentation at [oliverhaas.github.io/celery-asyncio](https://oliverhaas.github.io/celery-asyncio/)
+Both `add` (async) and `multiply` (sync) run in the same worker. Async tasks run on the event loop, sync tasks run in a thread pool.
 
 ## Requirements
 
@@ -46,10 +43,10 @@ Full documentation at [oliverhaas.github.io/celery-asyncio](https://oliverhaas.g
 - kombu-asyncio 6.0+
 - Redis 7+ or RabbitMQ 4+
 
+## License
+
+BSD-3-Clause (same as Celery)
+
 ## Acknowledgments
 
 This project builds on the ideas and design of [Celery](https://github.com/celery/celery) and [Kombu](https://github.com/celery/kombu) by Ask Solem and the Celery contributors.
-
-## License
-
-BSD-3-Clause

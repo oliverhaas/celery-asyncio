@@ -20,3 +20,4 @@ dump.rdb
 .ruff_cache/
 .mypy_cache/
 .pytest_cache/
+/site/
