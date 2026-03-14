@@ -1,0 +1,11 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+  # Redis for result backend (uncomment if not running Redis elsewhere)
+  # redis:
+  #   image: redis:7
+  #   ports:
+  #     - "6379:6379"
