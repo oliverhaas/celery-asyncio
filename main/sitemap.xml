@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/</loc>
+         <lastmod>2026-03-14</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/getting-started/installation/</loc>
+         <lastmod>2026-03-14</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/getting-started/quickstart/</loc>
+         <lastmod>2026-03-14</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/reference/changelog/</loc>
+         <lastmod>2026-03-14</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/user-guide/architecture/</loc>
+         <lastmod>2026-03-14</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/user-guide/async-tasks/</loc>
+         <lastmod>2026-03-14</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/user-guide/configuration/</loc>
+         <lastmod>2026-03-14</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/user-guide/django/</loc>
+         <lastmod>2026-03-14</lastmod>
+    </url>
+</urlset>
