@@ -72,7 +72,7 @@ pytest = ["pytest>=8.0.0"]
 django = ["Django>=6.0"]
 
 # Monitoring
-flower = ["tornado>=5,<7", "prometheus-client>=0.8", "humanize", "pytz"]
+flower = ["flower>=2.0", "tornado>=5,<7", "prometheus-client>=0.8", "humanize", "pytz"]
 
 # Compression
 brotli = ["brotli>=1.0.0"]
@@ -104,6 +104,11 @@ packages = ["celery"]
 
 [tool.hatch.build.targets.sdist]
 include = ["celery", "LICENSE", "README.md"]
+
+[tool.uv]
+# flower depends on "celery" (PyPI), but celery-asyncio provides the celery
+# Python module. This override prevents uv from pulling in upstream celery.
+override-dependencies = ["celery ; python_version < '0'"]
 
 [tool.uv.sources]
 kombu-asyncio = { path = "../kombu", editable = true }
