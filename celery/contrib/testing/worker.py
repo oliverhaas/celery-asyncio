@@ -1,5 +1,6 @@
 """Embedded workers for integration tests."""
 
+import asyncio
 import logging
 import os
 import threading
@@ -36,33 +37,10 @@ class TestWorkController(worker.WorkController):
     # this is a test class
     __test__ = False
 
-    logger_queue = None
-
     def __init__(self, *args, **kwargs):
         # type: (*Any, **Any) -> None
         self._on_started = threading.Event()
-
         super().__init__(*args, **kwargs)
-
-        # In asyncio mode, we don't use prefork pools, so no logger queue needed
-
-    class QueueHandler(logging.handlers.QueueHandler):
-        def prepare(self, record):
-            record.from_queue = True
-            # Keep origin record.
-            return record
-
-        def handleError(self, record):
-            if logging.raiseExceptions:
-                raise
-
-    def start(self):
-        if self.logger_queue:
-            handler = self.QueueHandler(self.logger_queue)
-            handler.addFilter(lambda r: r.process != self.pid and not getattr(r, "from_queue", False))
-            logger = logging.getLogger()
-            logger.addHandler(handler)
-        return super().start()
 
     def on_consumer_ready(self, consumer):
         # type: (celery.worker.consumer.Consumer) -> None
@@ -144,11 +122,8 @@ def _start_worker_thread(
     setup_app_for_worker(app, loglevel, logfile)
     if perform_ping_check:
         assert "celery.ping" in app.tasks
-    # Make sure we can connect to the broker
-    with app.connection(hostname=os.environ.get("TEST_BROKER")) as conn:
-        conn.default_channel.queue_declare
 
-    worker = WorkController(
+    w = WorkController(
         app=app,
         concurrency=concurrency,
         hostname=kwargs.pop("hostname", anon_nodename()),
@@ -163,13 +138,14 @@ def _start_worker_thread(
         **kwargs,
     )
 
-    t = threading.Thread(target=worker.start, daemon=True)
+    # worker.start() is async — run it inside its own event loop on a thread
+    t = threading.Thread(target=asyncio.run, args=(w.start(),), daemon=True)
     t.start()
-    worker.ensure_started()
+    w.ensure_started()
     _set_task_join_will_block(False)
 
     try:
-        yield worker
+        yield w
     finally:
         from celery.worker import state
 
@@ -182,12 +158,6 @@ def _start_worker_thread(
                 "to execute."
             )
         state.should_terminate = None
-
-
-@contextmanager
-def _start_worker_process(app, concurrency=1, pool="asyncio", loglevel=WORKER_LOGLEVEL, logfile=None, **kwargs):
-    """Start worker in separate process (not available in celery-asyncio)."""
-    raise NotImplementedError("Multi-process workers are not available in celery-asyncio. Use _start_worker_thread.")
 
 
 def setup_app_for_worker(app: Celery, loglevel: str | int, logfile: str) -> None:

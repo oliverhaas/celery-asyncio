@@ -71,7 +71,7 @@ def celery_enable_logging():
 
 @pytest.fixture(scope="session")
 def celery_worker_pool():
-    return "prefork"
+    return "asyncio"
 
 
 @pytest.fixture(scope="session")
