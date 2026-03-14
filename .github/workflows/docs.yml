@@ -52,3 +52,4 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           uv run mike deploy --push main
+          uv run mike set-default --push main
