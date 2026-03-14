@@ -18,7 +18,10 @@ except ImportError:
 
 
 def get_redis_connection():
-    from redis import StrictRedis
+    try:
+        from valkey import StrictValkey as StrictRedis
+    except ImportError:
+        from redis import StrictRedis
 
     host = os.environ.get("REDIS_HOST", "localhost")
     port = os.environ.get("REDIS_PORT", 6379)

@@ -34,7 +34,7 @@ def app(rabbitmq, redis):
         "test_app",
         broker=f"pyamqp://guest:guest@{rabbitmq.hostname}:{rabbitmq.ports[5672]}/",
         backend=f"redis://{redis['hostname']}:{redis['port']}/0",
-        include=["t.integration.test_rabbitmq_default_queue_type_fallback"],
+        include=["tests.integration.test_rabbitmq_default_queue_type_fallback"],
     )
 
 

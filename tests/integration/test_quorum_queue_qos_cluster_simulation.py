@@ -4,10 +4,10 @@ import os
 import pprint
 import uuid
 
-import billiard as multiprocessing
+import multiprocessing
+
 import pytest
 from kombu import Queue
-from kombu.pools import connections
 
 from celery import Celery, _state
 from celery.contrib.testing.worker import start_worker
@@ -130,12 +130,6 @@ def test_rabbitmq_quorum_qos_visibility_race():
             if p.is_alive():
                 p.terminate()
                 p.join(timeout=10)
-
-        # Reset Kombu connection pools (safe public API)
-        try:
-            connections.clear()
-        except Exception:
-            pass
 
         # Reset Celery app/task global state
         _state._set_current_app(None)

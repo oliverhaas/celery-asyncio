@@ -181,8 +181,8 @@ class test_link_error:
 
     @flaky
     def test_link_error_using_signature_eager(self):
-        fail = signature("t.integration.tasks.fail", args=("test",))
-        return_exception = signature("t.integration.tasks.return_exception")
+        fail = signature("tests.integration.tasks.fail", args=("test",))
+        return_exception = signature("tests.integration.tasks.return_exception")
 
         fail.link_error(return_exception)
 
@@ -190,8 +190,8 @@ class test_link_error:
         assert (fail.apply().get(timeout=TIMEOUT, propagate=False), True) == (exception, True)
 
     def test_link_error_using_signature(self, manager):
-        fail = signature("t.integration.tasks.fail", args=("test",))
-        return_exception = signature("t.integration.tasks.return_exception")
+        fail = signature("tests.integration.tasks.fail", args=("test",))
+        return_exception = signature("tests.integration.tasks.return_exception")
 
         fail.link_error(return_exception)
 

@@ -6,7 +6,7 @@ import pytest
 def test_run_worker():
     with pytest.raises(subprocess.CalledProcessError) as exc_info:
         subprocess.check_output(
-            ["celery", "--config", "t.integration.test_worker_config", "worker"], stderr=subprocess.STDOUT
+            ["celery", "--config", "tests.integration.test_worker_config", "worker"], stderr=subprocess.STDOUT
         )
 
     called_process_error = exc_info.value

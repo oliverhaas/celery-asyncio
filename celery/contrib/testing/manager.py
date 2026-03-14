@@ -32,7 +32,7 @@ class ManagerMixin:
         # type: (float, bool, TextIO, TextIO) -> None
         self.stdout = sys.stdout if stdout is None else stdout
         self.stderr = sys.stderr if stderr is None else stderr
-        self.connerrors = self.app.connection().recoverable_connection_errors
+        self.connerrors = self.app.connection().connection_errors
         self.block_timeout = block_timeout
         self.no_join = no_join
 

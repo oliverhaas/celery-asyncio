@@ -6,18 +6,24 @@ import time
 
 import pytest
 
-from celery.contrib.pytest import celery_app, celery_session_worker
+from celery.contrib.pytest import (  # noqa: F401
+    celery_app,
+    celery_parameters,
+    celery_session_app,
+    celery_session_worker,
+    celery_worker_parameters,
+    use_celery_app_trap,
+)
 from celery.contrib.testing.manager import Manager
 from tests.integration.tasks import get_redis_connection
 
-# we have to import the pytest plugin fixtures here,
-# in case user did not do the `python setup.py develop` yet,
-# that installs the pytest plugin into the setuptools registry.
+# We import the pytest plugin fixtures here since the plugin isn't
+# registered via entry_points (no `python setup.py develop`).
 
 
 logger = logging.getLogger(__name__)
 
-TEST_BROKER = os.environ.get("TEST_BROKER", "pyamqp://")
+TEST_BROKER = os.environ.get("TEST_BROKER", "redis://")
 TEST_BACKEND = os.environ.get("TEST_BACKEND", "redis://")
 
 __all__ = (
@@ -76,7 +82,7 @@ def celery_worker_pool():
 
 @pytest.fixture(scope="session")
 def celery_includes():
-    return {"t.integration.tasks"}
+    return {"tests.integration.tasks"}
 
 
 @pytest.fixture

@@ -9,6 +9,7 @@ import threading
 import typing
 import warnings
 from collections import UserDict, defaultdict, deque
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from operator import attrgetter
 
@@ -1402,18 +1403,17 @@ class Celery:
 
     default_connection = connection_or_acquire  # XXX compat
 
+    @contextmanager
     def producer_or_acquire(self, producer=None):
-        """Legacy method for sync producer pool acquisition.
+        """No-op context manager for backward compatibility.
 
-        In celery-asyncio, this is not used. All producer operations
-        go through the async path which creates producers directly.
-
-        This method exists for backward compatibility but will raise
-        NotImplementedError to help identify code paths that need updating.
+        In celery-asyncio, producer pools are not used. All producer
+        operations go through the async path which creates producers
+        directly. This yields None so callers that pass the producer
+        to individual apply_async() calls work correctly (each
+        signature handles its own sending).
         """
-        raise NotImplementedError(
-            "producer_or_acquire is not available in celery-asyncio. Use async methods like asend_task() instead."
-        )
+        yield None
 
     default_producer = producer_or_acquire  # XXX compat
 

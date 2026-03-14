@@ -183,6 +183,13 @@ class barrier:
         self._pending = set(range(len(self._results)))
         self._values: dict[int, Any] = {}
         self._ready = False
+        self.cancelled = False
+        self.size = 0
+
+    @property
+    def ready(self) -> bool:
+        """Return True if all results are ready."""
+        return self._ready
 
     def add(self, result: Any) -> None:
         """Add a result to wait for."""

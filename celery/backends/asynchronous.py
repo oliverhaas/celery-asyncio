@@ -90,14 +90,26 @@ class AsyncBackendMixin:
                 bucket.append(node)
             else:
                 self._collect_into(node, bucket)
+                # Register with pending_results so on_state_change can
+                # find and route results to the bucket, and subscribe
+                # to pubsub for this task's result channel.
+                self.add_pending_result(node, weak=True)
 
+        remaining = len(results)
         for _ in self._wait_for_pending(result, no_ack=no_ack, **kwargs):
             while bucket:
                 node = bucket.popleft()
+                remaining -= 1
                 if not hasattr(node, "_cache"):
                     yield node.id, node.children
                 else:
                     yield node.id, node._cache
+            if remaining <= 0:
+                # All results collected — mark on_ready so the drain
+                # loop in drain_events_until can break out.
+                if not result.on_ready.ready:
+                    result.on_ready(result)
+                break
         while bucket:
             node = bucket.popleft()
             yield node.id, node._cache
