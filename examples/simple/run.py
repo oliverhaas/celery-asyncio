@@ -71,7 +71,12 @@ def main():
     # --- Retry task ---
     print("\n6) Flaky task (retries up to 3 times):")
     result = flaky_task.delay()
-    print(f"   result = {wait_for_result(result)}")
+    try:
+        print(f"   result = {wait_for_result(result)}")
+    except RuntimeError:
+        # With 50% fail rate and max_retries=3, there's a ~6% chance
+        # all 4 attempts fail — that's expected, retries still worked.
+        print("   exhausted all retries (expected sometimes with 50% fail rate)")
 
     print("\n" + "=" * 60)
     print("All tasks completed successfully!")

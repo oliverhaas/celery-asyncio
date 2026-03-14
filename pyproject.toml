@@ -71,6 +71,9 @@ pytest = ["pytest>=8.0.0"]
 # Django
 django = ["Django>=6.0"]
 
+# Monitoring
+flower = ["tornado>=5,<7", "prometheus-client>=0.8", "humanize", "pytz"]
+
 # Compression
 brotli = ["brotli>=1.0.0"]
 zstd = ["zstandard>=0.22.0"]
