@@ -1,10 +1,10 @@
 """Event receiver implementation."""
 
+import asyncio
 import time
 from operator import itemgetter
 
-from kombu import Queue
-from kombu.connection import maybe_channel
+from kombu import Connection, Queue
 from kombu.mixins import ConsumerMixin
 
 from celery import uuid
@@ -28,7 +28,7 @@ class EventReceiver(ConsumerMixin):
         connection (kombu.Connection): Connection to the broker.
         handlers (Mapping[Callable]): Event handlers.
             This is  a map of event type names and their handlers.
-            The special handler `"*"` captures all events that don't have a
+            The special handler ``"*"`` captures all events that don't have a
             handler.
     """
 
@@ -49,7 +49,13 @@ class EventReceiver(ConsumerMixin):
         queue_durable=None,
     ):
         self.app = app_or_default(app or self.app)
-        self.channel = maybe_channel(channel)
+        # In kombu-asyncio, channel is typically a Connection object.
+        # Store it directly so ConsumerMixin.create_connection() can clone it.
+        if isinstance(channel, Connection):
+            self._connection = channel
+        else:
+            self._connection = None
+        self.channel = channel
         self.handlers = {} if handlers is None else handlers
         self.routing_key = routing_key
         self.node_id = node_id or uuid()
@@ -92,9 +98,9 @@ class EventReceiver(ConsumerMixin):
     def get_consumers(self, Consumer, channel):
         return [Consumer(queues=[self.queue], callbacks=[self._receive], no_ack=True, accept=self.accept)]
 
-    def on_consume_ready(self, connection, channel, consumers, wakeup=True, **kwargs):
+    async def on_consume_ready(self, connection, channel, consumers, wakeup=True, **kwargs):
         if wakeup:
-            self.wakeup_workers(channel=channel)
+            await self.awakeup_workers(connection=connection, channel=channel)
 
     def itercapture(self, limit=None, timeout=None, wakeup=True):
         return self.consume(limit=limit, timeout=timeout, wakeup=wakeup)
@@ -102,15 +108,25 @@ class EventReceiver(ConsumerMixin):
     def capture(self, limit=None, timeout=None, wakeup=True):
         """Open up a consumer capturing events.
 
-        This has to run in the main process, and it will never stop
-        unless :attr:`EventDispatcher.should_stop` is set to True, or
-        forced via :exc:`KeyboardInterrupt` or :exc:`SystemExit`.
+        Bridges sync callers (like Flower) to the async ConsumerMixin.consume()
+        by running the async consume loop in its own event loop via asyncio.run().
+
+        This blocks until should_stop is set or an exception occurs.
         """
-        for _ in self.consume(limit=limit, timeout=timeout, wakeup=wakeup):
+        asyncio.run(self.acapture(limit=limit, timeout=timeout, wakeup=wakeup))
+
+    async def acapture(self, limit=None, timeout=None, wakeup=True):
+        """Async capture — consumes events using native asyncio."""
+        async for _ in self.consume(limit=limit, timeout=timeout, wakeup=wakeup):
             pass
 
     def wakeup_workers(self, channel=None):
         self.app.control.broadcast("heartbeat", connection=self.connection, channel=channel)
+
+    async def awakeup_workers(self, connection=None, channel=None):
+        """Async variant of wakeup_workers using abroadcast."""
+        conn = connection or self.connection
+        await self.app.control.abroadcast("heartbeat", connection=conn, channel=channel)
 
     def event_from_message(
         self,
@@ -153,4 +169,8 @@ class EventReceiver(ConsumerMixin):
 
     @property
     def connection(self):
-        return self.channel.connection.client if self.channel else None
+        if self._connection is not None:
+            return self._connection
+        if self.channel is not None:
+            return getattr(self.channel, "connection", self.channel)
+        return None

@@ -1,56 +1,102 @@
-# Django 6.0 Tasks + Celery Example
+# Django Tasks Example
 
-Demonstrates using **celery-asyncio** as the backend for Django 6.0's
-built-in `django.tasks` framework (DEP 14).
+Minimal Django 6.0 project using celery-asyncio as the task backend.
 
-Tasks are defined with Django's `@task` decorator — no Celery imports
-needed in application code.  Under the hood, `CeleryBackend` dispatches
-work via Celery's message-passing infrastructure.
+## What it demonstrates
 
-## Prerequisites
+- Django's `@task` decorator with celery-asyncio as the backend
+- Sync and async task execution
+- Delayed delivery via `run_after` (ETA)
+- Task priority (-100..100)
+- `takes_context=True` for task introspection
+- Result retrieval via `get_result()`
+- Event monitoring via Flower
 
-- Python 3.14+
-- Redis running on `localhost:6379`
-- `celery-asyncio` and `Django>=6.0` installed
-
-## Quick start
-
-All commands are run from **this directory** (`examples/django_tasks/`).
-
-### 1. Start a Celery worker
+## Setup
 
 ```bash
-celery -A proj worker -l info
+# 1. Start Redis
+docker compose up -d
+
+# 2. Install dependencies (from repo root)
+cd ../..
+uv venv && uv sync --group dev
+uv pip install Django flower
+cd examples/django_tasks
+
+# 3. Start the worker (with -E to enable events)
+uv run celery -A proj worker --loglevel=info -E
+
+# 4. In another terminal, send tasks
+uv run python run.py
+
+# 5. (Optional) Start Flower for event monitoring
+uv run celery -A proj flower
 ```
 
-### 2. Start the Django dev server (separate terminal)
+## Expected output
+
+```
+============================================================
+Django Tasks + celery-asyncio example
+============================================================
+
+1) Basic task: add(2, 3)
+   result = 5
+
+2) Async task: slow_add(10, 20) — async def with 1s sleep
+   result = 30
+
+3) Delayed task: add(10, 20) with run_after=+3s
+   result = 30
+
+4) ETA task: multiply(6, 7) with run_after=...
+   result = 42
+
+5) Priority tasks: three add() calls with different priorities
+   low  (priority=-50): 2
+   mid  (priority=0):   4
+   high (priority=50):  6
+
+6) High-priority task (priority=50 in @task decorator):
+   result = urgent: hello
+
+7) Task with context (takes_context=True):
+   result = {'attempt': 1, 'task_id': '...', 'data': 'world'}
+
+============================================================
+All tasks completed successfully!
+============================================================
+```
+
+## Web interface (optional)
+
+The project also includes Django views for browser-based testing:
 
 ```bash
-python manage.py runserver
+uv run python manage.py runserver
 ```
 
-### 3. Enqueue tasks
+Open http://localhost:8000/ to enqueue tasks and check results via the browser.
 
-Open http://localhost:8000/ and click any of the links, or use curl:
+## Flower dashboard
 
-```bash
-# Enqueue a simple add task
-curl 'http://localhost:8000/enqueue/add/?x=2&y=3'
-# → {"task_id": "abc-123", "status": "Ready"}
+Open http://localhost:5555 in your browser while running tasks. You should see:
 
-# Check the result
-curl 'http://localhost:8000/result/abc-123/'
-# → {"task_id": "abc-123", "status": "Successful", "return_value": 5}
-```
+- **Workers tab** — the worker and its status
+- **Tasks tab** — each task as it's sent, received, and completed
+- **Monitor tab** — live graphs of task throughput and latency
 
 ## What's in the box
 
 | File | Purpose |
 |------|---------|
-| `proj/settings.py` | `TASKS` config pointing to `CeleryBackend` |
+| `docker-compose.yml` | Redis container |
+| `proj/settings.py` | Django + Celery + `TASKS` config |
 | `proj/celery.py` | Celery app instance |
-| `proj/tasks.py` | Four example tasks (`@task` decorator) |
-| `proj/urls.py` | Views that enqueue tasks and retrieve results |
+| `proj/tasks.py` | Five example tasks (`@task` decorator) |
+| `proj/urls.py` | Web views for browser-based testing |
+| `run.py` | CLI script to send tasks and print results |
 
 ## Configuration
 
@@ -68,28 +114,11 @@ TASKS = {
 }
 ```
 
-`CELERY_RESULT_EXTENDED = True` is recommended so that `get_result()`
+`CELERY_RESULT_EXTENDED = True` is required so that `get_result()`
 can resolve the original task function from stored metadata.
 
-## Example tasks
+## Cleanup
 
-```python
-from django.tasks import task
-
-@task
-def add(x, y):
-    return x + y
-
-@task
-async def slow_add(x, y):
-    await asyncio.sleep(1)
-    return x + y
-
-@task(priority=50)
-def high_priority_task(message):
-    return f"urgent: {message}"
-
-@task(takes_context=True)
-def task_with_context(context, data):
-    return {"attempt": context.attempt, "data": data}
+```bash
+docker compose down
 ```

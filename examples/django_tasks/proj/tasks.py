@@ -16,6 +16,12 @@ def add(x, y):
 
 
 @task
+def multiply(x, y):
+    """Another simple task, used for the ETA demo."""
+    return x * y
+
+
+@task
 async def slow_add(x, y):
     """Async task that simulates I/O-bound work."""
     await asyncio.sleep(1)

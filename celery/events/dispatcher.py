@@ -1,5 +1,6 @@
 """Event dispatcher sends events."""
 
+import asyncio
 import os
 import threading
 import time
@@ -101,6 +102,13 @@ class EventDispatcher:
             self.enable()
         self.headers = {"hostname": self.hostname}
         self.pid = os.getpid()
+        # Capture the event loop if we're created from an async context
+        # (e.g. the Events bootstep). This allows _publish to schedule
+        # coroutines from threads via call_soon_threadsafe.
+        try:
+            self._event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._event_loop = None
 
     def __enter__(self):
         return self
@@ -147,8 +155,6 @@ class EventDispatcher:
             return self._publish(event, producer, routing_key=type.replace("-", "."), **kwargs)
 
     def _publish(self, event, producer, routing_key, retry=False, retry_policy=None, utcoffset=utcoffset):
-        import asyncio
-
         exchange = self.exchange
         try:
             coro = producer.publish(
@@ -162,17 +168,54 @@ class EventDispatcher:
                 headers=self.headers,
                 delivery_mode=self.delivery_mode,
             )
-            # producer.publish() is async in kombu-asyncio
+            # producer.publish() is async in kombu-asyncio.
+            # Always schedule on the main consumer loop (_event_loop)
+            # because the producer's connection/channel is tied to that loop.
             if asyncio.iscoroutine(coro):
+                if not self._event_loop or self._event_loop.is_closed():
+                    coro.close()
+                    return
                 try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(coro)
+                    running_loop = asyncio.get_running_loop()
                 except RuntimeError:
-                    pass
+                    running_loop = None
+                if running_loop is self._event_loop:
+                    # Already on the main consumer loop — schedule directly.
+                    task = running_loop.create_task(coro)
+                    task.add_done_callback(self._on_publish_done)
+                else:
+                    # On a different loop (LoopWorker) or in a thread.
+                    # Use thread-safe scheduling to the main consumer loop.
+                    fut = asyncio.run_coroutine_threadsafe(coro, self._event_loop)
+                    fut.add_done_callback(self._on_publish_done_future)
         except Exception as exc:  # pylint: disable=broad-except
             if not self.buffer_while_offline:
                 raise
             self._outbound_buffer.append((event, routing_key, exc))
+
+    @staticmethod
+    def _on_publish_done(task):
+        """Callback to suppress asyncio.Task event publish errors."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            import logging
+            logging.getLogger(__name__).debug(
+                "Event publish failed (non-fatal): %s", exc,
+            )
+
+    @staticmethod
+    def _on_publish_done_future(future):
+        """Callback to suppress concurrent.futures.Future event publish errors."""
+        if future.cancelled():
+            return
+        exc = future.exception()
+        if exc is not None:
+            import logging
+            logging.getLogger(__name__).debug(
+                "Event publish failed (non-fatal): %s", exc,
+            )
 
     def send(self, type, blind=False, utcoffset=utcoffset, retry=False, retry_policy=None, Event=Event, **fields):
         """Send event.

@@ -163,12 +163,33 @@ async def asynloop(
     obj.on_ready()
 
     pool = getattr(obj, "pool", None)
+    timer = obj.timer
 
     while blueprint.state == 1:  # RUN
         maybe_shutdown()
 
+        # Drain the timer: fire any scheduled entries whose ETA has passed
+        # (e.g. countdown/eta tasks, rate-limit buckets).
+        drain_timeout = 1.0
+        while True:
+            delay, entry = next(timer)
+            if entry is not None:
+                timer.apply_entry(entry)
+            else:
+                # delay = time until next scheduled entry (or max_interval)
+                drain_timeout = min(delay, 1.0)
+                break
+
         try:
-            await connection.drain_events(timeout=1.0)
+            # Block until at least one message arrives (or timeout).
+            await connection.drain_events(timeout=drain_timeout)
+            # Got one — now drain remaining available messages non-blocking
+            # to fill the concurrency pipeline.
+            while blueprint.state == 1:
+                try:
+                    await connection.drain_events(timeout=0)
+                except TimeoutError:
+                    break
         except TimeoutError:
             pass
         except OSError:
