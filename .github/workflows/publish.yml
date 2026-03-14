@@ -10,6 +10,9 @@ on:
         description: "Version to publish (e.g., 6.0.0a2)"
         required: true
 
+env:
+  UV_NO_SOURCES: "1"
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -26,8 +29,6 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --group dev
-        env:
-          UV_NO_SOURCES: "1"
 
       - name: Run ruff check
         run: uv run ruff check
@@ -59,8 +60,6 @@ jobs:
 
       - name: Build package
         run: uv build
-        env:
-          UV_NO_SOURCES: "1"
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

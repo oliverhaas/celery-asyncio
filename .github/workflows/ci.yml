@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
 
+env:
+  UV_NO_SOURCES: "1"
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -20,8 +23,6 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --group dev
-        env:
-          UV_NO_SOURCES: "1"
 
       - name: Run ruff check
         run: uv run ruff check
@@ -42,8 +43,6 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --group dev
-        env:
-          UV_NO_SOURCES: "1"
 
       - name: Run tests
         run: uv run pytest -p no:xdist

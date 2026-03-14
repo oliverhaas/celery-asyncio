@@ -13,6 +13,9 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  UV_NO_SOURCES: "1"
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -37,8 +40,6 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --group docs
-        env:
-          UV_NO_SOURCES: "1"
 
       - name: Deploy docs (version tag)
         if: startsWith(github.ref, 'refs/tags/v')
