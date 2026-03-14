@@ -1,163 +1,111 @@
 """Async I/O backend support utilities."""
 
-import builtins
-import threading
 import time
-from collections import deque
-from queue import Empty
-from time import sleep
-from weakref import WeakKeyDictionary
 
 from celery import states
 from celery.exceptions import TimeoutError
+from kombu.utils.encoding import bytes_to_str
 
 __all__ = (
     "AsyncBackendMixin",
     "BaseResultConsumer",
-    "Drainer",
-    "register_drainer",
 )
 
 
-drainers = {}
+class AsyncBackendMixin:
+    """Mixin for backends that enables the async API.
 
+    Replaces the old PUBSUB-based notification mechanism with simple
+    polling.  ``wait_for_pending()`` polls a single key with GET;
+    ``iter_native()`` polls multiple keys with MGET.
+    """
 
-def register_drainer(name):
-    """Decorator used to register a new result drainer type."""
+    @staticmethod
+    def _poll_interval(timeout):
+        """Calculate polling interval from timeout.
 
-    def _inner(cls):
-        drainers[name] = cls
-        return cls
+        Formula: timeout / 20, clamped to [0.1, 10.0].
+        For no-timeout waits, returns 0.5s as a sensible default.
+        """
+        if timeout is None:
+            return 0.5
+        return max(0.1, min(timeout / 20, 10.0))
 
-    return _inner
-
-
-@register_drainer("default")
-class Drainer:
-    """Result draining service."""
-
-    def __init__(self, result_consumer):
-        self.result_consumer = result_consumer
-
-    def start(self):
-        pass
-
-    def stop(self):
-        pass
-
-    def drain_events_until(self, p, timeout=None, interval=1, on_interval=None, wait=None):
-        wait = wait or self.result_consumer.drain_events
+    def wait_for_pending(
+        self,
+        result,
+        timeout=None,
+        interval=None,
+        callback=None,
+        propagate=True,
+        on_interval=None,
+        on_message=None,
+        **kwargs,
+    ):
+        """Wait for a single task result by polling."""
+        self._ensure_not_eager()
+        poll = self._poll_interval(timeout)
         time_start = time.monotonic()
 
-        while 1:
-            # Total time spent may exceed a single call to wait()
-            if timeout and time.monotonic() - time_start >= timeout:
-                raise builtins.TimeoutError()
-            try:
-                yield self.wait_for(p, wait, timeout=interval)
-            except builtins.TimeoutError:
-                pass
+        while True:
+            meta = self.get_task_meta(result.id)
+            if on_message:
+                on_message(meta)
+            if meta["status"] in states.READY_STATES:
+                result._maybe_set_cache(meta)
+                return result.maybe_throw(callback=callback, propagate=propagate)
             if on_interval:
                 on_interval()
-            if p.ready:  # got event on the wanted channel.
-                break
+            if timeout is not None and time.monotonic() - time_start >= timeout:
+                raise TimeoutError("The operation timed out.")
+            time.sleep(poll)
 
-    def wait_for(self, p, wait, timeout=None):
-        wait(timeout=timeout)
-
-    def _event(self):
-        return threading.Event()
-
-
-class AsyncBackendMixin:
-    """Mixin for backends that enables the async API."""
-
-    def _collect_into(self, result, bucket):
-        self.result_consumer.buckets[result] = bucket
-
-    def iter_native(self, result, no_ack=True, **kwargs):
+    def iter_native(self, result, timeout=None, interval=None, no_ack=True, on_message=None, on_interval=None, **kwargs):
+        """Iterate over task results using MGET polling."""
         self._ensure_not_eager()
-
         results = result.results
         if not results:
-            raise StopIteration()
+            return
 
-        # we tell the result consumer to put consumed results
-        # into these buckets.
-        bucket = deque()
-        for node in results:
-            if not hasattr(node, "_cache") or node._cache:
-                bucket.append(node)
+        poll = self._poll_interval(timeout)
+        time_start = time.monotonic()
+
+        # Yield already-cached results immediately
+        remaining = {}
+        for r in results:
+            if hasattr(r, "_cache") and r._cache:
+                yield r.id, r._cache
             else:
-                self._collect_into(node, bucket)
-                # Register with pending_results so on_state_change can
-                # find and route results to the bucket, and subscribe
-                # to pubsub for this task's result channel.
-                self.add_pending_result(node, weak=True)
+                remaining[r.id] = r
 
-        remaining = len(results)
-        for _ in self._wait_for_pending(result, no_ack=no_ack, **kwargs):
-            while bucket:
-                node = bucket.popleft()
-                remaining -= 1
-                if not hasattr(node, "_cache"):
-                    yield node.id, node.children
-                else:
-                    yield node.id, node._cache
-            if remaining <= 0:
-                # All results collected — mark on_ready so the drain
-                # loop in drain_events_until can break out.
-                if not result.on_ready.ready:
-                    result.on_ready(result)
-                break
-        while bucket:
-            node = bucket.popleft()
-            yield node.id, node._cache
+        # Poll for the rest with MGET
+        while remaining:
+            keys = list(remaining.keys())
+            mget_keys = [self.get_key_for_task(tid) for tid in keys]
+            values = self.mget(mget_keys)
+            r = self._mget_to_results(values, keys, states.READY_STATES)
+
+            for task_id, meta in r.items():
+                task_id_str = bytes_to_str(task_id)
+                if on_message:
+                    on_message(meta)
+                res = remaining.pop(task_id_str, None)
+                if res:
+                    res._maybe_set_cache(meta)
+                    yield task_id_str, meta
+
+            if on_interval:
+                on_interval()
+            if timeout is not None and time.monotonic() - time_start >= timeout:
+                raise TimeoutError("The operation timed out.")
+            if remaining:
+                time.sleep(poll)
 
     def add_pending_result(self, result, weak=False, start_drainer=True):
-        if start_drainer:
-            self.result_consumer.drainer.start()
-        try:
-            self._maybe_resolve_from_buffer(result)
-        except Empty:
-            self._add_pending_result(result.id, result, weak=weak)
         return result
-
-    def _maybe_resolve_from_buffer(self, result):
-        result._maybe_set_cache(self._pending_messages.take(result.id))
-
-    def _add_pending_result(self, task_id, result, weak=False):
-        concrete, weak_ = self._pending_results
-        if task_id not in weak_ and result.id not in concrete:
-            (weak_ if weak else concrete)[task_id] = result
-            self.result_consumer.consume_from(task_id)
-
-    def add_pending_results(self, results, weak=False):
-        self.result_consumer.drainer.start()
-        return [self.add_pending_result(result, weak=weak, start_drainer=False) for result in results]
 
     def remove_pending_result(self, result):
-        self._remove_pending_result(result.id)
-        self.on_result_fulfilled(result)
         return result
-
-    def _remove_pending_result(self, task_id):
-        for mapping in self._pending_results:
-            mapping.pop(task_id, None)
-
-    def on_result_fulfilled(self, result):
-        self.result_consumer.cancel_for(result.id)
-
-    def wait_for_pending(self, result, callback=None, propagate=True, **kwargs):
-        self._ensure_not_eager()
-        for _ in self._wait_for_pending(result, **kwargs):
-            pass
-        return result.maybe_throw(callback=callback, propagate=propagate)
-
-    def _wait_for_pending(self, result, timeout=None, on_interval=None, on_message=None, **kwargs):
-        return self.result_consumer._wait_for_pending(
-            result, timeout=timeout, on_interval=on_interval, on_message=on_message, **kwargs
-        )
 
     @property
     def is_async(self):
@@ -165,91 +113,25 @@ class AsyncBackendMixin:
 
 
 class BaseResultConsumer:
-    """Manager responsible for consuming result messages."""
+    """Minimal base for result consumers.
+
+    With polling-based result fetching, the consumer is a no-op stub.
+    Subclasses only need to exist to satisfy the backend's
+    ``ResultConsumer`` class attribute.
+    """
 
     def __init__(self, backend, app, accept, pending_results, pending_messages):
         self.backend = backend
         self.app = app
-        self.accept = accept
-        self._pending_results = pending_results
-        self._pending_messages = pending_messages
-        self.on_message = None
-        self.buckets = WeakKeyDictionary()
-        self.drainer = drainers["default"](self)
 
     def start(self, initial_task_id, **kwargs):
-        raise NotImplementedError()
+        pass
 
     def stop(self):
         pass
 
-    def drain_events(self, timeout=None):
-        raise NotImplementedError()
-
     def consume_from(self, task_id):
-        raise NotImplementedError()
+        pass
 
     def cancel_for(self, task_id):
-        raise NotImplementedError()
-
-    def _after_fork(self):
-        self.buckets.clear()
-        self.buckets = WeakKeyDictionary()
-        self.on_message = None
-        self.on_after_fork()
-
-    def on_after_fork(self):
         pass
-
-    def drain_events_until(self, p, timeout=None, on_interval=None):
-        return self.drainer.drain_events_until(p, timeout=timeout, on_interval=on_interval)
-
-    def _wait_for_pending(self, result, timeout=None, on_interval=None, on_message=None, **kwargs):
-        self.on_wait_for_pending(result, timeout=timeout, **kwargs)
-        prev_on_m, self.on_message = self.on_message, on_message
-        try:
-            for _ in self.drain_events_until(result.on_ready, timeout=timeout, on_interval=on_interval):
-                yield
-                sleep(0)
-        except builtins.TimeoutError:
-            raise TimeoutError("The operation timed out.")
-        finally:
-            self.on_message = prev_on_m
-
-    def on_wait_for_pending(self, result, timeout=None, **kwargs):
-        pass
-
-    def on_out_of_band_result(self, message):
-        self.on_state_change(message.payload, message)
-
-    def _get_pending_result(self, task_id):
-        for mapping in self._pending_results:
-            try:
-                return mapping[task_id]
-            except KeyError:
-                pass
-        raise KeyError(task_id)
-
-    def on_state_change(self, meta, message):
-        if self.on_message:
-            self.on_message(meta)
-        if meta["status"] in states.READY_STATES:
-            task_id = meta["task_id"]
-            try:
-                result = self._get_pending_result(task_id)
-            except KeyError:
-                # send to buffer in case we received this result
-                # before it was added to _pending_results.
-                self._pending_messages.put(task_id, meta)
-            else:
-                result._maybe_set_cache(meta)
-                buckets = self.buckets
-                try:
-                    # remove bucket for this result, since it's fulfilled
-                    bucket = buckets.pop(result)
-                except KeyError:
-                    pass
-                else:
-                    # send to waiter via bucket
-                    bucket.append(result)
-        sleep(0)

@@ -1,104 +1,188 @@
-import socket
-import threading
 import time
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
-from celery.backends.asynchronous import BaseResultConsumer
-from celery.backends.base import Backend
-from celery.utils import cached_property
-from celery.utils.promises import promise
+from celery.backends.asynchronous import AsyncBackendMixin, BaseResultConsumer
+from celery.exceptions import TimeoutError
 
 
-class test_Drainer:
-    """Tests for the default (threading-based) drainer."""
+class test_poll_interval:
+    """Tests for AsyncBackendMixin._poll_interval()."""
 
-    interval = 0.1  # Check every tenth of a second
-    MAX_TIMEOUT = 10  # Specify a max timeout so it doesn't run forever
+    def test_none_timeout_returns_default(self):
+        assert AsyncBackendMixin._poll_interval(None) == 0.5
 
-    @pytest.fixture(autouse=True)
-    def setup_drainer(self):
-        backend = Backend(self.app)
-        consumer = BaseResultConsumer(backend, self.app, backend.accept, pending_results={}, pending_messages={})
-        consumer.drain_events = Mock(side_effect=self.result_consumer_drain_events)
-        self.drainer = consumer.drainer
+    def test_short_timeout_clamps_to_minimum(self):
+        # timeout=1 → 1/20=0.05 → clamped to 0.1
+        assert AsyncBackendMixin._poll_interval(1) == 0.1
 
-    @cached_property
-    def sleep(self):
-        from time import sleep
+    def test_medium_timeout(self):
+        # timeout=10 → 10/20=0.5
+        assert AsyncBackendMixin._poll_interval(10) == 0.5
 
-        return sleep
+    def test_long_timeout(self):
+        # timeout=60 → 60/20=3.0
+        assert AsyncBackendMixin._poll_interval(60) == 3.0
 
-    def result_consumer_drain_events(self, timeout=None):
-        time.sleep(timeout)
+    def test_very_long_timeout_clamps_to_maximum(self):
+        # timeout=300 → 300/20=15 → clamped to 10.0
+        assert AsyncBackendMixin._poll_interval(300) == 10.0
 
-    def schedule_thread(self, thread):
-        t = threading.Thread(target=thread)
-        t.start()
-        return t
+    def test_zero_timeout_clamps_to_minimum(self):
+        # timeout=0 → 0/20=0 → clamped to 0.1
+        assert AsyncBackendMixin._poll_interval(0) == 0.1
 
-    def teardown_thread(self, thread):
-        thread.join()
 
-    def test_drain_checks_on_interval(self):
-        p = promise()
+class test_BaseResultConsumer:
+    """Tests for the minimal BaseResultConsumer stub."""
 
-        def fulfill_promise_thread():
-            self.sleep(self.interval * 2)
-            p("done")
+    def test_init_stores_backend_and_app(self):
+        backend = Mock()
+        app = Mock()
+        consumer = BaseResultConsumer(backend, app, accept=None, pending_results={}, pending_messages={})
+        assert consumer.backend is backend
+        assert consumer.app is app
 
-        fulfill_thread = self.schedule_thread(fulfill_promise_thread)
+    def test_methods_are_noop(self):
+        consumer = BaseResultConsumer(Mock(), Mock(), None, {}, {})
+        # These should all be no-ops (not raise)
+        consumer.start("some-task-id")
+        consumer.stop()
+        consumer.consume_from("some-task-id")
+        consumer.cancel_for("some-task-id")
 
-        on_interval = Mock()
-        for _ in self.drainer.drain_events_until(
-            p, on_interval=on_interval, interval=self.interval, timeout=self.MAX_TIMEOUT
+
+class test_AsyncBackendMixin:
+    """Tests for AsyncBackendMixin.wait_for_pending() and iter_native()."""
+
+    @pytest.fixture
+    def backend(self):
+        """Create a mock backend with AsyncBackendMixin methods."""
+        backend = Mock(spec=["get_task_meta", "_ensure_not_eager",
+                             "get_key_for_task", "mget", "_mget_to_results"])
+        # Bind mixin methods to the mock
+        backend._poll_interval = AsyncBackendMixin._poll_interval
+        backend.wait_for_pending = AsyncBackendMixin.wait_for_pending.__get__(backend)
+        backend.iter_native = AsyncBackendMixin.iter_native.__get__(backend)
+        backend.add_pending_result = AsyncBackendMixin.add_pending_result.__get__(backend)
+        backend.remove_pending_result = AsyncBackendMixin.remove_pending_result.__get__(backend)
+        return backend
+
+    def test_wait_for_pending_immediate_result(self, backend):
+        result = Mock()
+        result.id = "task-1"
+        backend.get_task_meta.return_value = {"status": "SUCCESS", "result": 42}
+        result.maybe_throw.return_value = 42
+
+        with patch("celery.backends.asynchronous.time.sleep") as mock_sleep:
+            ret = backend.wait_for_pending(result, timeout=10)
+
+        assert ret == 42
+        result._maybe_set_cache.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    def test_wait_for_pending_polls_until_ready(self, backend):
+        result = Mock()
+        result.id = "task-1"
+        backend.get_task_meta.side_effect = [
+            {"status": "PENDING", "result": None},
+            {"status": "PENDING", "result": None},
+            {"status": "SUCCESS", "result": 42},
+        ]
+        result.maybe_throw.return_value = 42
+
+        with patch("celery.backends.asynchronous.time.sleep"):
+            ret = backend.wait_for_pending(result, timeout=10)
+
+        assert ret == 42
+        assert backend.get_task_meta.call_count == 3
+
+    def test_wait_for_pending_timeout(self, backend):
+        result = Mock()
+        result.id = "task-1"
+        backend.get_task_meta.return_value = {"status": "PENDING", "result": None}
+
+        # Make time.monotonic advance past the timeout
+        times = iter([0.0, 0.0, 0.5, 0.5, 1.1])
+        with (
+            patch("celery.backends.asynchronous.time.sleep"),
+            patch("celery.backends.asynchronous.time.monotonic", side_effect=times),
         ):
-            pass
+            with pytest.raises(TimeoutError):
+                backend.wait_for_pending(result, timeout=1.0)
 
-        self.teardown_thread(fulfill_thread)
+    def test_wait_for_pending_on_message_callback(self, backend):
+        result = Mock()
+        result.id = "task-1"
+        meta = {"status": "SUCCESS", "result": 42}
+        backend.get_task_meta.return_value = meta
+        on_message = Mock()
 
-        assert p.ready, "Should have terminated with promise being ready"
-        assert on_interval.call_count < 20, "Should have limited number of calls to on_interval"
+        with patch("celery.backends.asynchronous.time.sleep"):
+            backend.wait_for_pending(result, timeout=10, on_message=on_message)
 
-    def test_drain_does_not_block_event_loop(self):
-        p = promise()
-        liveness_mock = Mock()
+        on_message.assert_called_once_with(meta)
 
-        def fulfill_promise_thread():
-            self.sleep(self.interval * 2)
-            p("done")
-
-        def liveness_thread():
-            while 1:
-                if p.ready:
-                    return
-                self.sleep(self.interval / 10)
-                liveness_mock()
-
-        fulfill_thread = self.schedule_thread(fulfill_promise_thread)
-        liveness_t = self.schedule_thread(liveness_thread)
-
-        on_interval = Mock()
-        for _ in self.drainer.drain_events_until(
-            p, on_interval=on_interval, interval=self.interval, timeout=self.MAX_TIMEOUT
-        ):
-            pass
-
-        self.teardown_thread(fulfill_thread)
-        self.teardown_thread(liveness_t)
-
-        assert p.ready, "Should have terminated with promise being ready"
-
-    def test_drain_timeout(self):
-        p = promise()
+    def test_wait_for_pending_on_interval_callback(self, backend):
+        result = Mock()
+        result.id = "task-1"
+        backend.get_task_meta.side_effect = [
+            {"status": "PENDING", "result": None},
+            {"status": "SUCCESS", "result": 42},
+        ]
         on_interval = Mock()
 
-        with pytest.raises(socket.timeout):
-            for _ in self.drainer.drain_events_until(
-                p, on_interval=on_interval, interval=self.interval, timeout=self.interval * 5
-            ):
-                pass
+        with patch("celery.backends.asynchronous.time.sleep"):
+            backend.wait_for_pending(result, timeout=10, on_interval=on_interval)
 
-        assert not p.ready, "Promise should remain un-fulfilled"
-        assert on_interval.call_count < 20, "Should have limited number of calls to on_interval"
+        on_interval.assert_called_once()
+
+    def test_iter_native_empty_results(self, backend):
+        result = Mock()
+        result.results = []
+        items = list(backend.iter_native(result, timeout=10))
+        assert items == []
+
+    def test_iter_native_cached_results(self, backend):
+        r1 = Mock()
+        r1.id = "task-1"
+        r1._cache = {"status": "SUCCESS", "result": 1}
+        r2 = Mock()
+        r2.id = "task-2"
+        r2._cache = {"status": "SUCCESS", "result": 2}
+        result = Mock()
+        result.results = [r1, r2]
+
+        items = list(backend.iter_native(result, timeout=10))
+        assert len(items) == 2
+        assert ("task-1", r1._cache) in items
+        assert ("task-2", r2._cache) in items
+        # MGET should not have been called since everything was cached
+        backend.mget.assert_not_called()
+
+    def test_iter_native_polls_for_results(self, backend):
+        r1 = Mock()
+        r1.id = "task-1"
+        r1._cache = None
+        del r1._cache  # Make hasattr return False
+        result = Mock()
+        result.results = [r1]
+
+        meta = {"status": "SUCCESS", "result": 42}
+        backend.get_key_for_task.return_value = "celery-task-meta-task-1"
+        backend._mget_to_results.return_value = {"task-1": meta}
+
+        with patch("celery.backends.asynchronous.time.sleep"):
+            items = list(backend.iter_native(result, timeout=10))
+
+        assert items == [("task-1", meta)]
+        r1._maybe_set_cache.assert_called_once_with(meta)
+
+    def test_add_pending_result_returns_result(self, backend):
+        result = Mock()
+        assert backend.add_pending_result(result) is result
+
+    def test_remove_pending_result_returns_result(self, backend):
+        result = Mock()
+        assert backend.remove_pending_result(result) is result

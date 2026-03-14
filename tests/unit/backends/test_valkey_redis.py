@@ -1,5 +1,4 @@
 import itertools
-import json
 import random
 import ssl
 from contextlib import contextmanager
@@ -67,27 +66,9 @@ class Pipeline:
         return [step(*a, **kw) for step, a, kw in self.steps]
 
 
-class PubSub(conftest.MockCallbacks):
-    def __init__(self, ignore_subscribe_messages=False):
-        self._subscribed_to = set()
-
-    def close(self):
-        self._subscribed_to = set()
-
-    def subscribe(self, *args):
-        self._subscribed_to.update(args)
-
-    def unsubscribe(self, *args):
-        self._subscribed_to.difference_update(args)
-
-    def get_message(self, timeout=None):
-        pass
-
-
 class Redis(conftest.MockCallbacks):
     Connection = Connection
     Pipeline = Pipeline
-    pubsub = PubSub
 
     def __init__(self, host=None, port=None, db=None, password=None, **kw):
         self.host = host
@@ -190,6 +171,8 @@ class sentinel:
 
 
 class test_RedisResultConsumer:
+    """Tests for the minimal ResultConsumer stub."""
+
     def get_backend(self):
         from celery.backends.valkey_redis import RedisBackend
 
@@ -198,123 +181,14 @@ class test_RedisResultConsumer:
 
         return _RedisBackend(app=self.app)
 
-    def get_consumer(self):
+    def test_consumer_methods_are_noop(self):
         consumer = self.get_backend().result_consumer
-        consumer._connection_errors = (ConnectionError,)
-        return consumer
-
-    @patch("celery.backends.asynchronous.BaseResultConsumer.on_after_fork")
-    def test_on_after_fork(self, parent_method):
-        consumer = self.get_consumer()
-        consumer.start("none")
-        consumer.on_after_fork()
-        parent_method.assert_called_once()
-        consumer.backend.client.connection_pool.reset.assert_called_once()
-        consumer._pubsub.close.assert_called_once()
-        # PubSub instance not initialized - exception would be raised
-        # when calling .close()
-        consumer._pubsub = None
-        parent_method.reset_mock()
-        consumer.backend.client.connection_pool.reset.reset_mock()
-        consumer.on_after_fork()
-        parent_method.assert_called_once()
-        consumer.backend.client.connection_pool.reset.assert_called_once()
-
-        # Continues on KeyError
-        consumer._pubsub = Mock()
-        consumer._pubsub.close = Mock(side_effect=KeyError)
-        parent_method.reset_mock()
-        consumer.backend.client.connection_pool.reset.reset_mock()
-        consumer.on_after_fork()
-        parent_method.assert_called_once()
-
-    @patch("celery.backends.valkey_redis.ResultConsumer.cancel_for")
-    @patch("celery.backends.asynchronous.BaseResultConsumer.on_state_change")
-    def test_on_state_change(self, parent_method, cancel_for):
-        consumer = self.get_consumer()
-        meta = {"task_id": "testing", "status": states.SUCCESS}
-        message = "hello"
-        consumer.on_state_change(meta, message)
-        parent_method.assert_called_once_with(meta, message)
-        cancel_for.assert_called_once_with(meta["task_id"])
-
-        # Does not call cancel_for for other states
-        meta = {"task_id": "testing2", "status": states.PENDING}
-        parent_method.reset_mock()
-        cancel_for.reset_mock()
-        consumer.on_state_change(meta, message)
-        parent_method.assert_called_once_with(meta, message)
-        cancel_for.assert_not_called()
-
-    def test_drain_events_before_start(self):
-        consumer = self.get_consumer()
-        # drain_events shouldn't crash when called before start
-        consumer.drain_events(0.001)
-
-    def test_consume_from_connection_error(self):
-        consumer = self.get_consumer()
-        consumer.start("initial")
-        consumer._pubsub.subscribe.side_effect = (ConnectionError(), None)
-        consumer.consume_from("some-task")
-        assert consumer._pubsub._subscribed_to == {b"celery-task-meta-initial", b"celery-task-meta-some-task"}
-
-    def test_cancel_for_connection_error(self):
-        consumer = self.get_consumer()
-        consumer.start("initial")
-        consumer._pubsub.unsubscribe.side_effect = ConnectionError()
-        consumer.consume_from("some-task")
-        consumer.cancel_for("some-task")
-        assert consumer._pubsub._subscribed_to == {b"celery-task-meta-initial"}
-
-    @patch("celery.backends.valkey_redis.ResultConsumer.cancel_for")
-    @patch("celery.backends.asynchronous.BaseResultConsumer.on_state_change")
-    def test_drain_events_connection_error(self, parent_on_state_change, cancel_for):
-        meta = {"task_id": "initial", "status": states.SUCCESS}
-        consumer = self.get_consumer()
-        consumer.start("initial")
-        consumer.backend._set_with_state(b"celery-task-meta-initial", json.dumps(meta), states.SUCCESS)
-        consumer._pubsub.get_message.side_effect = ConnectionError()
-        consumer.drain_events()
-        parent_on_state_change.assert_called_with(meta, None)
-        assert consumer._pubsub._subscribed_to == {b"celery-task-meta-initial"}
-
-    def test_drain_events_connection_error_no_patch(self):
-        meta = {"task_id": "initial", "status": states.SUCCESS}
-        consumer = self.get_consumer()
-        consumer.start("initial")
-        consumer.backend._set_with_state(b"celery-task-meta-initial", json.dumps(meta), states.SUCCESS)
-        consumer._pubsub.get_message.side_effect = ConnectionError()
-        consumer.drain_events()
-        consumer._pubsub.subscribe.assert_not_called()
-
-    def test__reconnect_pubsub_no_subscribed(self):
-        consumer = self.get_consumer()
-        consumer.start("initial")
-        consumer.subscribed_to = set()
-        consumer._reconnect_pubsub()
-        consumer.backend.client.mget.assert_not_called()
-        consumer._pubsub.subscribe.assert_not_called()
-        consumer._pubsub.connection.register_connect_callback.assert_called_once()
-
-    def test__reconnect_pubsub_with_state_change(self):
-        meta = {"task_id": "initial", "status": states.SUCCESS}
-        consumer = self.get_consumer()
-        consumer.start("initial")
-        consumer.backend._set_with_state(b"celery-task-meta-initial", json.dumps(meta), states.SUCCESS)
-        consumer._reconnect_pubsub()
-        consumer.backend.client.mget.assert_called_once()
-        consumer._pubsub.subscribe.assert_not_called()
-        consumer._pubsub.connection.register_connect_callback.assert_called_once()
-
-    def test__reconnect_pubsub_without_state_change(self):
-        meta = {"task_id": "initial", "status": states.STARTED}
-        consumer = self.get_consumer()
-        consumer.start("initial")
-        consumer.backend._set_with_state(b"celery-task-meta-initial", json.dumps(meta), states.SUCCESS)
-        consumer._reconnect_pubsub()
-        consumer.backend.client.mget.assert_called_once()
-        consumer._pubsub.subscribe.assert_called_once()
-        consumer._pubsub.connection.register_connect_callback.assert_not_called()
+        # All methods should be no-ops (not raise)
+        consumer.start("some-task-id")
+        consumer.stop()
+        consumer.drain_events(timeout=0.001)
+        consumer.consume_from("some-task-id")
+        consumer.cancel_for("some-task-id")
 
 
 class basetest_RedisBackend:

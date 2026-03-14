@@ -7,8 +7,6 @@ the preferred library (with automatic fallback if only one is installed):
 """
 
 import asyncio
-import time
-from contextlib import contextmanager
 from functools import partial
 from ssl import CERT_NONE, CERT_OPTIONAL, CERT_REQUIRED
 from urllib.parse import unquote
@@ -58,7 +56,6 @@ from kombu.utils.objects import cached_property
 from kombu.utils.url import _parse_url, maybe_sanitize_url
 
 from celery import states
-from celery._state import task_join_will_block
 from celery.backends.base import _create_chord_error_with_cause
 from celery.canvas import maybe_signature
 from celery.exceptions import BackendStoreError, ChordError, ImproperlyConfigured
@@ -109,117 +106,30 @@ must be set to CERT_REQUIRED, CERT_OPTIONAL, or CERT_NONE
 
 E_LOST = "Connection to Valkey/Redis lost: Retry (%s/%s) %s."
 
-E_RETRY_LIMIT_EXCEEDED = """
-Retry limit exceeded while trying to reconnect to the Celery Valkey/Redis \
-result store backend. The Celery application must be restarted.
-"""
-
 logger = get_logger(__name__)
 
 
 class ResultConsumer(BaseResultConsumer):
-    _pubsub = None
+    """Minimal result consumer stub.
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._get_key_for_task = self.backend.get_key_for_task
-        self._decode_result = self.backend.decode_result
-        self._ensure = self.backend.ensure
-        self._connection_errors = self.backend.connection_errors
-        self.subscribed_to = set()
-
-    def on_after_fork(self):
-        try:
-            self.backend.client.connection_pool.reset()
-            if self._pubsub is not None:
-                self._pubsub.close()
-        except KeyError as e:
-            logger.warning(str(e))
-        super().on_after_fork()
-
-    def _reconnect_pubsub(self):
-        self._pubsub = None
-        self.backend.client.connection_pool.reset()
-        # task state might have changed when the connection was down so we
-        # retrieve meta for all subscribed tasks before going into pubsub mode
-        if self.subscribed_to:
-            metas = self.backend.client.mget(self.subscribed_to)
-            metas = [meta for meta in metas if meta]
-            for meta in metas:
-                self.on_state_change(self._decode_result(meta), None)
-        self._pubsub = self.backend.client.pubsub(
-            ignore_subscribe_messages=True,
-        )
-        # subscribed_to maybe empty after on_state_change
-        if self.subscribed_to:
-            self._pubsub.subscribe(*self.subscribed_to)
-        else:
-            self._pubsub.connection = self._pubsub.connection_pool.get_connection("pubsub", self._pubsub.shard_hint)
-            # even if there is nothing to subscribe, we should not lose the callback after connecting.
-            # The on_connect callback will re-subscribe to any channels we previously subscribed to.
-            self._pubsub.connection.register_connect_callback(self._pubsub.on_connect)
-
-    @contextmanager
-    def reconnect_on_error(self):
-        try:
-            yield
-        except self._connection_errors:
-            try:
-                self._ensure(self._reconnect_pubsub, ())
-            except self._connection_errors as e:
-                logger.critical(E_RETRY_LIMIT_EXCEEDED)
-                raise RuntimeError(E_RETRY_LIMIT_EXCEEDED) from e
-
-    def _maybe_cancel_ready_task(self, meta):
-        if meta["status"] in states.READY_STATES:
-            self.cancel_for(meta["task_id"])
-
-    def on_state_change(self, meta, message):
-        super().on_state_change(meta, message)
-        self._maybe_cancel_ready_task(meta)
+    Polling is done directly in AsyncBackendMixin.wait_for_pending()
+    and iter_native() — no PUBSUB subscriptions needed.
+    """
 
     def start(self, initial_task_id, **kwargs):
-        self._pubsub = self.backend.client.pubsub(
-            ignore_subscribe_messages=True,
-        )
-        self._consume_from(initial_task_id)
-
-    def on_wait_for_pending(self, result, **kwargs):
-        for meta in result._iter_meta(**kwargs):
-            if meta is not None:
-                self.on_state_change(meta, None)
+        pass
 
     def stop(self):
-        if self._pubsub is not None:
-            self._pubsub.close()
+        pass
 
     def drain_events(self, timeout=None):
-        if self._pubsub:
-            with self.reconnect_on_error():
-                message = self._pubsub.get_message(timeout=timeout)
-                if message and message["type"] == "message":
-                    self.on_state_change(self._decode_result(message["data"]), message)
-        elif timeout:
-            time.sleep(timeout)
+        pass
 
     def consume_from(self, task_id):
-        if self._pubsub is None:
-            return self.start(task_id)
-        self._consume_from(task_id)
-
-    def _consume_from(self, task_id):
-        key = self._get_key_for_task(task_id)
-        if key not in self.subscribed_to:
-            self.subscribed_to.add(key)
-            with self.reconnect_on_error():
-                self._pubsub.subscribe(key)
+        pass
 
     def cancel_for(self, task_id):
-        key = self._get_key_for_task(task_id)
-        self.subscribed_to.discard(key)
-        if self._pubsub:
-            with self.reconnect_on_error():
-                self._pubsub.unsubscribe(key)
+        pass
 
 
 class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
@@ -478,8 +388,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         return retry_policy
 
     def on_task_call(self, producer, task_id):
-        if not task_join_will_block():
-            self.result_consumer.consume_from(task_id)
+        pass  # Polling-based — no early subscription needed
 
     def get(self, key):
         return self.client.get(key)
@@ -506,17 +415,13 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         return self.ensure(self._set, (key, value), **retry_policy)
 
     def _set(self, key, value):
-        with self.client.pipeline() as pipe:
-            if self.expires:
-                pipe.setex(key, self.expires, value)
-            else:
-                pipe.set(key, value)
-            pipe.publish(key, value)
-            pipe.execute()
+        if self.expires:
+            self.client.setex(key, self.expires, value)
+        else:
+            self.client.set(key, value)
 
     def forget(self, task_id):
         super().forget(task_id)
-        self.result_consumer.cancel_for(task_id)
 
     def delete(self, key):
         self.client.delete(key)
@@ -708,14 +613,11 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         await self._aset(key, value)
 
     async def _aset(self, key, value):
-        """Async version of _set - set value and publish."""
-        async with self.async_client.pipeline() as pipe:
-            if self.expires:
-                pipe.setex(key, self.expires, value)
-            else:
-                pipe.set(key, value)
-            pipe.publish(key, value)
-            await pipe.execute()
+        """Async version of _set."""
+        if self.expires:
+            await self.async_client.setex(key, self.expires, value)
+        else:
+            await self.async_client.set(key, value)
 
     async def adelete(self, key):
         """Async version of delete."""
@@ -796,7 +698,6 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         self._cache.pop(task_id, None)
         key = self.get_key_for_task(task_id)
         await self.adelete(key)
-        self.result_consumer.cancel_for(task_id)
 
     async def asave_group(self, group_id, result):
         """Async version of save_group."""

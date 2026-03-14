@@ -676,26 +676,25 @@ class test_task_redis_result_backend:
         new_channels = [channel for channel in get_active_redis_channels() if channel not in channels_before_test]
         assert new_channels == []
 
-    @pytest.mark.skip(reason="async backend does not clean up PUBSUB subscriptions synchronously")
     @flaky
-    def test_asyncresult_forget_cancels_subscription(self, manager):
+    def test_asyncresult_forget_no_pubsub(self, manager):
+        """With polling-based results, forget() should not create PUBSUB channels."""
         channels_before_test = get_active_redis_channels()
 
         result = add.delay(1, 2)
-        assert set(get_active_redis_channels()) == {f"celery-task-meta-{result.id}".encode(), *channels_before_test}
+        result.get(timeout=TIMEOUT)
         result.forget()
 
         new_channels = [channel for channel in get_active_redis_channels() if channel not in channels_before_test]
         assert new_channels == []
 
-    @pytest.mark.skip(reason="async backend does not clean up PUBSUB subscriptions synchronously")
     @flaky
-    def test_asyncresult_get_cancels_subscription(self, manager):
+    def test_asyncresult_get_no_pubsub(self, manager):
+        """With polling-based results, get() should not create PUBSUB channels."""
         channels_before_test = get_active_redis_channels()
 
         result = add.delay(1, 2)
-        assert set(get_active_redis_channels()) == {f"celery-task-meta-{result.id}".encode(), *channels_before_test}
-        assert result.get(timeout=3) == 3
+        assert result.get(timeout=TIMEOUT) == 3
 
         new_channels = [channel for channel in get_active_redis_channels() if channel not in channels_before_test]
         assert new_channels == []
