@@ -15,7 +15,7 @@ Minimal Django 6.0 project using celery-asyncio as the task backend.
 ## Setup
 
 ```bash
-# 1. Start Redis
+# 1. Start Valkey/Redis
 docker compose up -d
 
 # 2. Install dependencies (from repo root)
@@ -91,7 +91,7 @@ Open http://localhost:5555 in your browser while running tasks. You should see:
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.yml` | Redis container |
+| `docker-compose.yml` | Valkey/Redis container |
 | `proj/settings.py` | Django + Celery + `TASKS` config |
 | `proj/celery.py` | Celery app instance |
 | `proj/tasks.py` | Five example tasks (`@task` decorator) |

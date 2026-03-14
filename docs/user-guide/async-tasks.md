@@ -94,9 +94,9 @@ async_task.apply_async(args=(42,), eta=eta)
 
 ## Priority
 
-Task priority is supported on both Redis and AMQP transports:
+Task priority is supported on both Valkey/Redis and AMQP transports:
 
 ```python
-# Higher number = executed sooner (0-255 for Redis, 0-9 for AMQP)
+# Higher number = executed sooner (0-255 for Valkey/Redis, 0-9 for AMQP)
 async_task.apply_async(args=(42,), priority=255)
 ```

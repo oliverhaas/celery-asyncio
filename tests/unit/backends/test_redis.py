@@ -387,9 +387,10 @@ class test_RedisBackend(basetest_RedisBackend):
         assert loads(dumps(x))
 
     def test_no_redis(self):
-        self.Backend.redis = None
-        with pytest.raises(ImproperlyConfigured):
-            self.Backend(app=self.app)
+        with patch("celery.backends.redis.resolve_lib", side_effect=ImportError):
+            self.Backend.redis = None
+            with pytest.raises(ImproperlyConfigured):
+                self.Backend(app=self.app)
 
     def test_username_password_from_redis_conf(self):
         self.app.conf.redis_password = "password"
@@ -1434,9 +1435,10 @@ class test_SentinelBackend:
         assert loads(dumps(x))
 
     def test_no_redis(self):
-        self.Backend.redis = None
-        with pytest.raises(ImproperlyConfigured):
-            self.Backend(app=self.app)
+        with patch("celery.backends.redis.resolve_lib", side_effect=ImportError):
+            self.Backend.redis = None
+            with pytest.raises(ImproperlyConfigured):
+                self.Backend(app=self.app)
 
     def test_url(self):
         self.app.conf.redis_socket_timeout = 30.0

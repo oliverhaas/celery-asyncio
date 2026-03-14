@@ -17,6 +17,7 @@ keywords = [
   "rabbitmq",
   "redis",
   "task",
+  "valkey",
 ]
 authors = [{ name = "Oliver Haas", email = "ohaas@e1plus.de" }]
 classifiers = [
@@ -60,6 +61,7 @@ msgpack = ["msgpack"]
 yaml = ["PyYAML>=3.10"]
 
 # Transports and Backends
+valkey = ["kombu-asyncio[valkey]"]
 redis = ["kombu-asyncio[redis]"]
 
 # Testing
@@ -83,7 +85,9 @@ dev = [
   "pytest-mock==3.15.1",
   "pytest-timeout==2.4.0",
   "pytest-xdist==3.8.0",
+  "redis==7.1.0",
   "ruff==0.15.4",
+  "valkey==6.1.1",
   "ty==0.0.19",
 ]
 docs = ["mkdocs==1.6.1", "mkdocs-material==9.7.3", "mike==2.1.3"]

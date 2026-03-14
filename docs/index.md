@@ -9,7 +9,7 @@ This project is **exploratory**. It is not affiliated with or endorsed by the Ce
 - **Native asyncio worker** with hybrid thread pool for mixed async/sync workloads
 - **`async def` tasks** run directly on the event loop, no thread overhead
 - **Sync tasks** run in a thread pool alongside async tasks in the same worker
-- **Redis and AMQP transports** via [kombu-asyncio](https://github.com/oliverhaas/kombu-asyncio)
+- **Valkey/Redis and AMQP transports** via [kombu-asyncio](https://github.com/oliverhaas/kombu-asyncio)
 - **Full CLI compatibility** with upstream Celery (`celery -A app worker`, `celery inspect`, etc.)
 - **Celery Flower** works out of the box for monitoring
 - **Django 6.0 Tasks** integration via `CeleryBackend`
@@ -41,7 +41,7 @@ Both `add` (async) and `multiply` (sync) run in the same worker. Async tasks run
 
 - Python 3.14+
 - kombu-asyncio 6.0+
-- Redis 7+ or RabbitMQ 4+
+- Valkey 8+ or Redis 7+ or RabbitMQ 4+
 
 ## License
 

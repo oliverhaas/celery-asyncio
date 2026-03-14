@@ -1,6 +1,6 @@
 # RabbitMQ Example
 
-Celery app using RabbitMQ (AMQP) as broker with Redis as result backend.
+Celery app using RabbitMQ (AMQP) as broker with Valkey/Redis as result backend.
 
 ## What it demonstrates
 
@@ -16,7 +16,7 @@ Celery app using RabbitMQ (AMQP) as broker with Redis as result backend.
 ## Setup
 
 ```bash
-# 1. Start RabbitMQ + Redis
+# 1. Start RabbitMQ + Valkey/Redis
 docker compose up -d
 
 # 2. Install dependencies (from repo root)

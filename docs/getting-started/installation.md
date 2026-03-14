@@ -3,7 +3,7 @@
 ## Requirements
 
 - Python 3.14+
-- Redis 7+ or RabbitMQ 4+
+- Valkey 8+ or Redis 7+ or RabbitMQ 4+
 
 ## Install with uv
 
@@ -20,8 +20,9 @@ pip install celery-asyncio
 ## Transport extras
 
 ```console
-# Redis transport (recommended)
-uv add celery-asyncio[redis]
+# Valkey/Redis transport (recommended)
+uv add celery-asyncio[valkey]
+# or: uv add celery-asyncio[redis]
 
 # AMQP transport (RabbitMQ)
 uv add celery-asyncio[amqp]

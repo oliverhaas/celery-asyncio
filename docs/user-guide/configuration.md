@@ -4,8 +4,8 @@
 
 ```python
 app.config_from_object({
-    # Redis
-    "broker_url": "redis://localhost:6379/0",
+    # Valkey/Redis
+    "broker_url": "redis://localhost:6379/0",  # or valkey://
 
     # RabbitMQ (AMQP)
     # "broker_url": "amqp://guest:guest@localhost:5672//",

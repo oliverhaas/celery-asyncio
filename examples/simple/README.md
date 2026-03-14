@@ -14,7 +14,7 @@ Minimal Celery app using celery-asyncio.
 ## Setup
 
 ```bash
-# 1. Start Redis
+# 1. Start Valkey/Redis
 docker compose up -d
 
 # 2. Install dependencies (from repo root)

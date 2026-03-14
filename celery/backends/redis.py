@@ -1,4 +1,10 @@
-"""Redis result store backend."""
+"""Valkey/Redis result store backend.
+
+Supports both valkey-py and redis-py client libraries. The URL scheme selects
+the preferred library (with automatic fallback if only one is installed):
+- ``valkey://`` / ``valkeys://`` → prefer valkey-py, fallback redis-py
+- ``redis://`` / ``rediss://`` → prefer redis-py, fallback valkey-py
+"""
 
 import asyncio
 import time
@@ -7,16 +13,49 @@ from functools import partial
 from ssl import CERT_NONE, CERT_OPTIONAL, CERT_REQUIRED
 from urllib.parse import unquote
 
+from kombu.transport._redis_compat import (
+    get_all_channel_errors,
+    get_all_connection_errors,
+    normalize_url,
+    resolve_async_lib,
+    resolve_lib,
+)
 from kombu.utils import symbol_by_name
-from kombu.utils.encoding import bytes_to_str
-from kombu.utils.functional import retry_over_time
-from kombu.utils.objects import cached_property
-from kombu.utils.url import _parse_url, maybe_sanitize_url
 
 try:
     from redis import CredentialProvider
 except ImportError:
-    CredentialProvider = None
+    try:
+        from valkey import CredentialProvider
+    except ImportError:
+        CredentialProvider = None
+
+_SSL_CONNECTION_CLASSES: list[type] = []
+_URL_QUERY_ARGUMENT_PARSERS: dict = {}
+
+try:
+    from redis.connection import SSLConnection as _RedisSSLConnection
+    from redis.connection import URL_QUERY_ARGUMENT_PARSERS as _URL_QUERY_ARGUMENT_PARSERS
+
+    _SSL_CONNECTION_CLASSES.append(_RedisSSLConnection)
+except ImportError:
+    pass
+
+try:
+    from valkey.connection import SSLConnection as _ValkeySSLConnection
+    from valkey.connection import URL_QUERY_ARGUMENT_PARSERS as _vk_URL_QUERY_ARGUMENT_PARSERS
+
+    _SSL_CONNECTION_CLASSES.append(_ValkeySSLConnection)
+    if not _URL_QUERY_ARGUMENT_PARSERS:
+        _URL_QUERY_ARGUMENT_PARSERS = _vk_URL_QUERY_ARGUMENT_PARSERS
+except ImportError:
+    pass
+
+_SSLConnection = tuple(_SSL_CONNECTION_CLASSES) or None
+from kombu.utils.encoding import bytes_to_str
+from kombu.utils.functional import retry_over_time
+from kombu.utils.objects import cached_property
+from kombu.utils.url import _parse_url, maybe_sanitize_url
 
 from celery import states
 from celery._state import task_join_will_block
@@ -31,68 +70,48 @@ from celery.utils.time import humanize_seconds
 from .asynchronous import AsyncBackendMixin, BaseResultConsumer
 from .base import BaseKeyValueStoreBackend
 
-try:
-    import redis.connection
-    import redis.exceptions
-
-    def get_redis_error_classes():
-        return (
-            (redis.exceptions.ConnectionError, redis.exceptions.TimeoutError, redis.exceptions.AuthenticationError),
-            (redis.exceptions.DataError, redis.exceptions.InvalidResponse, redis.exceptions.ResponseError),
-        )
-except ImportError:
-    redis = None
-    get_redis_error_classes = None
-
-try:
-    import redis.asyncio as aioredis
-except ImportError:
-    aioredis = None
-
-try:
-    import redis.sentinel
-except ImportError:
-    pass
-
 __all__ = ("RedisBackend", "SentinelBackend")
 
 E_REDIS_MISSING = """
-You need to install the redis library in order to use \
-the Redis result store backend.
+You need to install a Valkey/Redis client library in order to use \
+the Valkey/Redis result store backend. Install one with: \
+pip install valkey  OR  pip install redis
 """
 
 E_REDIS_SENTINEL_MISSING = """
-You need to install the redis library with support of \
-sentinel in order to use the Redis result store backend.
+You need to install a Valkey/Redis client library with sentinel support \
+in order to use the Sentinel result store backend. Install one with: \
+pip install valkey  OR  pip install redis
 """
 
 W_REDIS_SSL_CERT_OPTIONAL = """
-Setting ssl_cert_reqs=CERT_OPTIONAL when connecting to redis means that \
-celery might not validate the identity of the redis broker when connecting. \
+Setting ssl_cert_reqs=CERT_OPTIONAL when connecting to Valkey/Redis means \
+that celery might not validate the identity of the broker when connecting. \
 This leaves you vulnerable to man in the middle attacks.
 """
 
 W_REDIS_SSL_CERT_NONE = """
-Setting ssl_cert_reqs=CERT_NONE when connecting to redis means that celery \
-will not validate the identity of the redis broker when connecting. This \
+Setting ssl_cert_reqs=CERT_NONE when connecting to Valkey/Redis means that \
+celery will not validate the identity of the broker when connecting. This \
 leaves you vulnerable to man in the middle attacks.
 """
 
 E_REDIS_SSL_PARAMS_AND_SCHEME_MISMATCH = """
 SSL connection parameters have been provided but the specified URL scheme \
-is redis://. A Redis SSL connection URL should use the scheme rediss://.
+is redis:// or valkey://. An SSL connection URL should use the scheme \
+rediss:// or valkeys://.
 """
 
 E_REDIS_SSL_CERT_REQS_MISSING_INVALID = """
-A rediss:// URL must have parameter ssl_cert_reqs and this must be set to \
-CERT_REQUIRED, CERT_OPTIONAL, or CERT_NONE
+A rediss:// or valkeys:// URL must have parameter ssl_cert_reqs and this \
+must be set to CERT_REQUIRED, CERT_OPTIONAL, or CERT_NONE
 """
 
-E_LOST = "Connection to Redis lost: Retry (%s/%s) %s."
+E_LOST = "Connection to Valkey/Redis lost: Retry (%s/%s) %s."
 
 E_RETRY_LIMIT_EXCEEDED = """
-Retry limit exceeded while trying to reconnect to the Celery redis result \
-store backend. The Celery application must be restarted.
+Retry limit exceeded while trying to reconnect to the Celery Valkey/Redis \
+result store backend. The Celery application must be restarted.
 """
 
 logger = get_logger(__name__)
@@ -204,7 +223,9 @@ class ResultConsumer(BaseResultConsumer):
 
 
 class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
-    """Redis task result store.
+    """Valkey/Redis task result store.
+
+    Supports both valkey-py and redis-py client libraries.
 
     It makes use of the following commands:
     GET, MGET, DEL, INCRBY, EXPIRE, SET, SETEX
@@ -212,9 +233,9 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
     ResultConsumer = ResultConsumer
 
-    #: :pypi:`redis` client module.
-    redis = redis
-    connection_class_ssl = redis.SSLConnection if redis else None
+    #: Valkey/Redis client module (set per-instance from URL).
+    redis = None
+    connection_class_ssl = None
 
     #: Maximum number of connections in the pool.
     max_connections = None
@@ -222,7 +243,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     supports_autoexpire = True
     supports_native_join = True
 
-    #: Maximal length of string value in Redis.
+    #: Maximal length of string value.
     #: 512 MB - https://redis.io/topics/data-types
     _MAX_STR_VALUE_SIZE = 536870912
 
@@ -239,8 +260,23 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     ):
         super().__init__(expires_type=int, **kwargs)
         _get = self.app.conf.get
+
+        # Resolve client library from URL scheme (unless subclass pre-set it)
+        _resolve_url = url or ""
         if self.redis is None:
-            raise ImproperlyConfigured(E_REDIS_MISSING.strip())
+            try:
+                self.redis = resolve_lib(_resolve_url)
+            except ImportError:
+                raise ImproperlyConfigured(E_REDIS_MISSING.strip())
+
+        if self.connection_class_ssl is None:
+            self.connection_class_ssl = getattr(self.redis, "SSLConnection", None)
+            if self.connection_class_ssl is None and _SSL_CONNECTION_CLASSES:
+                self.connection_class_ssl = _SSL_CONNECTION_CLASSES[0]
+        try:
+            self._aiolib = resolve_async_lib(_resolve_url)
+        except ImportError:
+            self._aiolib = None
 
         if host and "://" in host:
             url, host = host, None
@@ -284,8 +320,10 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                 credential_provider_cls = symbol_by_name(credential_provider)
                 credential_provider = credential_provider_cls()
 
-            if not isinstance(credential_provider, CredentialProvider):
-                raise ValueError("Credential provider is not an instance of a redis.CredentialProvider or a subclass")
+            if CredentialProvider is not None and not isinstance(credential_provider, CredentialProvider):
+                raise ValueError(
+                    "Credential provider is not an instance of a CredentialProvider or a subclass"
+                )
 
             self.connparams["credential_provider"] = credential_provider
 
@@ -314,9 +352,8 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         # If we've received SSL parameters via query string or the
         # redis_backend_use_ssl dict, check ssl_cert_reqs is valid. If set
         # via query string ssl_cert_reqs will be a string so convert it here
-        if "connection_class" in self.connparams and issubclass(
-            self.connparams["connection_class"], redis.SSLConnection
-        ):
+        conn_class = self.connparams.get("connection_class")
+        if conn_class is not None and _SSLConnection and issubclass(conn_class, _SSLConnection):
             ssl_cert_reqs_missing = "MISSING"
             ssl_string_to_constant = {
                 "CERT_REQUIRED": CERT_REQUIRED,
@@ -339,7 +376,8 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
         self.url = url
 
-        self.connection_errors, self.channel_errors = get_redis_error_classes() if get_redis_error_classes else ((), ())
+        self.connection_errors = get_all_connection_errors()
+        self.channel_errors = get_all_channel_errors()
         self.result_consumer = self.ResultConsumer(
             self,
             self.app,
@@ -381,13 +419,13 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
         ssl_param_keys = ["ssl_ca_certs", "ssl_certfile", "ssl_keyfile", "ssl_cert_reqs"]
 
-        if scheme == "redis":
+        if scheme in ("redis", "valkey"):
             # If connparams or query string contain ssl params, raise error
             if any(key in connparams for key in ssl_param_keys) or any(key in query for key in ssl_param_keys):
                 raise ValueError(E_REDIS_SSL_PARAMS_AND_SCHEME_MISMATCH)
 
-        if scheme == "rediss":
-            connparams["connection_class"] = redis.SSLConnection
+        if scheme in ("rediss", "valkeys"):
+            connparams["connection_class"] = self.connection_class_ssl
             # The following parameters, if present in the URL, are encoded. We
             # must add the decoded values to connparams.
             for ssl_setting in ssl_param_keys:
@@ -407,8 +445,10 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                 credential_provider_cls = symbol_by_name(credential_provider)
                 credential_provider = credential_provider_cls()
 
-            if not isinstance(credential_provider, CredentialProvider):
-                raise ValueError("Credential provider is not an instance of a redis.CredentialProvider or a subclass")
+            if CredentialProvider is not None and not isinstance(credential_provider, CredentialProvider):
+                raise ValueError(
+                    "Credential provider is not an instance of a CredentialProvider or a subclass"
+                )
 
             connparams["credential_provider"] = credential_provider
             # drop username and password if credential provider is configured
@@ -416,8 +456,8 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
             connparams.pop("password", None)
 
         for key, value in query.items():
-            if key in redis.connection.URL_QUERY_ARGUMENT_PARSERS:
-                query[key] = redis.connection.URL_QUERY_ARGUMENT_PARSERS[key](value)
+            if key in _URL_QUERY_ARGUMENT_PARSERS:
+                query[key] = _URL_QUERY_ARGUMENT_PARSERS[key](value)
 
         # Query parameters override other parameters
         connparams.update(query)
@@ -635,17 +675,10 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     # --- Async client and methods ---
 
     def _get_async_client_class(self):
-        if aioredis is None:
-            raise ImproperlyConfigured(
-                "redis.asyncio is required for native async support. "
-                "Install redis>=4.2.0 or use sync_to_async wrappers."
-            )
-        return aioredis.Redis
+        return self._aiolib.Redis
 
     def _get_async_connection_pool_class(self):
-        if aioredis is None:
-            raise ImproperlyConfigured("redis.asyncio is required for native async support.")
-        return aioredis.ConnectionPool
+        return self._aiolib.ConnectionPool
 
     def _create_async_client(self, **params):
         # Filter out params not supported by async client
@@ -884,31 +917,40 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         return super().__reduce__(args, dict(kwargs, expires=self.expires, url=self.url))
 
 
-if getattr(redis, "sentinel", None):
+try:
+    import redis.sentinel
 
     class SentinelManagedSSLConnection(redis.sentinel.SentinelManagedConnection, redis.SSLConnection):
-        """Connect to a Redis server using Sentinel + TLS.
+        """Connect to a Valkey/Redis server using Sentinel + TLS."""
 
-        Use Sentinel to identify which Redis server is the current master
-        to connect to and when connecting to the Master server, use an
-        SSL Connection.
-        """
+except (ImportError, AttributeError):
+    try:
+        import valkey.sentinel
+
+        class SentinelManagedSSLConnection(valkey.sentinel.SentinelManagedConnection, valkey.SSLConnection):
+            """Connect to a Valkey/Redis server using Sentinel + TLS."""
+
+    except (ImportError, AttributeError):
+        SentinelManagedSSLConnection = None
 
 
 class SentinelBackend(RedisBackend):
-    """Redis sentinel task result store."""
+    """Valkey/Redis sentinel task result store."""
 
     # URL looks like `sentinel://0.0.0.0:26347/3;sentinel://0.0.0.0:26348/3`
     _SERVER_URI_SEPARATOR = ";"
 
-    sentinel = getattr(redis, "sentinel", None)
-    connection_class_ssl = SentinelManagedSSLConnection if sentinel else None
+    sentinel = None
+    connection_class_ssl = SentinelManagedSSLConnection
 
     def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Resolve sentinel module — check class attribute first (tests), then library
+        if self.sentinel is None:
+            self.sentinel = getattr(self.redis, "sentinel", None)
         if self.sentinel is None:
             raise ImproperlyConfigured(E_REDIS_SENTINEL_MISSING.strip())
-
-        super().__init__(*args, **kwargs)
 
     def as_uri(self, include_password=False):
         """Return the server addresses as URIs, sanitizing the password or not."""

@@ -2,10 +2,10 @@
 
 ## 1. Start a broker
 
-Redis:
+Valkey/Redis:
 
 ```console
-docker run -d -p 6379:6379 redis:7
+docker run -d -p 6379:6379 valkey/valkey:8
 ```
 
 Or RabbitMQ:

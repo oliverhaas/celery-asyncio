@@ -86,6 +86,9 @@ redis = [
 tblib = [
     { name = "tblib" },
 ]
+valkey = [
+    { name = "kombu-asyncio", extra = ["valkey"] },
+]
 yaml = [
     { name = "pyyaml" },
 ]
@@ -103,8 +106,10 @@ dev = [
     { name = "pytest-mock" },
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
+    { name = "redis" },
     { name = "ruff" },
     { name = "ty" },
+    { name = "valkey" },
 ]
 docs = [
     { name = "mike" },
@@ -123,6 +128,7 @@ requires-dist = [
     { name = "django", marker = "extra == 'django'", specifier = ">=6.0" },
     { name = "kombu-asyncio", editable = "../kombu" },
     { name = "kombu-asyncio", extras = ["redis"], marker = "extra == 'redis'", editable = "../kombu" },
+    { name = "kombu-asyncio", extras = ["valkey"], marker = "extra == 'valkey'", editable = "../kombu" },
     { name = "msgpack", marker = "extra == 'msgpack'" },
     { name = "pytest", marker = "extra == 'pytest'", specifier = ">=8.0.0" },
     { name = "python-dateutil", specifier = ">=2.8.2" },
@@ -131,7 +137,7 @@ requires-dist = [
     { name = "tzlocal" },
     { name = "zstandard", marker = "extra == 'zstd'", specifier = ">=0.22.0" },
 ]
-provides-extras = ["msgpack", "yaml", "redis", "tblib", "pytest", "django", "brotli", "zstd"]
+provides-extras = ["msgpack", "yaml", "valkey", "redis", "tblib", "pytest", "django", "brotli", "zstd"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -143,8 +149,10 @@ dev = [
     { name = "pytest-mock", specifier = "==3.15.1" },
     { name = "pytest-timeout", specifier = "==2.4.0" },
     { name = "pytest-xdist", specifier = "==3.8.0" },
+    { name = "redis", specifier = "==7.1.0" },
     { name = "ruff", specifier = "==0.15.4" },
     { name = "ty", specifier = "==0.0.19" },
+    { name = "valkey", specifier = "==6.1.1" },
 ]
 docs = [
     { name = "mike", specifier = "==2.1.3" },
@@ -414,6 +422,9 @@ source = { editable = "../kombu" }
 redis = [
     { name = "redis" },
 ]
+valkey = [
+    { name = "valkey" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -421,8 +432,9 @@ requires-dist = [
     { name = "msgpack", marker = "extra == 'msgpack'" },
     { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=3.10" },
     { name = "redis", marker = "extra == 'redis'", specifier = ">=7.1.0" },
+    { name = "valkey", marker = "extra == 'valkey'", specifier = ">=6.1.0" },
 ]
-provides-extras = ["amqp", "redis", "msgpack", "yaml"]
+provides-extras = ["amqp", "valkey", "redis", "msgpack", "yaml"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -433,9 +445,10 @@ dev = [
     { name = "pytest-cov", specifier = "==7.0.0" },
     { name = "pytest-mock", specifier = "==3.15.1" },
     { name = "pytest-xdist", specifier = "==3.8.0" },
-    { name = "redis", specifier = ">=7.1.0" },
+    { name = "redis", specifier = "==7.1.0" },
     { name = "ruff", specifier = "==0.15.2" },
     { name = "ty", specifier = "==0.0.18" },
+    { name = "valkey", specifier = "==6.1.1" },
 ]
 
 [[package]]
@@ -908,11 +921,11 @@ wheels = [
 
 [[package]]
 name = "redis"
-version = "7.1.1"
+version = "7.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f7/80/2971931d27651affa88a44c0ad7b8c4a19dc29c998abb20b23868d319b59/redis-7.1.1.tar.gz", hash = "sha256:a2814b2bda15b39dad11391cc48edac4697214a8a5a4bd10abe936ab4892eb43", size = 4800064, upload-time = "2026-02-09T18:39:40.292Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/c8/983d5c6579a411d8a99bc5823cc5712768859b5ce2c8afe1a65b37832c81/redis-7.1.0.tar.gz", hash = "sha256:b1cc3cfa5a2cb9c2ab3ba700864fb0ad75617b41f01352ce5779dabf6d5f9c3c", size = 4796669, upload-time = "2025-11-19T15:54:39.961Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/29/55/1de1d812ba1481fa4b37fb03b4eec0fcb71b6a0d44c04ea3482eb017600f/redis-7.1.1-py3-none-any.whl", hash = "sha256:f77817f16071c2950492c67d40b771fa493eb3fccc630a424a10976dbb794b7a", size = 356057, upload-time = "2026-02-09T18:39:38.602Z" },
+    { url = "https://files.pythonhosted.org/packages/89/f0/8956f8a86b20d7bb9d6ac0187cf4cd54d8065bc9a1a09eb8011d4d326596/redis-7.1.0-py3-none-any.whl", hash = "sha256:23c52b208f92b56103e17c5d06bdc1a6c2c0b3106583985a76a18f83b265de2b", size = 354159, upload-time = "2025-11-19T15:54:38.064Z" },
 ]
 
 [[package]]
@@ -1043,6 +1056,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c7/24/5f1b3bdffd70275f6661c76461e25f024d5a38a46f04aaca912426a2b1d3/urllib3-2.6.3.tar.gz", hash = "sha256:1b62b6884944a57dbe321509ab94fd4d3b307075e0c2eae991ac71ee15ad38ed", size = 435556, upload-time = "2026-01-07T16:24:43.925Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/39/08/aaaad47bc4e9dc8c725e68f9d04865dbcb2052843ff09c97b08904852d84/urllib3-2.6.3-py3-none-any.whl", hash = "sha256:bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4", size = 131584, upload-time = "2026-01-07T16:24:42.685Z" },
+]
+
+[[package]]
+name = "valkey"
+version = "6.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/ee/7fd930fc712275084722ddd464a0ea296abdb997d2da396320507968daeb/valkey-6.1.1.tar.gz", hash = "sha256:5880792990c6c2b5eb604a5ed5f98f300880b6dd92d123819b66ed54bb259731", size = 4601372, upload-time = "2025-08-11T06:41:10.63Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d0/a2/252afa4da08c714460f49e943070f86a02931f99f886182765194002fe33/valkey-6.1.1-py3-none-any.whl", hash = "sha256:e2691541c6e1503b53c714ad9a35551ac9b7c0bbac93865f063dbc859a46de92", size = 259474, upload-time = "2025-08-11T06:41:08.769Z" },
 ]
 
 [[package]]
