@@ -13,7 +13,7 @@ from functools import partial
 from ssl import CERT_NONE, CERT_OPTIONAL, CERT_REQUIRED
 from urllib.parse import unquote
 
-from kombu.transport._redis_compat import (
+from kombu.transport._valkey_redis_compat import (
     get_all_channel_errors,
     get_all_connection_errors,
     normalize_url,

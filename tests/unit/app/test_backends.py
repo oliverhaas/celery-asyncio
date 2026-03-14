@@ -100,7 +100,7 @@ class test_backends:
         reason="redis not installed",
     )
     def test_backend_by_url(self, app, url="redis://localhost/1"):
-        from celery.backends.redis import RedisBackend
+        from celery.backends.valkey_redis import RedisBackend
 
         backend, url_ = backends.by_url(url, app.loader)
         assert backend is RedisBackend

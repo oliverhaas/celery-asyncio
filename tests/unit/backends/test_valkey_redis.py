@@ -191,7 +191,7 @@ class sentinel:
 
 class test_RedisResultConsumer:
     def get_backend(self):
-        from celery.backends.redis import RedisBackend
+        from celery.backends.valkey_redis import RedisBackend
 
         class _RedisBackend(RedisBackend):
             redis = redis
@@ -228,7 +228,7 @@ class test_RedisResultConsumer:
         consumer.on_after_fork()
         parent_method.assert_called_once()
 
-    @patch("celery.backends.redis.ResultConsumer.cancel_for")
+    @patch("celery.backends.valkey_redis.ResultConsumer.cancel_for")
     @patch("celery.backends.asynchronous.BaseResultConsumer.on_state_change")
     def test_on_state_change(self, parent_method, cancel_for):
         consumer = self.get_consumer()
@@ -266,7 +266,7 @@ class test_RedisResultConsumer:
         consumer.cancel_for("some-task")
         assert consumer._pubsub._subscribed_to == {b"celery-task-meta-initial"}
 
-    @patch("celery.backends.redis.ResultConsumer.cancel_for")
+    @patch("celery.backends.valkey_redis.ResultConsumer.cancel_for")
     @patch("celery.backends.asynchronous.BaseResultConsumer.on_state_change")
     def test_drain_events_connection_error(self, parent_on_state_change, cancel_for):
         meta = {"task_id": "initial", "status": states.SUCCESS}
@@ -319,7 +319,7 @@ class test_RedisResultConsumer:
 
 class basetest_RedisBackend:
     def get_backend(self):
-        from celery.backends.redis import RedisBackend
+        from celery.backends.valkey_redis import RedisBackend
 
         class _RedisBackend(RedisBackend):
             redis = redis
@@ -327,7 +327,7 @@ class basetest_RedisBackend:
         return _RedisBackend
 
     def get_E_LOST(self):
-        from celery.backends.redis import E_LOST
+        from celery.backends.valkey_redis import E_LOST
 
         return E_LOST
 
@@ -345,7 +345,7 @@ class basetest_RedisBackend:
 
     @contextmanager
     def chord_context(self, size=1):
-        with patch("celery.backends.redis.maybe_signature") as ms:
+        with patch("celery.backends.valkey_redis.maybe_signature") as ms:
             request = Mock(name="request")
             request.id = "id1"
             group_id = "gid1"
@@ -381,13 +381,13 @@ class test_RedisBackend(basetest_RedisBackend):
     def test_reduce(self):
         pytest.importorskip("redis")
 
-        from celery.backends.redis import RedisBackend
+        from celery.backends.valkey_redis import RedisBackend
 
         x = RedisBackend(app=self.app)
         assert loads(dumps(x))
 
     def test_no_redis(self):
-        with patch("celery.backends.redis.resolve_lib", side_effect=ImportError):
+        with patch("celery.backends.valkey_redis.resolve_lib", side_effect=ImportError):
             self.Backend.redis = None
             with pytest.raises(ImproperlyConfigured):
                 self.Backend(app=self.app)
@@ -799,7 +799,7 @@ class test_RedisBackend(basetest_RedisBackend):
         )
         self.Backend(app=self.app)
 
-    @patch("celery.backends.redis.logger")
+    @patch("celery.backends.valkey_redis.logger")
     def test_on_connection_error(self, logger):
         intervals = iter([10, 20, 30])
         exc = KeyError()
@@ -810,7 +810,7 @@ class test_RedisBackend(basetest_RedisBackend):
         assert self.b.on_connection_error(10, exc, intervals, 3) == 30
         logger.error.assert_called_with(self.E_LOST, 3, 10, "in 30.00 seconds")
 
-    @patch("celery.backends.redis.retry_over_time")
+    @patch("celery.backends.valkey_redis.retry_over_time")
     def test_retry_policy_conf(self, retry_over_time):
         self.app.conf.result_backend_transport_options = {
             "retry_policy": {
@@ -1407,7 +1407,7 @@ class test_RedisBackend_chords_complex(basetest_RedisBackend):
 
 class test_SentinelBackend:
     def get_backend(self):
-        from celery.backends.redis import SentinelBackend
+        from celery.backends.valkey_redis import SentinelBackend
 
         class _SentinelBackend(SentinelBackend):
             redis = redis
@@ -1416,7 +1416,7 @@ class test_SentinelBackend:
         return _SentinelBackend
 
     def get_E_LOST(self):
-        from celery.backends.redis import E_LOST
+        from celery.backends.valkey_redis import E_LOST
 
         return E_LOST
 
@@ -1429,13 +1429,13 @@ class test_SentinelBackend:
     def test_reduce(self):
         pytest.importorskip("redis")
 
-        from celery.backends.redis import SentinelBackend
+        from celery.backends.valkey_redis import SentinelBackend
 
         x = SentinelBackend(app=self.app)
         assert loads(dumps(x))
 
     def test_no_redis(self):
-        with patch("celery.backends.redis.resolve_lib", side_effect=ImportError):
+        with patch("celery.backends.valkey_redis.resolve_lib", side_effect=ImportError):
             self.Backend.redis = None
             with pytest.raises(ImproperlyConfigured):
                 self.Backend(app=self.app)
@@ -1501,7 +1501,7 @@ class test_SentinelBackend:
     def test_backend_ssl(self):
         pytest.importorskip("redis")
 
-        from celery.backends.redis import SentinelBackend
+        from celery.backends.valkey_redis import SentinelBackend
 
         self.app.conf.redis_backend_use_ssl = {
             "ssl_cert_reqs": "CERT_REQUIRED",
@@ -1528,6 +1528,6 @@ class test_SentinelBackend:
         assert x.connparams["ssl_certfile"] == "/path/to/client.crt"
         assert x.connparams["ssl_keyfile"] == "/path/to/client.key"
 
-        from celery.backends.redis import SentinelManagedSSLConnection
+        from celery.backends.valkey_redis import SentinelManagedSSLConnection
 
         assert x.connparams["connection_class"] is SentinelManagedSSLConnection

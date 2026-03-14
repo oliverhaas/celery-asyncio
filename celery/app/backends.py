@@ -15,11 +15,11 @@ Unknown result backend: {0!r}.  Did you spell that correctly? ({1!r})
 
 BACKEND_ALIASES = {
     "cache": "celery.backends.cache:CacheBackend",
-    "valkey": "celery.backends.redis:RedisBackend",
-    "valkeys": "celery.backends.redis:RedisBackend",
-    "redis": "celery.backends.redis:RedisBackend",
-    "rediss": "celery.backends.redis:RedisBackend",
-    "sentinel": "celery.backends.redis:SentinelBackend",
+    "valkey": "celery.backends.valkey_redis:RedisBackend",
+    "valkeys": "celery.backends.valkey_redis:RedisBackend",
+    "redis": "celery.backends.valkey_redis:RedisBackend",
+    "rediss": "celery.backends.valkey_redis:RedisBackend",
+    "sentinel": "celery.backends.valkey_redis:SentinelBackend",
     "file": "celery.backends.filesystem:FilesystemBackend",
     "disabled": "celery.backends.base:DisabledBackend",
 }
