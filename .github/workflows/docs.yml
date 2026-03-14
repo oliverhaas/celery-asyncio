@@ -39,18 +39,16 @@ jobs:
         run: uv python install 3.14
 
       - name: Install dependencies
-        run: |
-          uv sync --group docs
-          uv pip install "kombu-asyncio @ git+https://github.com/oliverhaas/kombu-asyncio.git@main"
+        run: uv sync --group docs
 
       - name: Deploy docs (version tag)
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          uv run --no-sync mike deploy --push --update-aliases $VERSION latest
-          uv run --no-sync mike set-default --push latest
+          uv run mike deploy --push --update-aliases $VERSION latest
+          uv run mike set-default --push latest
 
       - name: Deploy docs (main branch)
         if: github.ref == 'refs/heads/main'
         run: |
-          uv run --no-sync mike deploy --push main
+          uv run mike deploy --push main

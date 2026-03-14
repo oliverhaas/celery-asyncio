@@ -28,18 +28,16 @@ jobs:
         run: uv python install 3.14
 
       - name: Install dependencies
-        run: |
-          uv sync --group dev
-          uv pip install "kombu-asyncio @ git+https://github.com/oliverhaas/kombu-asyncio.git@main"
+        run: uv sync --group dev
 
       - name: Run ruff check
-        run: uv run --no-sync ruff check
+        run: uv run ruff check
 
       - name: Run ruff format check
-        run: uv run --no-sync ruff format --check
+        run: uv run ruff format --check
 
       - name: Run tests
-        run: uv run --no-sync pytest -p no:xdist
+        run: uv run pytest -p no:xdist
 
   publish:
     needs: [test]
