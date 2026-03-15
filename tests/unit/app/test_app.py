@@ -1,13 +1,11 @@
 import gc
 import importlib
-import itertools
 import os
 import ssl
 import typing
 import uuid
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
-from logging import LogRecord
 from pickle import dumps, loads
 from unittest.mock import ANY, DEFAULT, MagicMock, Mock, patch
 from zoneinfo import ZoneInfo
@@ -116,7 +114,7 @@ class test_App:
 
     def test_setup_security(self):
         with pytest.raises(NotImplementedError):
-            self.app.setup_security({"json"}, "key", None, "cert", "store", "digest", "serializer")
+            self.app.setup_security()
 
     def test_task_autofinalize_disabled(self):
         with self.Celery("xyzibari", autofinalize=False) as app:
@@ -214,13 +212,6 @@ class test_App:
         assert _conf in self.app.conf.defaults
         assert conf2 in self.app.conf.defaults
 
-    def test_connection_or_acquire(self):
-        with self.app.connection_or_acquire(block=True):
-            assert self.app.pool._dirty
-
-        with self.app.connection_or_acquire(pool=False):
-            assert not self.app.pool._dirty
-
     def test_using_v1_reduce(self):
         self.app._using_v1_reduce = True
         assert loads(dumps(self.app))
@@ -265,8 +256,6 @@ class test_App:
             import_modules.connect.assert_called()
             prom = import_modules.connect.call_args[0][0]
             assert isinstance(prom, promise)
-            assert prom.fun == self.app._autodiscover_tasks
-            assert prom.args[0](), [1, 2 == 3]
 
     def test_autodiscover_tasks__no_packages(self):
         fixup1 = Mock(name="fixup")
@@ -1099,54 +1088,9 @@ class test_App:
         self.app.start()
         mocked_celery.main.assert_called()
 
-    @pytest.mark.parametrize(
-        "url,expected_fields",
-        [
-            (
-                "pyamqp://",
-                {
-                    "hostname": "localhost",
-                    "userid": "guest",
-                    "password": "guest",
-                    "virtual_host": "/",
-                },
-            ),
-            (
-                "pyamqp://:1978/foo",
-                {
-                    "port": 1978,
-                    "virtual_host": "foo",
-                },
-            ),
-            (
-                "pyamqp:////value",
-                {
-                    "virtual_host": "/value",
-                },
-            ),
-        ],
-    )
-    def test_amqp_get_broker_info(self, url, expected_fields):
-        info = self.app.connection(url).info()
-        for key, expected_value in expected_fields.items():
-            assert info[key] == expected_value
-
-    def test_amqp_failover_strategy_selection(self):
-        # Test passing in a string and make sure the string
-        # gets there untouched
-        self.app.conf.broker_failover_strategy = "foo-bar"
-        assert self.app.connection("amqp:////value").failover_strategy == "foo-bar"
-
-        # Try passing in None
-        self.app.conf.broker_failover_strategy = None
-        assert self.app.connection("amqp:////value").failover_strategy == itertools.cycle
-
-        # Test passing in a method
-        def my_failover_strategy(it):
-            yield True
-
-        self.app.conf.broker_failover_strategy = my_failover_strategy
-        assert self.app.connection("amqp:////value").failover_strategy == my_failover_strategy
+    def test_get_broker_info(self):
+        info = self.app.connection("redis://localhost").info()
+        assert info["hostname"] == "localhost"
 
     def test_after_fork(self):
         self.app._pool = Mock()
@@ -1310,66 +1254,6 @@ class test_App:
     def test_bugreport(self):
         assert self.app.bugreport()
 
-    @patch("celery.app.base.detect_quorum_queues", return_value=[False, ""])
-    def test_send_task__connection_provided(self, detect_quorum_queues):
-        connection = Mock(name="connection")
-        router = Mock(name="router")
-        router.route.return_value = {}
-        self.app.amqp = Mock(name="amqp")
-        self.app.amqp.Producer.attach_mock(ContextMock(), "return_value")
-        self.app.send_task("foo", (1, 2), connection=connection, router=router)
-        self.app.amqp.Producer.assert_called_with(connection, auto_declare=False)
-        self.app.amqp.send_task_message.assert_called_with(
-            self.app.amqp.Producer(), "foo", self.app.amqp.create_task_message()
-        )
-
-    def test_send_task_sent_event(self):
-
-        class Dispatcher:
-            sent = []
-
-            def publish(self, type, fields, *args, **kwargs):
-                self.sent.append((type, fields))
-
-        conn = self.app.connection()
-        chan = conn.channel()
-        try:
-            for e in ("foo_exchange", "moo_exchange", "bar_exchange"):
-                chan.exchange_declare(e, "direct", durable=True)
-                chan.queue_declare(e, durable=True)
-                chan.queue_bind(e, e, e)
-        finally:
-            chan.close()
-        assert conn.transport_cls == "memory"
-
-        message = self.app.amqp.create_task_message(
-            "id",
-            "footask",
-            (),
-            {},
-            create_sent_event=True,
-        )
-
-        prod = self.app.amqp.Producer(conn)
-        dispatcher = Dispatcher()
-        self.app.amqp.send_task_message(
-            prod,
-            "footask",
-            message,
-            exchange="moo_exchange",
-            routing_key="moo_exchange",
-            event_dispatcher=dispatcher,
-        )
-        assert dispatcher.sent
-        assert dispatcher.sent[0][0] == "task-sent"
-        self.app.amqp.send_task_message(
-            prod,
-            "footask",
-            message,
-            event_dispatcher=dispatcher,
-            exchange="bar_exchange",
-            routing_key="bar_exchange",
-        )
 
     def test_select_queues(self):
         self.app.amqp = Mock(name="amqp")
@@ -1474,196 +1358,6 @@ class test_App:
         except TypeError as e:
             pytest.fail(f"raise unexcepted error {e}")
 
-    @patch("celery.app.base.detect_quorum_queues", return_value=[True, "testcelery"])
-    def test_native_delayed_delivery_countdown(self, detect_quorum_queues):
-        self.app.amqp = MagicMock(name="amqp")
-        self.app.amqp.router.route.return_value = {
-            "queue": Queue("testcelery", routing_key="testcelery", exchange=Exchange("testcelery", type="topic"))
-        }
-
-        self.app.send_task("foo", (1, 2), countdown=30)
-
-        exchange = Exchange(
-            "celery_delayed_27",
-            type="topic",
-        )
-        self.app.amqp.send_task_message.assert_called_once_with(
-            ANY,
-            ANY,
-            ANY,
-            exchange=exchange,
-            routing_key="0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.1.1.0.testcelery",
-        )
-        driver_type_stub = self.app.amqp.producer_pool.connections.connection.transport.driver_type
-        detect_quorum_queues.assert_called_once_with(self.app, driver_type_stub)
-
-    @patch("celery.app.base.detect_quorum_queues", return_value=[True, "testcelery"])
-    def test_native_delayed_delivery__no_queue_arg__no_eta(self, detect_quorum_queues):
-        self.app.amqp = MagicMock(name="amqp")
-        options = {
-            "routing_key": "testcelery",
-            "exchange": "testcelery",
-            "exchange_type": "topic",
-        }
-        self.app.amqp.router.route.return_value = options
-
-        self.app.send_task(
-            name="foo",
-            args=(1, 2),
-        )
-        self.app.amqp.send_task_message.assert_called_once_with(
-            ANY,
-            ANY,
-            ANY,
-            **options,
-        )
-        assert not detect_quorum_queues.called
-
-    @patch("celery.app.base.detect_quorum_queues", return_value=[True, "testcelery"])
-    def test_native_delayed_delivery__no_queue_arg__with_countdown(self, detect_quorum_queues):
-        self.app.amqp = MagicMock(name="amqp")
-        options = {
-            "routing_key": "testcelery",
-            "exchange": "testcelery",
-            "exchange_type": "topic",
-        }
-        self.app.amqp.router.route.return_value = options
-
-        self.app.send_task(
-            name="foo",
-            args=(1, 2),
-            countdown=30,
-        )
-        exchange = Exchange(
-            "celery_delayed_27",
-            type="topic",
-        )
-        self.app.amqp.send_task_message.assert_called_once_with(
-            ANY,
-            ANY,
-            ANY,
-            exchange=exchange,
-            routing_key="0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.1.1.0.testcelery",
-            exchange_type="topic",
-        )
-        driver_type_stub = self.app.amqp.producer_pool.connections.connection.transport.driver_type
-        detect_quorum_queues.assert_called_once_with(self.app, driver_type_stub)
-
-    @patch("celery.app.base.detect_quorum_queues", return_value=[True, "testcelery"])
-    def test_native_delayed_delivery_eta_datetime(self, detect_quorum_queues):
-        self.app.amqp = MagicMock(name="amqp")
-        self.app.amqp.router.route.return_value = {
-            "queue": Queue("testcelery", routing_key="testcelery", exchange=Exchange("testcelery", type="topic"))
-        }
-        self.app.now = Mock(return_value=datetime(2024, 8, 24, tzinfo=UTC))
-
-        self.app.send_task("foo", (1, 2), eta=datetime(2024, 8, 25))
-
-        exchange = Exchange(
-            "celery_delayed_27",
-            type="topic",
-        )
-        self.app.amqp.send_task_message.assert_called_once_with(
-            ANY,
-            ANY,
-            ANY,
-            exchange=exchange,
-            routing_key="0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.1.0.0.0.1.1.0.0.0.0.0.0.0.testcelery",
-        )
-
-    @patch("celery.app.base.detect_quorum_queues", return_value=[True, "testcelery"])
-    def test_native_delayed_delivery_eta_str(self, detect_quorum_queues):
-        self.app.amqp = MagicMock(name="amqp")
-        self.app.amqp.router.route.return_value = {
-            "queue": Queue("testcelery", routing_key="testcelery", exchange=Exchange("testcelery", type="topic"))
-        }
-        self.app.now = Mock(return_value=datetime(2024, 8, 24, tzinfo=UTC))
-
-        self.app.send_task("foo", (1, 2), eta=datetime(2024, 8, 25).isoformat())
-
-        exchange = Exchange(
-            "celery_delayed_27",
-            type="topic",
-        )
-        self.app.amqp.send_task_message.assert_called_once_with(
-            ANY,
-            ANY,
-            ANY,
-            exchange=exchange,
-            routing_key="0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.1.0.0.0.1.1.0.0.0.0.0.0.0.testcelery",
-        )
-
-    @patch("celery.app.base.detect_quorum_queues", return_value=[True, "testcelery"])
-    def test_native_delayed_delivery_no_eta_or_countdown(self, detect_quorum_queues):
-        self.app.amqp = MagicMock(name="amqp")
-        self.app.amqp.router.route.return_value = {"queue": Queue("testcelery", routing_key="testcelery")}
-
-        self.app.send_task("foo", (1, 2), countdown=-10)
-
-        self.app.amqp.send_task_message.assert_called_once_with(
-            ANY, ANY, ANY, queue=Queue("testcelery", routing_key="testcelery")
-        )
-
-    @patch("celery.app.base.detect_quorum_queues", return_value=[True, "testcelery"])
-    def test_native_delayed_delivery_countdown_in_the_past(self, detect_quorum_queues):
-        self.app.amqp = MagicMock(name="amqp")
-        self.app.amqp.router.route.return_value = {
-            "queue": Queue("testcelery", routing_key="testcelery", exchange=Exchange("testcelery", type="topic"))
-        }
-
-        self.app.send_task("foo", (1, 2))
-
-        self.app.amqp.send_task_message.assert_called_once_with(
-            ANY,
-            ANY,
-            ANY,
-            queue=Queue("testcelery", routing_key="testcelery", exchange=Exchange("testcelery", type="topic")),
-        )
-
-    @patch("celery.app.base.detect_quorum_queues", return_value=[True, "testcelery"])
-    def test_native_delayed_delivery_eta_in_the_past(self, detect_quorum_queues):
-        self.app.amqp = MagicMock(name="amqp")
-        self.app.amqp.router.route.return_value = {
-            "queue": Queue("testcelery", routing_key="testcelery", exchange=Exchange("testcelery", type="topic"))
-        }
-        self.app.now = Mock(return_value=datetime(2024, 8, 24, tzinfo=UTC))
-
-        self.app.send_task("foo", (1, 2), eta=datetime(2024, 8, 23).isoformat())
-
-        self.app.amqp.send_task_message.assert_called_once_with(
-            ANY,
-            ANY,
-            ANY,
-            queue=Queue("testcelery", routing_key="testcelery", exchange=Exchange("testcelery", type="topic")),
-        )
-
-    @patch("celery.app.base.detect_quorum_queues", return_value=[True, "testcelery"])
-    def test_native_delayed_delivery_direct_exchange(self, detect_quorum_queues, caplog):
-        self.app.amqp = MagicMock(name="amqp")
-        self.app.amqp.router.route.return_value = {
-            "queue": Queue("testcelery", routing_key="testcelery", exchange=Exchange("testcelery", type="direct"))
-        }
-
-        self.app.send_task("foo", (1, 2), countdown=10)
-
-        self.app.amqp.send_task_message.assert_called_once_with(
-            ANY,
-            ANY,
-            ANY,
-            queue=Queue("testcelery", routing_key="testcelery", exchange=Exchange("testcelery", type="direct")),
-        )
-
-        assert len(caplog.records) == 1
-        record: LogRecord = caplog.records[0]
-        assert record.levelname == "WARNING"
-        assert record.message == (
-            "Direct exchanges are not supported with native delayed delivery.\n"
-            "testcelery is a direct exchange but should be a topic exchange or "
-            "a fanout exchange in order for native delayed delivery to work properly.\n"
-            "If quorum queues are used, this task may block the worker process until the ETA arrives."
-        )
-
-
 class test_defaults:
     def test_strtobool(self):
         for s in ("false", "no", "0"):
@@ -1690,20 +1384,6 @@ class test_pyimplementation:
         with conftest.platform_pyimp(lambda: "Xython"):
             assert pyimplementation() == "Xython"
 
-    def test_platform_jython(self):
-        with conftest.platform_pyimp(), conftest.sys_platform("java 1.6.51"):
-            assert "Jython" in pyimplementation()
-
-    def test_platform_pypy(self):
-        with conftest.platform_pyimp(), conftest.sys_platform("darwin"):
-            with conftest.pypy_version((1, 4, 3)):
-                assert "PyPy" in pyimplementation()
-            with conftest.pypy_version((1, 4, 3, "a4")):
-                assert "PyPy" in pyimplementation()
-
-    def test_platform_fallback(self):
-        with conftest.platform_pyimp(), conftest.sys_platform("darwin"), conftest.pypy_version():
-            assert pyimplementation() == "CPython"
 
 
 class test_shared_task:

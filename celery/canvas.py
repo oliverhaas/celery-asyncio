@@ -859,7 +859,8 @@ class Signature(dict):
 
         with app.producer_or_acquire(None) as producer:
             props = type.backend.on_task_call(producer, tid)
-            app.control.election(tid, "task", self.clone(task_id=tid, **props), connection=producer.connection)
+            connection = getattr(producer, "connection", None)
+            app.control.election(tid, "task", self.clone(task_id=tid, **props), connection=connection)
             return type.AsyncResult(tid)
 
     def reprcall(self, *args, **kwargs):
