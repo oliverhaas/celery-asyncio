@@ -7,21 +7,18 @@ import uuid
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pickle import dumps, loads
-from unittest.mock import ANY, DEFAULT, MagicMock, Mock, patch
+from unittest.mock import DEFAULT, Mock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
-from kombu import Exchange, Queue
 
 pydantic = pytest.importorskip("pydantic")
 from pydantic import BaseModel, ValidationInfo, model_validator
 
 from celery import Celery, _state, current_app, shared_task
 from celery import app as _app
-from celery.app import base as _appbase
 from celery.app import defaults
 from celery.backends.base import Backend
-from celery.contrib.testing.mocks import ContextMock
 from celery.exceptions import ImproperlyConfigured
 from celery.loaders.base import unconfigured
 from celery.platforms import pyimplementation
@@ -162,21 +159,6 @@ class test_App:
         with self.Celery(config_source=ObjectConfig) as app:
             assert app.conf.FOO == 1
             assert app.conf.BAR == 2
-
-    @pytest.mark.usefixtures("depends_on_current_app")
-    def test_task_windows_execv(self):
-        prev, _appbase.USING_EXECV = _appbase.USING_EXECV, True
-        try:
-
-            @self.app.task(shared=False)
-            def foo():
-                pass
-
-            assert foo._get_current_object()  # is proxy
-
-        finally:
-            _appbase.USING_EXECV = prev
-        assert not _appbase.USING_EXECV
 
     def test_task_takes_no_args(self):
         with pytest.raises(TypeError):
@@ -494,8 +476,6 @@ class test_App:
             def filter(task):
                 check(task)
                 return task
-
-            assert not _appbase.USING_EXECV
 
             @app.task(filter=filter, shared=False)
             def foo():
@@ -1005,7 +985,7 @@ class test_App:
             "worker_prefetch_multiplier=368",
             ".foobarstring=(string)300",
             ".foobarint=(int)300",
-            'database_engine_options=(dict){"foo": "bar"}',
+            'result_backend_transport_options=(dict){"foo": "bar"}',
         ]
         self.app.config_from_cmdline(cmdline, namespace="worker")
         assert not self.app.conf.task_always_eager
@@ -1013,7 +993,7 @@ class test_App:
         assert self.app.conf.worker_prefetch_multiplier == 368
         assert self.app.conf.worker_foobarstring == "300"
         assert self.app.conf.worker_foobarint == 300
-        assert self.app.conf.database_engine_options == {"foo": "bar"}
+        assert self.app.conf.result_backend_transport_options == {"foo": "bar"}
 
     def test_setting__broker_transport_options(self):
 
@@ -1091,35 +1071,6 @@ class test_App:
     def test_get_broker_info(self):
         info = self.app.connection("redis://localhost").info()
         assert info["hostname"] == "localhost"
-
-    def test_after_fork(self):
-        self.app._pool = Mock()
-        self.app.on_after_fork = Mock(name="on_after_fork")
-        self.app._after_fork()
-        assert self.app._pool is None
-        self.app.on_after_fork.send.assert_called_with(sender=self.app)
-        self.app._after_fork()
-
-    def test_global_after_fork(self):
-        self.app._after_fork = Mock(name="_after_fork")
-        _appbase._after_fork_cleanup_app(self.app)
-        self.app._after_fork.assert_called_with()
-
-    @patch("celery.app.base.logger")
-    def test_after_fork_cleanup_app__raises(self, logger):
-        self.app._after_fork = Mock(name="_after_fork")
-        exc = self.app._after_fork.side_effect = KeyError()
-        _appbase._after_fork_cleanup_app(self.app)
-        logger.info.assert_called_with("after forker raised exception: %r", exc, exc_info=1)
-
-    def test_ensure_after_fork__no_multiprocessing(self):
-        prev, _appbase.register_after_fork = (_appbase.register_after_fork, None)
-        try:
-            self.app._after_fork_registered = False
-            self.app._ensure_after_fork()
-            assert self.app._after_fork_registered
-        finally:
-            _appbase.register_after_fork = prev
 
     def test_canvas(self):
         assert self.app._canvas.Signature

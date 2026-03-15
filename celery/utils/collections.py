@@ -12,8 +12,6 @@ from typing import Any, Dict, Iterable, List  # noqa
 from .functional import first, uniq
 from .text import match_case
 
-_dict_is_ordered = True  # dicts are ordered in Python 3.7+
-
 try:
     from django.utils.functional import LazyObject, LazySettings
 except ImportError:
@@ -71,38 +69,6 @@ class OrderedDict(_OrderedDict):
         # but this version will also not create a copy of the list.
         return next(iter(self.keys()))
 
-    if not hasattr(_OrderedDict, "move_to_end"):
-        if _dict_is_ordered:  # pragma: no cover
-
-            def move_to_end(self, key, last=True):
-                # type: (Any, bool) -> None
-                if not last:
-                    # we don't use this argument, and the only way to
-                    # implement this on PyPy seems to be O(n): creating a
-                    # copy with the order changed, so we just raise.
-                    raise NotImplementedError("no last=True on PyPy")
-                self[key] = self.pop(key)
-
-        else:
-
-            def move_to_end(self, key, last=True):
-                # type: (Any, bool) -> None
-                link = self._OrderedDict__map[key]
-                link_prev = link[0]
-                link_next = link[1]
-                link_prev[1] = link_next
-                link_next[0] = link_prev
-                root = self._OrderedDict__root
-                if last:
-                    last = root[0]
-                    link[0] = last
-                    link[1] = root
-                    last[1] = root[0] = link
-                else:
-                    first_node = root[1]
-                    link[0] = root
-                    link[1] = first_node
-                    root[1] = first_node[0] = link
 
 
 class AttributeDictMixin:

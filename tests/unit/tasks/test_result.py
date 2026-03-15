@@ -1,6 +1,5 @@
 import copy
 import datetime
-import platform
 import traceback
 from contextlib import contextmanager
 from unittest.mock import Mock, call, patch
@@ -391,10 +390,6 @@ class test_AsyncResult:
 
         assert not self.app.AsyncResult(uuid()).ready()
 
-    @pytest.mark.skipif(
-        platform.python_implementation() == "PyPy",
-        reason="Mocking here doesn't play well with PyPy",
-    )
     def test_del(self):
         with patch("celery.result.AsyncResult.backend") as backend:
             result = self.app.AsyncResult(self.task1["id"])

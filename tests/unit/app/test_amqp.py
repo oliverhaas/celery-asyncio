@@ -333,11 +333,6 @@ class test_AMQP(test_AMQP_Base):
         )
         assert prod.publish.call_args[1]["confirm_timeout"] == 1
 
-    def test_send_task_message__with_receivers(self):
-        mocked_receiver = ((Mock(), Mock()), Mock())
-        with patch("celery.signals.task_sent.receivers", [mocked_receiver]):
-            self.app.amqp.send_task_message(Mock(), "foo", self.simple_message)
-
     def test_routes(self):
         r1 = self.app.amqp.routes
         r2 = self.app.amqp.routes

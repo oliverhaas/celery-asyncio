@@ -153,11 +153,6 @@ class DjangoWorkerFixup:
         return self
 
     def on_worker_process_init(self, **kwargs: Any) -> None:
-        # Child process must validate models again if on Windows,
-        # or if they were started using execv.
-        if os.environ.get("FORKED_BY_MULTIPROCESSING"):
-            self.validate_models()
-
         # close connections:
         # the parent process may have established these,
         # so need to close them.

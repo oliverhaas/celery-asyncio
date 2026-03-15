@@ -18,8 +18,6 @@ DEFAULT_PROCESS_LOG_FMT = """
 DEFAULT_TASK_LOG_FMT = """[%(asctime)s: %(levelname)s/%(processName)s] \
 %(task_name)s[%(task_id)s]: %(message)s"""
 
-DEFAULT_SECURITY_DIGEST = "sha256"
-
 
 OLD_NS = {"celery_{0}"}
 OLD_NS_BEAT = {"celerybeat_{0}"}
@@ -115,64 +113,12 @@ NAMESPACES = Namespace(
         backend=Option(),
         backend_options=Option({}, type="dict"),
     ),
-    cassandra=Namespace(
-        entry_ttl=Option(type="float"),
-        keyspace=Option(type="string"),
-        port=Option(type="string"),
-        read_consistency=Option(type="string"),
-        servers=Option(type="list"),
-        bundle_path=Option(type="string"),
-        table=Option(type="string"),
-        write_consistency=Option(type="string"),
-        auth_provider=Option(type="string"),
-        auth_kwargs=Option(type="string"),
-        options=Option({}, type="dict"),
-    ),
-    s3=Namespace(
-        access_key_id=Option(type="string"),
-        secret_access_key=Option(type="string"),
-        bucket=Option(type="string"),
-        base_path=Option(type="string"),
-        endpoint_url=Option(type="string"),
-        region=Option(type="string"),
-    ),
-    azureblockblob=Namespace(
-        container_name=Option("celery", type="string"),
-        retry_initial_backoff_sec=Option(2, type="int"),
-        retry_increment_base=Option(2, type="int"),
-        retry_max_attempts=Option(3, type="int"),
-        base_path=Option("", type="string"),
-        connection_timeout=Option(20, type="int"),
-        read_timeout=Option(120, type="int"),
-    ),
-    gcs=Namespace(
-        bucket=Option(type="string"),
-        project=Option(type="string"),
-        base_path=Option("", type="string"),
-        ttl=Option(0, type="float"),
-    ),
     control=Namespace(
         queue_ttl=Option(300.0, type="float"),
         queue_expires=Option(10.0, type="float"),
         queue_exclusive=Option(False, type="bool"),
         queue_durable=Option(False, type="bool"),
         exchange=Option("celery", type="string"),
-    ),
-    couchbase=Namespace(
-        __old__=old_ns("celery_couchbase"),
-        backend_settings=Option(None, type="dict"),
-    ),
-    arangodb=Namespace(__old__=old_ns("celery_arangodb"), backend_settings=Option(None, type="dict")),
-    mongodb=Namespace(
-        __old__=old_ns("celery_mongodb"),
-        backend_settings=Option(type="dict"),
-    ),
-    cosmosdbsql=Namespace(
-        database_name=Option("celerydb", type="string"),
-        collection_name=Option("celerycol", type="string"),
-        consistency_level=Option("Session", type="string"),
-        max_retry_attempts=Option(9, type="int"),
-        max_retry_wait_time=Option(30, type="int"),
     ),
     event=Namespace(
         __old__=old_ns("celery_event"),
@@ -224,36 +170,6 @@ NAMESPACES = Namespace(
         backend_max_retries=Option(float("inf"), type="float"),
         backend_base_sleep_between_retries_ms=Option(10, type="int"),
         backend_always_retry=Option(False, type="bool"),
-    ),
-    elasticsearch=Namespace(
-        __old__=old_ns("celery_elasticsearch"),
-        retry_on_timeout=Option(type="bool"),
-        max_retries=Option(type="int"),
-        timeout=Option(type="float"),
-        save_meta_as_text=Option(True, type="bool"),
-    ),
-    security=Namespace(
-        __old__=old_ns("celery_security"),
-        certificate=Option(type="string"),
-        cert_store=Option(type="string"),
-        key=Option(type="string"),
-        key_password=Option(type="bytes"),
-        digest=Option(DEFAULT_SECURITY_DIGEST, type="string"),
-    ),
-    database=Namespace(
-        url=Option(old={"celery_result_dburi"}),
-        engine_options=Option(
-            type="dict",
-            old={"celery_result_engine_options"},
-        ),
-        short_lived_sessions=Option(
-            False,
-            type="bool",
-            old={"celery_result_db_short_lived_sessions"},
-        ),
-        table_schemas=Option(type="dict"),
-        table_names=Option(type="dict", old={"celery_result_db_tablenames"}),
-        create_tables_at_setup=Option(True, type="bool"),
     ),
     task=Namespace(
         __old__=OLD_NS,

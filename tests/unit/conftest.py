@@ -63,15 +63,6 @@ def celery_config():
         "task_default_routing_key": "testcelery",
         "task_queues": (Queue("testcelery", routing_key="testcelery"),),
         "accept_content": ("json", "pickle"),
-        # Mongo results tests (only executed if installed and running)
-        "mongodb_backend_settings": {
-            "host": os.environ.get("MONGO_HOST") or "localhost",
-            "port": os.environ.get("MONGO_PORT") or 27017,
-            "database": os.environ.get("MONGO_DB") or "celery_unittests",
-            "taskmeta_collection": (os.environ.get("MONGO_TASKMETA_COLLECTION") or "taskmeta_collection"),
-            "user": os.environ.get("MONGO_USER"),
-            "password": os.environ.get("MONGO_PASSWORD"),
-        },
     }
 
 
@@ -356,7 +347,7 @@ def sleepdeprived(request):
 def mask_modules(request):
     """Ban some modules from being importable inside the context
     For example::
-        >>> @pytest.mark.masked_modules('gevent.monkey')
+        >>> @pytest.mark.masked_modules('some.module')
         >>> def test_foo(self, mask_modules):
         ...     try:
         ...         import sys
@@ -436,31 +427,6 @@ def platform_pyimp(value=None):
     """
     yield from replace_module_value(platform, "python_implementation", value)
 
-
-@contextmanager
-def sys_platform(value=None):
-    """Mock :data:`sys.platform`
-
-    Example::
-        >>> mock.sys_platform('darwin'):
-        ...     ...
-    """
-    prev, sys.platform = sys.platform, value
-    try:
-        yield
-    finally:
-        sys.platform = prev
-
-
-@contextmanager
-def pypy_version(value=None):
-    """Mock :data:`sys.pypy_version_info`
-
-    Example::
-        >>> with pypy_version((3, 6, 1)):
-        ...     ...
-    """
-    yield from replace_module_value(sys, "pypy_version_info", value)
 
 
 def _restore_logging():
@@ -712,12 +678,12 @@ def open(side_effect=None):
 @contextmanager
 def module_exists(*modules):
     """Patch one or more modules to ensure they exist.
-    A module name with multiple paths (e.g. gevent.monkey) will
-    ensure all parent modules are also patched (``gevent`` +
-    ``gevent.monkey``).
+    A module name with multiple paths (e.g. some.sub.module) will
+    ensure all parent modules are also patched (``some`` +
+    ``some.sub`` + ``some.sub.module``).
     Example::
-        >>> with conftest.module_exists('gevent.monkey'):
-        ...     gevent.monkey.patch_all = Mock(name='patch_all')
+        >>> with conftest.module_exists('some.module'):
+        ...     some.module.func = Mock(name='func')
         ...     ...
     """
     gen = []

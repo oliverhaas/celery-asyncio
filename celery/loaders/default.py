@@ -31,8 +31,7 @@ class Loader(BaseLoader):
         except ImportError:
             if not fail_silently:
                 raise
-            # billiard sets this if forked using execv
-            if C_WNOCONF and not os.environ.get("FORKED_BY_MULTIPROCESSING"):
+            if C_WNOCONF:
                 warnings.warn(
                     NotConfigured(
                         f"No {configname} module found! Please make sure it exists and is available to Python."

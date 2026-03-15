@@ -576,14 +576,6 @@ class State:
         with self._mutex:
             return self._event(event)
 
-    def task_event(self, type_, fields):
-        """Deprecated, use :meth:`event`."""
-        return self._event(dict(fields, type=f"task-{type_}"))[0]
-
-    def worker_event(self, type_, fields):
-        """Deprecated, use :meth:`event`."""
-        return self._event(dict(fields, type=f"worker-{type_}"))[0]
-
     def _create_dispatcher(self):
 
         # pylint: disable=too-many-statements

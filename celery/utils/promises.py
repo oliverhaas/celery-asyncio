@@ -1,8 +1,4 @@
-"""Promise utilities for callback chaining.
-
-Simple promise implementations for celery-asyncio. These provide callback
-chaining without the full vine dependency.
-"""
+"""Promise utilities for callback chaining."""
 
 import weakref
 from abc import ABC, abstractmethod

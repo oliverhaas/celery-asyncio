@@ -61,8 +61,6 @@ from celery.worker import WorkController
 __all__ = ("Worker",)
 
 logger = get_logger(__name__)
-is_jython = sys.platform.startswith("java")
-is_pypy = hasattr(sys, "pypy_version_info")
 
 ARTLINES = [
     " --------------",
@@ -167,22 +165,6 @@ class Worker(WorkController):
         if not self._custom_logging and self.redirect_stdouts:
             app.log.redirect_stdouts(self.redirect_stdouts_level)
 
-        # TODO: Remove the following code in Celery 6.0
-        # This qualifies as a hack for issue #6366.
-        warn_deprecated = True
-        config_source = app._config_source
-        if isinstance(config_source, str):
-            # Don't raise the warning when the settings originate from
-            # django.conf:settings
-            warn_deprecated = config_source.lower() != "django.conf:settings"
-
-        if warn_deprecated:
-            if app.conf.maybe_warn_deprecated_settings():
-                logger.warning(
-                    "Please run `celery upgrade settings path/to/settings.py` "
-                    "to avoid these warnings and to allow a smoother upgrade "
-                    "to Celery 6.0."
-                )
 
     def emit_banner(self):
         # Dump configuration to screen so we have some basic information
@@ -446,16 +428,13 @@ else:
     )
 
 
-if not is_jython:  # pragma: no cover
-    install_worker_term_hard_handler = partial(
-        _shutdown_handler,
-        sig="SIGQUIT",
-        how="Cold",
-        callback=on_cold_shutdown,
-        exitcode=EX_FAILURE,
-    )
-else:  # pragma: no cover
-    install_worker_term_handler = install_worker_term_hard_handler = lambda *a, **kw: None
+install_worker_term_hard_handler = partial(
+    _shutdown_handler,
+    sig="SIGQUIT",
+    how="Cold",
+    callback=on_cold_shutdown,
+    exitcode=EX_FAILURE,
+)
 
 
 def on_SIGINT(worker):
@@ -463,17 +442,12 @@ def on_SIGINT(worker):
     install_worker_term_hard_handler(worker, sig="SIGINT", verbose=False)
 
 
-if not is_jython:  # pragma: no cover
-    install_worker_int_handler = partial(
-        _shutdown_handler,
-        sig="SIGINT",
-        callback=on_SIGINT,
-        exitcode=EX_FAILURE,
-    )
-else:  # pragma: no cover
-
-    def install_worker_int_handler(*args, **kwargs):
-        pass
+install_worker_int_handler = partial(
+    _shutdown_handler,
+    sig="SIGINT",
+    callback=on_SIGINT,
+    exitcode=EX_FAILURE,
+)
 
 
 def _reload_current_worker():
@@ -504,10 +478,6 @@ def install_worker_restart_handler(worker, sig="SIGHUP"):
 
 
 def install_cry_handler(sig="SIGUSR1"):
-    # PyPy does not have sys._current_frames
-    if is_pypy:  # pragma: no cover
-        return
-
     def cry_handler(*args):
         """Signal handler logging the stack-trace of all active threads."""
         with in_sighandler():

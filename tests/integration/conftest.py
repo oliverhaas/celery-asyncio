@@ -52,11 +52,6 @@ def celery_config(request):
         "broker_url": TEST_BROKER,
         "result_backend": TEST_BACKEND,
         "result_extended": True,
-        "cassandra_servers": ["localhost"],
-        "cassandra_keyspace": "tests",
-        "cassandra_table": "tests",
-        "cassandra_read_consistency": "ONE",
-        "cassandra_write_consistency": "ONE",
     }
     try:
         # To override the default configuration, create the integration-tests-config.json file

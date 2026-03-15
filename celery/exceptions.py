@@ -37,7 +37,6 @@ __all__ = (
     "QueueNotFound",
     "IncompleteStream",
     "NotRegistered",
-    "AlreadyRegistered",
     "TimeoutError",
     "MaxRetriesExceededError",
     "TaskRevokedError",
@@ -199,11 +198,6 @@ class NotRegistered(KeyError, TaskError):
         return UNREGISTERED_FMT.format(self)
 
 
-class AlreadyRegistered(TaskError):
-    """The task is already registered."""
-
-    # XXX Unused
-
 
 class TimeoutError(TaskError):
     """The operation timed out."""
@@ -249,7 +243,7 @@ class WorkerShutdown(SystemExit):
     """Signals that the worker should perform a warm shutdown."""
 
 
-# Task execution exceptions (formerly from billiard)
+# Task execution exceptions
 class SoftTimeLimitExceeded(Exception):
     """The soft time limit has been exceeded."""
 

@@ -181,23 +181,6 @@ class Settings(ConfigurationView):
             f"{key}: {pretty(value, width=50)}" for key, value in self.table(with_defaults, censored).items()
         )
 
-    def maybe_warn_deprecated_settings(self):
-        # TODO: Remove this method in Celery 6.0
-        if self.deprecated_settings:
-            from celery.app.defaults import _TO_NEW_KEY
-            from celery.utils import deprecated
-
-            for setting in self.deprecated_settings:
-                deprecated.warn(
-                    description=f"The {setting!r} setting",
-                    removal="6.0.0",
-                    alternative=f"Use the {_TO_NEW_KEY[setting]} instead",
-                )
-
-            return True
-
-        return False
-
 
 def _new_key_to_old(key, convert=_TO_OLD_KEY.get):
     return convert(key, key)

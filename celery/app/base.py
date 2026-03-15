@@ -19,7 +19,6 @@ from dateutil.parser import isoparse
 from kombu import Exchange
 from kombu.clocks import LamportClock
 from kombu.common import oid_from
-from kombu.utils.compat import register_after_fork
 
 
 # Note: RabbitMQ-style native delayed delivery (quorum queue exchange routing)
@@ -135,7 +134,6 @@ logger = get_logger(__name__)
 BUILTIN_FIXUPS = {
     "celery.fixups.django:fixup",
 }
-USING_EXECV = os.environ.get("FORKED_BY_MULTIPROCESSING")
 
 ERR_ENVVAR_NOT_SET = """
 The environment variable {0!r} is not set,
@@ -166,14 +164,6 @@ def _unpickle_appattr(reverse_name, args):
     # the attribute from the current app and calls it.
     return get_current_app()._rgetattr(reverse_name)(*args)
 
-
-def _after_fork_cleanup_app(app):
-    # This is used with multiprocessing.register_after_fork,
-    # so need to be at module level.
-    try:
-        app._after_fork()
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.info("after forker raised exception: %r", exc, exc_info=1)
 
 
 def pydantic_wrapper(
@@ -374,7 +364,6 @@ class Celery:
     _fixups = None
     _pool = None
     _conf = None
-    _after_fork_registered = False
 
     #: Signal sent when app is loading configuration.
     on_configure = None
@@ -382,11 +371,9 @@ class Celery:
     #: Signal sent after app has prepared the configuration.
     on_after_configure = None
 
+
     #: Signal sent after app has been finalized.
     on_after_finalize = None
-
-    #: Signal sent by every new process after fork.
-    on_after_fork = None
 
     def __init__(
         self,
@@ -489,7 +476,6 @@ class Celery:
             providing_args={"source"},
         )
         self.on_after_finalize = Signal(name="app.on_after_finalize")
-        self.on_after_fork = Signal(name="app.on_after_fork")
 
         # Boolean signalling, whether fast_trace_task are enabled.
         # this attribute is set in celery.worker.trace and checked by celery.worker.request
@@ -517,12 +503,6 @@ class Celery:
     def set_default(self):
         """Make this the default app for all threads."""
         set_default_app(self)
-
-    def _ensure_after_fork(self):
-        if not self._after_fork_registered:
-            self._after_fork_registered = True
-            if register_after_fork is not None:
-                register_after_fork(self, _after_fork_cleanup_app)
 
     def close(self):
         """Clean up after the application.
@@ -604,15 +584,6 @@ class Celery:
             not access any attributes on the returned object until the
             application is fully set up (finalized).
         """
-        if USING_EXECV and opts.get("lazy", True):
-            # When using execv the task in the original module will point to a
-            # different app, so doing things like 'add.request' will point to
-            # a different task instance.  This makes sure it will always use
-            # the task instance from the current app.
-            # Really need a better solution for this :(
-            from . import shared_task
-
-            return shared_task(*args, lazy=False, **opts)
 
         def inner_create_task_cls(shared=True, filter=None, lazy=True, **opts):
             _filt = filter
@@ -1509,11 +1480,6 @@ class Celery:
 
         self.on_after_configure.send(sender=self, source=self._conf)
         return self._conf
-
-    def _after_fork(self):
-        self._pool = None
-        self._async_connection = None
-        self.on_after_fork.send(sender=self)
 
     def signature(self, *args, **kwargs):
         """Return a new :class:`~celery.Signature` bound to this app."""

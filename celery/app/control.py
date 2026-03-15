@@ -19,7 +19,6 @@ import warnings
 TERM_SIGNAME = "SIGTERM"
 from kombu.matcher import match
 from kombu.pidbox import Mailbox
-from kombu.utils.compat import register_after_fork
 from kombu.utils.functional import lazy
 from kombu.utils.objects import cached_property
 
@@ -67,12 +66,6 @@ def flatten_reply(reply):
         )
     return nodes
 
-
-def _after_fork_cleanup_control(control):
-    try:
-        control._after_fork()
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.info("after fork raised exception: %r", exc, exc_info=1)
 
 
 class Inspect:
@@ -480,11 +473,6 @@ class Control:
             queue_durable=app.conf.control_queue_durable,
             reply_queue_expires=app.conf.control_queue_expires,
         )
-        if register_after_fork is not None:
-            register_after_fork(self, _after_fork_cleanup_control)
-
-    def _after_fork(self):
-        del self.mailbox.producer_pool
 
     @cached_property
     def inspect(self):

@@ -1375,7 +1375,7 @@ class Task:
             task_id (str): Unique id of the retried task.
             args (Tuple): Original arguments for the retried task.
             kwargs (Dict): Original keyword arguments for the retried task.
-            einfo (~billiard.einfo.ExceptionInfo): Exception information.
+            einfo (ExceptionInfo): Exception information.
 
         Returns:
             None: The return value of this handler is ignored.
@@ -1391,7 +1391,7 @@ class Task:
             task_id (str): Unique id of the failed task.
             args (Tuple): Original arguments for the task that failed.
             kwargs (Dict): Original keyword arguments for the task that failed.
-            einfo (~billiard.einfo.ExceptionInfo): Exception information.
+            einfo (ExceptionInfo): Exception information.
 
         Returns:
             None: The return value of this handler is ignored.
@@ -1406,7 +1406,7 @@ class Task:
             task_id (str): Unique id of the task.
             args (Tuple): Original arguments for the task.
             kwargs (Dict): Original keyword arguments for the task.
-            einfo (~billiard.einfo.ExceptionInfo): Exception information.
+            einfo (ExceptionInfo): Exception information.
 
         Returns:
             None: The return value of this handler is ignored.

@@ -90,13 +90,6 @@ if STATICA_HACK:  # pragma: no cover
     from celery.utils import uuid
 
 
-def maybe_patch_concurrency(argv=None, short_opts=None, long_opts=None, patches=None):
-    """No-op in asyncio mode.
-
-    Legacy function kept for compatibility. celery-asyncio does not use
-    eventlet/gevent patching.
-    """
-
 
 # this just creates a new module, that imports stuff on first attribute
 # access.  This makes the library faster to use.
@@ -135,5 +128,4 @@ old_module, new_module = local.recreate_module(  # pragma: no cover
     VERSION_BANNER=VERSION_BANNER,
     version_info_t=version_info_t,
     version_info=version_info,
-    maybe_patch_concurrency=maybe_patch_concurrency,
 )

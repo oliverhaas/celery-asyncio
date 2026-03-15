@@ -270,7 +270,7 @@ class LoggingProxy:
 def get_multiprocessing_logger():
     """Return the multiprocessing logger.
 
-    In asyncio mode, we don't use billiard multiprocessing logging.
+    Not used in asyncio mode.
     """
     return
 

@@ -547,10 +547,6 @@ class test_Control:
             uuids, connection=None, reply=False, signal=None, terminate=False, timeout=None
         )
 
-    def test_after_fork_resets_mailbox(self):
-        # _after_fork invalidates the cached producer_pool
-        self.app.control._after_fork()
-
     def test_control_exchange__default(self):
         c = control.Control(self.app)
         assert c.mailbox.namespace == "celery"

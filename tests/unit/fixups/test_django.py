@@ -200,11 +200,6 @@ class test_DjangoWorkerFixup(FixupCase):
                     f.close_cache.assert_called_with()
                     f._close_database.assert_called_with()
 
-                    f.validate_models = Mock(name="validate_models")
-                    patching.setenv("FORKED_BY_MULTIPROCESSING", "1")
-                    f.on_worker_process_init()
-                    f.validate_models.assert_called_with()
-
     def test_on_task_prerun(self):
         task = Mock()
         with self.fixup_context(self.app) as (f, _, _):

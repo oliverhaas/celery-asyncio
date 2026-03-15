@@ -109,18 +109,6 @@ task_unknown = Signal(
     name="task_unknown",
     providing_args={"message", "exc", "name", "id"},
 )
-#: Deprecated, use after_task_publish instead.
-task_sent = Signal(
-    name="task_sent",
-    providing_args={
-        "task_id",
-        "task",
-        "args",
-        "kwargs",
-        "eta",
-        "taskset",
-    },
-)
 
 # - Program: `celery worker`
 celeryd_init = Signal(
