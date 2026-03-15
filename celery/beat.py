@@ -6,40 +6,24 @@ import errno
 import heapq
 import os
 import shelve
-import signal
 import sys
 import time
 import traceback
 from calendar import timegm
 from collections import namedtuple
 from functools import total_ordering
-from multiprocessing import Process
 from pickle import UnpicklingError
 from threading import Event, Thread
 
 from kombu.utils.functional import maybe_evaluate, reprcall
 from kombu.utils.objects import cached_property
 
-
-def reset_signals():
-    """Reset signal handlers to defaults."""
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            signal.signal(sig, signal.SIG_DFL)
-        except OSError, ValueError:
-            pass
-
-
-def ensure_multiprocessing():
-    """Ensure multiprocessing is available (no-op in asyncio mode)."""
-
-
 from . import __version__, platforms, signals
 from .exceptions import reraise
 from .schedules import crontab, maybe_schedule
 from .utils.functional import is_numeric_value
 from .utils.imports import load_extension_class_names, symbol_by_name
-from .utils.log import get_logger, iter_open_logger_fds
+from .utils.log import get_logger
 from .utils.time import humanize_seconds, maybe_make_aware
 
 __all__ = (
@@ -692,47 +676,14 @@ class _Threaded(Thread):
         self.service.stop(wait=True)
 
 
-try:
-    ensure_multiprocessing()
-except NotImplementedError:  # pragma: no cover
-    _Process = None
-else:
-
-    class _Process(Process):
-        def __init__(self, app, **kwargs):
-            super().__init__()
-            self.app = app
-            self.service = Service(app, **kwargs)
-            self.name = "Beat"
-
-        def run(self):
-            reset_signals(full=False)
-            platforms.close_open_fds(
-                [
-                    sys.__stdin__,
-                    sys.__stdout__,
-                    sys.__stderr__,
-                ]
-                + list(iter_open_logger_fds())
-            )
-            self.app.set_default()
-            self.app.set_current()
-            self.service.start(embedded_process=True)
-
-        def stop(self):
-            self.service.stop()
-            self.terminate()
-
-
 def EmbeddedService(app, max_interval=None, **kwargs):
     """Return embedded clock service.
 
     Arguments:
-        thread (bool): Run threaded instead of as a separate process.
-            Uses :mod:`multiprocessing` by default, if available.
+        thread (bool): Ignored (kept for API compatibility).
+            Always uses threading in asyncio mode.
     """
-    if kwargs.pop("thread", False) or _Process is None:
-        # Need short max interval to be able to stop thread
-        # in reasonable time.
-        return _Threaded(app, max_interval=1, **kwargs)
-    return _Process(app, max_interval=max_interval, **kwargs)
+    kwargs.pop("thread", None)
+    # Need short max interval to be able to stop thread
+    # in reasonable time.
+    return _Threaded(app, max_interval=1, **kwargs)

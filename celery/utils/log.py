@@ -2,7 +2,6 @@
 
 import logging
 import numbers
-import os
 import sys
 import threading
 import traceback
@@ -24,15 +23,12 @@ __all__ = (
     "get_logger",
     "get_task_logger",
     "mlevel",
-    "get_multiprocessing_logger",
-    "reset_multiprocessing_logger",
     "LOG_LEVELS",
 )
 
 _process_aware = False
 _in_sighandler = False
 
-MP_LOG = os.environ.get("MP_LOG", False)
 
 RESERVED_LOGGER_NAMES = {"celery", "celery.task"}
 
@@ -265,21 +261,6 @@ class LoggingProxy:
     def isatty(self):
         """Here for file support."""
         return False
-
-
-def get_multiprocessing_logger():
-    """Return the multiprocessing logger.
-
-    Not used in asyncio mode.
-    """
-    return
-
-
-def reset_multiprocessing_logger():
-    """Reset multiprocessing logging setup.
-
-    In asyncio mode, this is a no-op.
-    """
 
 
 def current_process():

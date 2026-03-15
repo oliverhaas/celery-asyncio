@@ -317,8 +317,6 @@ class AsyncResult(ResultBase):
             on_message=on_message,
         )
 
-    wait = get  # deprecated alias to :meth:`get`.
-
     def _maybe_reraise_parent_error(self):
         for node in reversed(list(self._parents())):
             node.maybe_throw()
@@ -517,8 +515,6 @@ class AsyncResult(ResultBase):
         if callback is not None:
             callback(self.id, value)
         return value
-
-    maybe_reraise = maybe_throw  # XXX compat alias
 
     def _to_remote_traceback(self, tb):
         if tb and tblib is not None and self.app.conf.task_remote_tracebacks:
@@ -788,8 +784,6 @@ class ResultSet(ResultBase):
     def maybe_throw(self, callback=None, propagate=True):
         for result in self.results:
             result.maybe_throw(callback=callback, propagate=propagate)
-
-    maybe_reraise = maybe_throw  # XXX compat alias.
 
     def waiting(self):
         """Return true if any of the tasks are incomplete.
@@ -1330,8 +1324,6 @@ class GroupResult(ResultSet):
     def __bool__(self):
         return bool(self.id or self.results)
 
-    __nonzero__ = __bool__  # Included for Py2 backwards compatibility
-
     def __eq__(self, other):
         if isinstance(other, GroupResult):
             return other.id == self.id and other.results == self.results and other.parent == self.parent
@@ -1409,8 +1401,6 @@ class EagerResult(AsyncResult):
             if propagate:
                 raise self.result if isinstance(self.result, Exception) else Exception(self.result)
             return self.result
-
-    wait = get  # XXX Compat (remove 5.0)
 
     def forget(self):
         pass

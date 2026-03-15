@@ -323,12 +323,6 @@ class test_WorkController(ConsumerCase):
         worker.blueprint.state = TERMINATE
         await worker.terminate()
 
-    def test_Pool_pool_no_sem(self):
-        w = Mock()
-        w.pool_cls.uses_semaphore = False
-        components.Pool(w).create(w)
-        assert w.process_task is w._process_task
-
     async def test_wait_for_soft_shutdown(self):
         worker = self.worker
         worker.app.conf.worker_soft_shutdown_timeout = 10

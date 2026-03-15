@@ -10,11 +10,6 @@ import pytest
 
 import tests.skip
 from celery import platforms
-
-try:
-    from celery import _find_option_with_arg
-except ImportError:
-    _find_option_with_arg = None
 from celery.exceptions import SecurityError, SecurityWarning
 from celery.platforms import (
     ASSUMING_ROOT,
@@ -52,15 +47,6 @@ def test_isatty():
     assert isatty(fh) is fh.isatty()
     fh.isatty.side_effect = AttributeError()
     assert not isatty(fh)
-
-
-@pytest.mark.skipif(_find_option_with_arg is None, reason="_find_option_with_arg removed")
-class test_find_option_with_arg:
-    def test_long_opt(self):
-        assert _find_option_with_arg(["--foo=bar"], long_opts=["--foo"]) == "bar"
-
-    def test_short_opt(self):
-        assert _find_option_with_arg(["-f", "bar"], short_opts=["-f"]) == "bar"
 
 
 @tests.skip.if_win32

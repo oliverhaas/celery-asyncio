@@ -64,24 +64,17 @@ class BasePool:
     #: a signal handler.
     signal_safe = True
 
-    #: set to true if pool uses greenlets.
-    is_green = False
-
     _state = None
     _pool = None
     _does_debug = True
 
-    #: only used by multiprocessing pool
-    uses_semaphore = False
-
     task_join_will_block = True
     body_can_be_buffer = False
 
-    def __init__(self, limit=None, putlocks=True, forking_enable=True, callbacks_propagate=(), app=None, **options):
+    def __init__(self, limit=None, putlocks=True, callbacks_propagate=(), app=None, **options):
         self.limit = limit
         self.putlocks = putlocks
         self.options = options
-        self.forking_enable = forking_enable
         self.callbacks_propagate = callbacks_propagate
         self.app = app
 

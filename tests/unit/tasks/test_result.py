@@ -949,15 +949,15 @@ class test_EagerResult:
 
         self.raising = raising
 
-    def test_wait_raises(self):
+    def test_get_raises(self):
         res = self.raising.apply(args=[3, 3])
         with pytest.raises(KeyError):
-            res.wait()
-        assert res.wait(propagate=False)
+            res.get()
+        assert res.get(propagate=False)
 
-    def test_wait(self):
+    def test_get(self):
         res = EagerResult("x", "x", states.RETRY)
-        res.wait()
+        res.get()
         assert res.state == states.RETRY
         assert res.status == states.RETRY
 

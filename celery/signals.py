@@ -29,7 +29,6 @@ __all__ = (
     "celeryd_init",
     "celeryd_after_setup",
     "worker_init",
-    "worker_before_create_process",
     "worker_process_init",
     "worker_process_shutdown",
     "worker_ready",
@@ -123,7 +122,6 @@ celeryd_after_setup = Signal(
 # - Worker
 import_modules = Signal(name="import_modules")
 worker_init = Signal(name="worker_init")
-worker_before_create_process = Signal(name="worker_before_create_process")
 worker_process_init = Signal(name="worker_process_init")
 worker_process_shutdown = Signal(name="worker_process_shutdown")
 worker_ready = Signal(name="worker_ready")

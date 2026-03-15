@@ -24,16 +24,12 @@ from celery.utils.log import (
     ColorFormatter,
     LoggingProxy,
     get_logger,
-    get_multiprocessing_logger,
     mlevel,
-    reset_multiprocessing_logger,
 )
 from celery.utils.nodenames import node_format
 from celery.utils.term import colored
 
 __all__ = ("TaskFormatter", "Logging")
-
-MP_LOG = os.environ.get("MP_LOG", False)
 
 
 class TaskFormatter(ColorFormatter):
@@ -107,7 +103,6 @@ class Logging:
         loglevel = mlevel(loglevel or self.loglevel)
         format = format or self.format
         colorize = self.supports_color(colorize, logfile)
-        reset_multiprocessing_logger()
         receivers = signals.setup_logging.send(
             sender=None,
             loglevel=loglevel,
@@ -128,11 +123,6 @@ class Logging:
             # Configure root logger
             self._configure_logger(root, logfile, loglevel, format, colorize, **kwargs)
 
-            # Configure the multiprocessing logger
-            self._configure_logger(
-                get_multiprocessing_logger(), logfile, loglevel if MP_LOG else logging.ERROR, format, colorize, **kwargs
-            )
-
             signals.after_setup_logger.send(
                 sender=None,
                 logger=root,
@@ -152,10 +142,6 @@ class Logging:
         else:
             set_default_encoding_file(stream)
 
-        # This is a hack for multiprocessing's fork+exec, so that
-        # logging before Process.run works.
-        logfile_name = logfile if isinstance(logfile, str) else ""
-        os.environ.update(_MP_FORK_LOGLEVEL_=str(loglevel), _MP_FORK_LOGFILE_=logfile_name, _MP_FORK_LOGFORMAT_=format)
         return receivers
 
     def _configure_logger(self, logger, logfile, loglevel, format, colorize, **kwargs):

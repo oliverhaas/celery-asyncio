@@ -118,21 +118,6 @@ def isolated_cli_runner():
         yield runner
 
 
-@pytest.fixture(autouse=True, scope="session")
-def AAA_disable_multiprocessing():
-    # pytest-cov breaks if a multiprocessing.Process is started,
-    # so disable them completely to make sure it doesn't happen.
-    stuff = [
-        "multiprocessing.Process",
-    ]
-    ctxs = [patch(s) for s in stuff]
-    [ctx.__enter__() for ctx in ctxs]
-
-    yield
-
-    [ctx.__exit__(*sys.exc_info()) for ctx in ctxs]
-
-
 def alive_threads():
     return [
         thread
@@ -164,12 +149,6 @@ def record_threads_at_startup(request):
         request.session._threads_at_startup
     except AttributeError:
         request.session._threads_at_startup = alive_threads()
-
-
-@pytest.fixture(autouse=True)
-def threads_not_lingering(request):
-    yield
-    # Thread check disabled - asyncio pool manages its own threads
 
 
 @pytest.fixture(autouse=True)
@@ -272,17 +251,7 @@ def setup_session(scope="session"):
 
 
 def teardown():
-    # Don't want SUBDEBUG log messages at finalization.
-    try:
-        from multiprocessing.util import get_logger
-    except ImportError:
-        pass
-    else:
-        get_logger().setLevel(logging.WARNING)
-
     # Make sure test database is removed.
-    import os
-
     if os.path.exists("test.db"):
         try:
             os.remove("test.db")
