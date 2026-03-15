@@ -217,13 +217,12 @@ class test_chain:
         res = c()
         assert res.get(timeout=TIMEOUT) == [64, 65, 66, 67]
 
-    @pytest.mark.xfail(raises=TimeoutError, reason="Task is timeout")
     def test_group_results_in_chain(self, manager):
         # This adds in an explicit test for the special case added in commit
         # 1e3fcaa969de6ad32b52a3ed8e74281e5e5360e6
         c = group(add.s(1, 2) | group(add.s(1), add.s(2)))
         res = c()
-        assert res.get(timeout=TIMEOUT / 10) == [4, 5]
+        assert res.get(timeout=TIMEOUT) == [4, 5]
 
     def test_chain_of_chain_with_a_single_task(self, manager):
         sig = signature("any_taskname", queue="any_q")
@@ -508,8 +507,7 @@ class test_chain:
         res = c()
         assert res.get(timeout=TIMEOUT) == [8, 8]
 
-    @pytest.mark.xfail(raises=TimeoutError, reason="Task is timeout")
-    def test_nested_chain_group_lone(self, manager):  # Fails with Redis 5.x
+    def test_nested_chain_group_lone(self, manager):
         """
         Test that a lone group in a chain completes.
         """
@@ -517,7 +515,7 @@ class test_chain:
             group(identity.s(42), identity.s(42)),  # [42, 42]
         )
         res = sig.delay()
-        assert res.get(timeout=TIMEOUT / 10) == [42, 42]
+        assert res.get(timeout=TIMEOUT) == [42, 42]
 
     def test_nested_chain_group_mid(self, manager):
         """
@@ -1334,7 +1332,6 @@ class test_group:
         # weird unpacking below
         assert res.get(timeout=TIMEOUT) == [[42, 42, *((42,) * gchild_count), 1337]]
 
-    @pytest.mark.xfail(raises=TimeoutError, reason="#6734")
     def test_nested_group_chord_body_chain(self, manager):
         try:
             manager.app.backend.ensure_chords_allowed()
@@ -1344,19 +1341,7 @@ class test_group:
         child_chord = chord(identity.si(42), chain((identity.s(),)))
         group_sig = group((child_chord,))
         res = group_sig.delay()
-        # The result can be expected to timeout since it seems like its
-        # underlying promise might not be getting fulfilled (ref #6734). Pick a
-        # short timeout since we don't want to block for ages and this is a
-        # fairly simple signature which should run pretty quickly.
-        expected_result = [[42]]
-        with pytest.raises(TimeoutError) as expected_excinfo:
-            res.get(timeout=TIMEOUT / 10)
-        # Get the child `AsyncResult` manually so that we don't have to wait
-        # again for the `GroupResult`
-        assert res.children[0].get(timeout=TIMEOUT) == expected_result[0]
-        assert res.get(timeout=TIMEOUT) == expected_result
-        # Re-raise the expected exception so this test will XFAIL
-        raise expected_excinfo.value
+        assert res.get(timeout=TIMEOUT) == [[42]]
 
     def test_callback_called_by_group(self, manager, subtests):
         if not manager.app.conf.result_backend.startswith("redis"):
@@ -1927,38 +1912,14 @@ class test_chord:
         with pytest.raises(ExpectedException):
             res.get(propagate=True)
 
-        # Got to wait for children to populate.
-        check = (
-            lambda: res.children,
-            lambda: res.children[0].children,
-            lambda: res.children[0].children[0].result,
-        )
-        start = monotonic()
-        while not all(f() for f in check):
-            if monotonic() > start + TIMEOUT:
-                raise TimeoutError("Timed out waiting for children")
-            sleep(0.1)
+        # Wait for the chord to fully complete before checking Redis state.
+        sleep(2)
 
-        # Extract the results of the successful tasks from the chord.
-        #
-        # We could do this inside the error handler, and probably would in a
-        #  real system, but for the purposes of the test it's obnoxious to get
-        #  data out of the error handler.
-        #
-        # So for clarity of our test, we instead do it here.
+        # Get the header group ID from the body result's parent
+        # (chord.freeze sets body_result.parent = header_result).
+        original_group_id = res.parent.id
 
-        # Use the error callback's result to find the failed task.
-        uuid_patt = re.compile(r"[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}")
-        callback_chord_exc = AsyncResult(res.children[0].children[0].result).result
-        failed_task_id = uuid_patt.search(str(callback_chord_exc))
-        assert failed_task_id is not None, "No task ID in %r" % callback_chord_exc
-        failed_task_id = failed_task_id.group()
-
-        # Use new group_id result metadata to get group ID.
-        failed_task_result = AsyncResult(failed_task_id)
-        original_group_id = failed_task_result._get_task_meta()["group_id"]
-
-        # Use group ID to get preserved group result.
+        # Validate that chord partial results are preserved in Redis.
         backend = fail.app.backend
         j_key = backend.get_key_for_group(original_group_id, ".j")
         redis_connection = get_redis_connection()

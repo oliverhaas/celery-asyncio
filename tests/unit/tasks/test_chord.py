@@ -103,7 +103,8 @@ class test_unlock_chord_task(ChordCase):
         with self._chord_context(AlwaysReady, setup) as (cb, retry, fail):
             fail.assert_called()
             assert fail.call_args[0][0] == cb.id
-            assert isinstance(fail.call_args[1]["exc"], ChordError)
+            # chord_error_from_stack unwraps ChordError to the original exception
+            assert isinstance(fail.call_args[1]["exc"], OSError)
 
     def test_unlock_ready_failed(self):
 
@@ -117,8 +118,9 @@ class test_unlock_chord_task(ChordCase):
             assert not retry.call_count
             fail_current.assert_called()
             assert fail_current.call_args[0][0] == cb.id
-            assert isinstance(fail_current.call_args[1]["exc"], ChordError)
-            assert "some_id" in str(fail_current.call_args[1]["exc"])
+            # chord_error_from_stack unwraps ChordError to the original exception
+            assert isinstance(fail_current.call_args[1]["exc"], KeyError)
+            assert "foo" in str(fail_current.call_args[1]["exc"])
 
     def test_unlock_ready_failed_no_culprit(self):
         class Failed(TSRNoReport):
@@ -128,7 +130,8 @@ class test_unlock_chord_task(ChordCase):
         with self._chord_context(Failed) as (cb, retry, fail_current):
             fail_current.assert_called()
             assert fail_current.call_args[0][0] == cb.id
-            assert isinstance(fail_current.call_args[1]["exc"], ChordError)
+            # chord_error_from_stack unwraps ChordError to the original exception
+            assert isinstance(fail_current.call_args[1]["exc"], KeyError)
 
     @contextmanager
     def _chord_context(self, ResultCls, setup=None, **kwargs):

@@ -62,6 +62,8 @@ class AsyncBackendMixin:
 
     def iter_native(self, result, timeout=None, interval=None, no_ack=True, on_message=None, on_interval=None, **kwargs):
         """Iterate over task results using MGET polling."""
+        from celery.result import ResultSet
+
         self._ensure_not_eager()
         results = result.results
         if not results:
@@ -70,10 +72,13 @@ class AsyncBackendMixin:
         poll = self._poll_interval(timeout)
         time_start = time.monotonic()
 
-        # Yield already-cached results immediately
+        # Yield already-cached results and handle GroupResult/ResultSet
+        # members immediately (they don't have individual task keys).
         remaining = {}
         for r in results:
-            if hasattr(r, "_cache") and r._cache:
+            if isinstance(r, ResultSet):
+                yield r.id, r.results
+            elif hasattr(r, "_cache") and r._cache:
                 yield r.id, r._cache
             else:
                 remaining[r.id] = r

@@ -1302,7 +1302,8 @@ class test_KeyValueStoreBackend:
             self.b.fail_from_current_stack.assert_called()
             args = self.b.fail_from_current_stack.call_args
             exc = args[1]["exc"]
-            assert isinstance(exc, ChordError)
+            # chord_error_from_stack unwraps ChordError to the original exception
+            assert isinstance(exc, KeyError)
             assert "foo" in str(exc)
 
     def test_chord_part_return_join_raises_task(self):
@@ -1318,8 +1319,9 @@ class test_KeyValueStoreBackend:
             b.fail_from_current_stack.assert_called()
             args = b.fail_from_current_stack.call_args
             exc = args[1]["exc"]
-            assert isinstance(exc, ChordError)
-            assert "Dependency culprit raised" in str(exc)
+            # chord_error_from_stack unwraps ChordError to the original exception
+            assert isinstance(exc, KeyError)
+            assert "foo" in str(exc)
 
     def test_restore_group_from_json(self):
         b = KVBackend(serializer="json", app=self.app)

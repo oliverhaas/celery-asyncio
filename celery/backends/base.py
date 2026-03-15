@@ -318,6 +318,15 @@ class Backend:
     def chord_error_from_stack(self, callback, exc=None):
         app = self.app
 
+        # Extract original exception from ChordError wrapper so that
+        # errbacks and fail_from_current_stack store the real exception,
+        # not the ChordError wrapper.  This matches what
+        # _handle_group_chord_error already does for group callbacks.
+        if isinstance(exc, ChordError) and exc.__cause__:
+            original_exc = exc.__cause__
+        else:
+            original_exc = exc
+
         try:
             backend = app._tasks[callback.task].backend
         except KeyError:
@@ -325,7 +334,7 @@ class Backend:
 
         # Handle group callbacks specially to prevent hanging body tasks
         if isinstance(callback, group):
-            return self._handle_group_chord_error(group_callback=callback, backend=backend, exc=exc)
+            return self._handle_group_chord_error(group_callback=callback, backend=backend, exc=original_exc)
         # We have to make a fake request since either the callback failed or
         # we're pretending it did since we don't have information about the
         # chord part(s) which failed. This request is constructed as a best
@@ -335,11 +344,11 @@ class Backend:
             task_id=callback.options.get("task_id"), errbacks=callback.options.get("link_error", []), **callback
         )
         try:
-            self._call_task_errbacks(fake_request, exc, None)
+            self._call_task_errbacks(fake_request, original_exc, None)
         except Exception as eb_exc:  # pylint: disable=broad-except
             return backend.fail_from_current_stack(callback.id, exc=eb_exc)
         else:
-            return backend.fail_from_current_stack(callback.id, exc=exc)
+            return backend.fail_from_current_stack(callback.id, exc=original_exc)
 
     def _handle_group_chord_error(self, group_callback, backend, exc=None):
         """Handle chord errors when the callback is a group.
