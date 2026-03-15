@@ -14,7 +14,7 @@ Initial alpha of celery-asyncio.
 - Task events and Celery Flower monitoring
 - Worker restart (max tasks, max memory, stuck threads)
 - Task timeouts (soft and hard, async and sync)
-- Django 6.0 Tasks backend (`CeleryBackend`)
+- Django 6.0 Tasks support via [django-tasks-celery](https://github.com/oliverhaas/django-tasks-celery)
 - Delayed/scheduled tasks (countdown, eta)
 - Task priority
 - Task retries

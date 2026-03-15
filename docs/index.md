@@ -12,7 +12,7 @@ This project is **exploratory**. It is not affiliated with or endorsed by the Ce
 - **Valkey/Redis and AMQP transports** via [kombu-asyncio](https://github.com/oliverhaas/kombu-asyncio)
 - **Full CLI compatibility** with upstream Celery (`celery -A app worker`, `celery inspect`, etc.)
 - **Celery Flower** works out of the box for monitoring
-- **Django 6.0 Tasks** integration via `CeleryBackend`
+- **Django 6.0 Tasks** support via [django-tasks-celery](https://github.com/oliverhaas/django-tasks-celery)
 - **Targeting Python 3.14t** free-threading for true parallelism
 
 ## Quick example
