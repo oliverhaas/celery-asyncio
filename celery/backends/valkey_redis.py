@@ -537,7 +537,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                         resl = [unpack(tup, decode) for tup in resl]
                     try:
                         callback.delay(resl)
-                    except Exception as exc:  # pylint: disable=broad-except
+                    except Exception as exc:
                         logger.exception("Chord callback for %r raised: %r", request.group, exc)
                         return self.chord_error_from_stack(
                             callback,
@@ -549,7 +549,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
             except ChordError as exc:
                 logger.exception("Chord %r raised: %r", request.group, exc)
                 return self.chord_error_from_stack(callback, exc)
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 logger.exception("Chord %r raised: %r", request.group, exc)
                 return self.chord_error_from_stack(
                     callback,

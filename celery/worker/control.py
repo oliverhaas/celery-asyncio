@@ -163,7 +163,6 @@ def revoke(state, task_id, terminate=False, signal=None, **kwargs):
         terminate (bool): Also terminate the process if the task is active.
         signal (str): Name of signal to use for terminate (e.g., ``KILL``).
     """
-    # pylint: disable=redefined-outer-name
     # XXX Note that this redefines `terminate`:
     #     Outside of this scope that is a function.
     # supports list argument since 3.1
@@ -189,7 +188,6 @@ def revoke_by_stamped_headers(state, headers, terminate=False, signal=None, **kw
     Sample headers input:
         {'mtask_id': [id1, id2, id3]}
     """
-    # pylint: disable=redefined-outer-name
     # XXX Note that this redefines `terminate`:
     #     Outside of this scope that is a function.
     # supports list argument since 3.1
@@ -276,7 +274,6 @@ def rate_limit(state, task_name, rate_limit, **kwargs):
         task_name (str): Type of task to set rate limit for.
         rate_limit (int, str): New rate limit.
     """
-    # pylint: disable=redefined-outer-name
     # XXX Note that this redefines `terminate`:
     #     Outside of this scope that is a function.
     try:
@@ -383,7 +380,6 @@ def heartbeat(state):
 @inspect_command(visible=False)
 def hello(state, from_node, revoked=None, **kwargs):
     """Request mingle sync-data."""
-    # pylint: disable=redefined-outer-name
     # XXX Note that this redefines `revoked`:
     #     Outside of this scope that is a function.
     if from_node != state.hostname:

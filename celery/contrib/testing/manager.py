@@ -29,7 +29,6 @@ class ManagerMixin:
     """Mixin that adds :class:`Manager` capabilities."""
 
     def _init_manager(self, block_timeout=30 * 60.0, no_join=False, stdout=None, stderr=None):
-        # type: (float, bool, TextIO, TextIO) -> None
         self.stdout = sys.stdout if stdout is None else stdout
         self.stderr = sys.stderr if stderr is None else stderr
         self.connerrors = self.app.connection().connection_errors
@@ -37,29 +36,26 @@ class ManagerMixin:
         self.no_join = no_join
 
     def remark(self, s, sep="-"):
-        # type: (str, str) -> None
         print(f"{sep}{s}", file=self.stdout)
 
     def missing_results(self, r):
-        # type: (Sequence[AsyncResult]) -> Sequence[str]
         return [res.id for res in r if res.id not in res.backend._cache]
 
     def wait_for(
         self,
-        fun,  # type: Callable
-        catch,  # type: Sequence[Any]
-        desc="thing",  # type: str
-        args=(),  # type: Tuple
-        kwargs=None,  # type: Dict
-        errback=None,  # type: Callable
-        max_retries=10,  # type: int
-        interval_start=0.1,  # type: float
-        interval_step=0.5,  # type: float
-        interval_max=5.0,  # type: float
-        emit_warning=False,  # type: bool
-        **options,  # type: Any
+        fun,
+        catch,
+        desc="thing",
+        args=(),
+        kwargs=None,
+        errback=None,
+        max_retries=10,
+        interval_start=0.1,
+        interval_step=0.5,
+        interval_max=5.0,
+        emit_warning=False,
+        **options,
     ):
-        # type: (...) -> Any
         """Wait for event to happen.
 
         The `catch` argument specifies the exception that means the event

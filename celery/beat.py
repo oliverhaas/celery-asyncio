@@ -137,8 +137,6 @@ class ScheduleEntry:
     def default_now(self):
         return self.schedule.now() if self.schedule else self.app.now()
 
-    _default_now = default_now  # compat
-
     def _next_instance(self, last_run_at=None):
         """Return new instance, with date and count fields updated."""
         return self.__class__(
@@ -149,7 +147,7 @@ class ScheduleEntry:
             )
         )
 
-    __next__ = next = _next_instance  # for 2to3
+    __next__ = _next_instance
 
     def __reduce__(self):
         return self.__class__, (
@@ -287,7 +285,7 @@ class Scheduler:
         info("Scheduler: Sending due task %s (%s)", entry.name, entry.task)
         try:
             result = self.apply_async(entry, producer=producer, advance=False)
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             error("Message Error: %s\n%s", exc, traceback.format_stack(), exc_info=True)
         else:
             if result and hasattr(result, "id"):
@@ -320,7 +318,6 @@ class Scheduler:
             self._heap.append(event_t(self._when(entry, 0 if is_due else next_call_delay) or 0, priority, entry))
         heapify(self._heap)
 
-    # pylint disable=redefined-outer-name
     def tick(self, event_t=event_t, min=min, heappop=heapq.heappop, heappush=heapq.heappush):
         """Run a tick - one iteration of the scheduler.
 
@@ -397,7 +394,7 @@ class Scheduler:
                 return task.apply_async(entry_args, entry_kwargs, producer=producer, **entry.options)
             else:
                 return self.send_task(entry.task, entry_args, entry_kwargs, producer=producer, **entry.options)
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             reraise(
                 SchedulingError,
                 SchedulingError(f"Couldn't apply scheduled task {entry.name}: {exc}"),
@@ -522,7 +519,7 @@ class PersistentScheduler(Scheduler):
             # successfully opened but the error will be raised on first key
             # retrieving.
             self._store.keys()
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             self._store = self._destroy_open_corrupted_schedule(exc)
 
         self._create_schedule()

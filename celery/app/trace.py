@@ -43,9 +43,7 @@ from celery.utils.serialization import get_pickleable_etype, get_pickleable_exce
 # but in the end it only resulted in bad performance and horrible tracebacks,
 # so instead we now use one closure per task class.
 
-# pylint: disable=redefined-outer-name
 # We cache globals and attribute lookups, so disable this warning.
-# pylint: disable=broad-except
 # We know what we're doing...
 
 
@@ -473,8 +471,6 @@ def build_tracer(
         :keyword request: Request dict.
 
     """
-
-    # pylint: disable=too-many-statements
 
     # If the task doesn't define a custom __call__ method
     # we optimize it away by simply calling the run method directly,

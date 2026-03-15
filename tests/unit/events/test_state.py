@@ -40,8 +40,6 @@ class replay:
         except IndexError:
             raise StopIteration()
 
-    next = __next__
-
     def rewind(self):
         self.position = count(0)
         return self

@@ -345,7 +345,7 @@ class Backend:
         )
         try:
             self._call_task_errbacks(fake_request, original_exc, None)
-        except Exception as eb_exc:  # pylint: disable=broad-except
+        except Exception as eb_exc:
             return backend.fail_from_current_stack(callback.id, exc=eb_exc)
         else:
             return backend.fail_from_current_stack(callback.id, exc=original_exc)
@@ -388,14 +388,14 @@ class Backend:
                         # Call error callbacks for this task with original exception
                         try:
                             backend._call_task_errbacks(fake_request, original_exc, None)
-                        except Exception:  # pylint: disable=broad-except
+                        except Exception:
                             # continue on exception to be sure to iter to all the group tasks
                             pass
 
                         # Mark the individual task as failed with original exception
                         backend.fail_from_current_stack(result.id, exc=original_exc)
 
-                    except Exception as task_exc:  # pylint: disable=broad-except
+                    except Exception as task_exc:
                         # Log error but continue with other tasks
                         logger.exception(
                             "Failed to handle chord error for task %s: %r", getattr(result, "id", "unknown"), task_exc
@@ -408,7 +408,7 @@ class Backend:
 
             return None
 
-        except Exception as cleanup_exc:  # pylint: disable=broad-except
+        except Exception as cleanup_exc:
             # Log the error and fall back to single task handling
             logger.exception(
                 "Failed to handle group chord error, falling back to single task handling: %r", cleanup_exc
@@ -1327,7 +1327,7 @@ class BaseKeyValueStoreBackend(Backend):
         key = self.get_key_for_chord(gid)
         try:
             deps = GroupResult.restore(gid, backend=self)
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             callback = maybe_signature(request.chord, app=app)
             logger.exception("Chord %r raised: %r", gid, exc)
             return self.chord_error_from_stack(
@@ -1358,7 +1358,7 @@ class BaseKeyValueStoreBackend(Backend):
             try:
                 with allow_join_result():
                     ret = j(timeout=app.conf.result_chord_join_timeout, propagate=True)
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 try:
                     culprit = next(deps._failed_join_report())
                     reason = f"Dependency {culprit.id} raised {exc!r}"
@@ -1370,7 +1370,7 @@ class BaseKeyValueStoreBackend(Backend):
             else:
                 try:
                     callback.delay(ret)
-                except Exception as exc:  # pylint: disable=broad-except
+                except Exception as exc:
                     logger.exception("Chord %r raised: %r", gid, exc)
                     chord_error = _create_chord_error_with_cause(message=f"Callback error: {exc!r}", original_exc=exc)
                     self.chord_error_from_stack(callback=callback, exc=chord_error)

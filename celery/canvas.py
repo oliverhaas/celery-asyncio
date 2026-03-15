@@ -447,8 +447,6 @@ class Signature(dict):
             # no tasks for chain, etc to find type
             return None
         args, kwargs, options = self._prepare_apply_async(args=args, kwargs=kwargs, route_name=route_name, **options)
-        # pylint: disable=too-many-function-args
-        #   Works on this, as it's a property
         return _apply(args, kwargs, **options)
 
     async def aapply_async(self, args=None, kwargs=None, route_name=None, **options):
@@ -567,8 +565,6 @@ class Signature(dict):
         Returns:
             ~@AsyncResult: promise of future evaluation.
         """
-        # pylint: disable=redefined-outer-name
-        #   XXX chord is also a class in outer scope.
         opts = self.options
         try:
             # if there is already an id for this task, return it
@@ -589,8 +585,6 @@ class Signature(dict):
             opts["chord"] = chord
         if group_index is not None:
             opts["group_index"] = group_index
-        # pylint: disable=too-many-function-args
-        #   Works on this, as it's a property.
         return self.AsyncResult(tid)
 
     _freeze = freeze
@@ -1152,8 +1146,6 @@ class _chain(Signature):
             tuple: (first_task, tasks, results_from_prepare, options) or
                    (None, None, None, None) if nothing to execute.
         """
-        # pylint: disable=redefined-outer-name
-        #   XXX chord is also a class in outer scope.
         args = args or ()
         kwargs = kwargs or []
         app = app or self.app
@@ -1291,8 +1283,6 @@ class _chain(Signature):
     # in order for a chain to be frozen, each of the members of the chain individually needs to be frozen
     # TODO figure out why we are always cloning before freeze
     def freeze(self, _id=None, group_id=None, chord=None, root_id=None, parent_id=None, group_index=None):
-        # pylint: disable=redefined-outer-name
-        #   XXX chord is also a class in outer scope.
         _, results = self._frozen = self.prepare_steps(
             self.args,
             self.kwargs,
@@ -2131,8 +2121,6 @@ class group(Signature):
         Returns:
             generator: A generator for the AsyncResult of the tasks in the group.
         """
-        # pylint: disable=redefined-outer-name
-        #   XXX chord is also a class in outer scope.
         app = app or self.app
         with app.producer_or_acquire(producer) as producer:
             # Iterate through tasks two at a time. If tasks is a generator,
@@ -2190,8 +2178,6 @@ class group(Signature):
 
         Run all the tasks in the group asynchronously using native asyncio.
         """
-        # pylint: disable=redefined-outer-name
-        #   XXX chord is also a class in outer scope.
         app = app or self.app
         results = []
 
@@ -2242,8 +2228,6 @@ class group(Signature):
         Returns:
             tuple: A tuple of the group id, and the AsyncResult of each of the group tasks.
         """
-        # pylint: disable=redefined-outer-name
-        #  XXX chord is also a class in outer scope.
         opts = self.options
         try:
             gid = opts["task_id"]
@@ -2328,8 +2312,6 @@ class group(Signature):
         Yields:
             AsyncResult: The frozen task.
         """
-        # pylint: disable=redefined-outer-name
-        #   XXX chord is also a class in outer scope.
         stack = deque(self.tasks)
         group_index = 0
         while stack:
@@ -2488,8 +2470,6 @@ class _chord(Signature):
         return super().__or__(other)
 
     def freeze(self, _id=None, group_id=None, chord=None, root_id=None, parent_id=None, group_index=None):
-        # pylint: disable=redefined-outer-name
-        #   XXX chord is also a class in outer scope.
         if not isinstance(self.tasks, group):
             self.tasks = group(self.tasks, app=self.app)
         # first freeze all tasks in the header

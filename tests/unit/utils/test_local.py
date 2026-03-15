@@ -59,8 +59,6 @@ class test_Proxy:
             def __bool__(self):
                 return False
 
-            __nonzero__ = __bool__
-
         x = Proxy(X)
         assert not x
 

@@ -101,7 +101,7 @@ def add_unlock_chord_task(app):
                     timeout=app.conf.result_chord_join_timeout,
                     propagate=True,
                 )
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             try:
                 culprit = next(deps._failed_join_report())
                 reason = f"Dependency {culprit.id} raised {exc!r}"
@@ -113,7 +113,7 @@ def add_unlock_chord_task(app):
         else:
             try:
                 callback.delay(ret)
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 logger.exception("Chord %r raised: %r", group_id, exc)
                 chord_error = _create_chord_error_with_cause(message=f"Callback error: {exc!r}", original_exc=exc)
                 app.backend.chord_error_from_stack(callback=callback, exc=chord_error)

@@ -188,7 +188,7 @@ class EventDispatcher:
                     # Use thread-safe scheduling to the main consumer loop.
                     fut = asyncio.run_coroutine_threadsafe(coro, self._event_loop)
                     fut.add_done_callback(self._on_publish_done_future)
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             if not self.buffer_while_offline:
                 raise
             self._outbound_buffer.append((event, routing_key, exc))

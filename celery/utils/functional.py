@@ -208,7 +208,6 @@ class _regen(UserList, list):
     # must be subclass of list so that json can encode.
 
     def __init__(self, it):
-        # pylint: disable=super-init-not-called
         # UserList creates a new list and sets .data, so we don't
         # want to call init here.
         self.__it = it
@@ -350,7 +349,6 @@ def head_from_fun(fun: Callable[..., Any], bound: bool = False) -> str:
     )
     logger.debug(definition)
     namespace = {"__name__": fun.__module__}
-    # pylint: disable=exec-used
     # Tasks are rarely, if ever, created at runtime - exec here is fine.
     exec(definition, namespace)
     result = namespace[name]

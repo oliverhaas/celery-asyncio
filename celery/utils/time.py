@@ -132,7 +132,6 @@ class _Zone:
     def tz_or_local(self, tzinfo: tzinfo | None = None) -> tzinfo:
         """Return either our local timezone or the provided timezone."""
 
-        # pylint: disable=redefined-outer-name
         if tzinfo is None:
             return self.local
         return self.get_timezone(tzinfo)
@@ -396,7 +395,6 @@ class ffwd:
         microsecond=None,
         **kwargs: Any,
     ):
-        # pylint: disable=redefined-outer-name
         # weekday is also a function in outer scope.
         self.year = year
         self.month = month

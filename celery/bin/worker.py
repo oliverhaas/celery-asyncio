@@ -121,7 +121,7 @@ def detach(
                 path = executable
             os.execv(path, [path] + argv)
             return EX_OK
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             if app is None:
                 from celery import current_app
 

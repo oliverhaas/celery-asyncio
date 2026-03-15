@@ -67,7 +67,7 @@ def find_pickleable_exception(exc, loads=pickle.loads, dumps=pickle.dumps):
         try:
             superexc = supercls(*exc_args)
             loads(dumps(superexc))
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             pass
         else:
             return superexc
@@ -99,7 +99,7 @@ def ensure_serializable(items, encoder):
         try:
             encoder(arg)
             safe_exc_args.append(arg)
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             safe_exc_args.append(safe_repr(arg))
     return tuple(safe_exc_args)
 
@@ -160,7 +160,7 @@ def get_pickleable_exception(exc):
     """Make sure exception is pickleable."""
     try:
         pickle.loads(pickle.dumps(exc))
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         pass
     else:
         return exc
@@ -174,7 +174,7 @@ def get_pickleable_etype(cls, loads=pickle.loads, dumps=pickle.dumps):
     """Get pickleable exception type."""
     try:
         loads(dumps(cls))
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         return Exception
     else:
         return cls

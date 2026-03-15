@@ -164,7 +164,7 @@ class ColorFormatter(logging.Formatter):
                     return safe_str(color(msg))
                 except UnicodeDecodeError:  # pragma: no cover
                     return safe_str(msg)  # skip colors
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 prev_msg, record.exc_info, record.msg = (
                     record.msg,
                     1,
@@ -193,7 +193,6 @@ class LoggingProxy:
     _thread = threading.local()
 
     def __init__(self, logger, loglevel=None):
-        # pylint: disable=redefined-outer-name
         # Note that the logger global is redefined here, be careful changing.
         self.logger = logger
         self.loglevel = mlevel(loglevel or self.logger.level or self.loglevel)
@@ -218,7 +217,6 @@ class LoggingProxy:
         return [wrap_handler(h) for h in self.logger.handlers]
 
     def write(self, data):
-        # type: (AnyStr) -> int
         """Write message to logging object."""
         if _in_sighandler:
             safe_data = safe_str(data)
@@ -239,7 +237,6 @@ class LoggingProxy:
         return 0
 
     def writelines(self, sequence):
-        # type: (Sequence[str]) -> None
         """Write list of strings to file.
 
         The sequence can be any iterable object producing strings.

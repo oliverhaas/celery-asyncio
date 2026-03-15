@@ -18,7 +18,6 @@ __all__ = ("default",)
 
 logger = get_logger(__name__)
 
-# pylint: disable=redefined-outer-name
 # We cache globals and attribute lookups, so disable this warning.
 
 
@@ -26,7 +25,7 @@ def hybrid_to_proto2(message, body):
     """Create a fresh protocol 2 message from a hybrid protocol 1/2 message."""
     try:
         args, kwargs = body.get("args", ()), body.get("kwargs", {})
-        kwargs.items  # pylint: disable=pointless-statement
+        kwargs.items
     except KeyError:
         raise InvalidTaskError("Message does not have args/kwargs")
     except AttributeError:
@@ -71,7 +70,7 @@ def proto1_to_proto2(message, body):
     """
     try:
         args, kwargs = body.get("args", ()), body.get("kwargs", {})
-        kwargs.items  # pylint: disable=pointless-statement
+        kwargs.items
     except KeyError:
         raise InvalidTaskError("Message does not have args/kwargs")
     except AttributeError:

@@ -69,7 +69,7 @@ class test_ScheduleEntry:
         assert entry.total_run_count == 0
 
         next_run_at = entry.last_run_at + timedelta(seconds=10)
-        next_entry = entry.next(next_run_at)
+        next_entry = entry._next_instance(next_run_at)
         assert next_entry.last_run_at >= next_run_at
         assert next_entry.total_run_count == 1
 
@@ -82,7 +82,7 @@ class test_ScheduleEntry:
         assert next_time_to_run1 > 9
 
         next_run_at = entry.last_run_at - timedelta(seconds=10)
-        next_entry = entry.next(next_run_at)
+        next_entry = entry._next_instance(next_run_at)
         due2, next_time_to_run2 = next_entry.is_due()
         assert due2
         assert next_time_to_run2 > 9

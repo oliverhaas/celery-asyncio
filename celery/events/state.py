@@ -34,10 +34,7 @@ from celery.utils.log import get_logger
 
 __all__ = ("Worker", "Task", "State", "heartbeat_expires")
 
-# pylint: disable=redefined-outer-name
 # We cache globals and attribute lookups, so disable this warning.
-# pylint: disable=too-many-function-args
-# For some reason pylint thinks ._event is a method, when it's a property.
 
 
 #: The window (in percentage) is added to the workers heartbeat
@@ -507,10 +504,10 @@ class State:
         self._tasks_to_resolve = {}
         self.rebuild_taskheap()
 
-        self.tasks_by_type = CallableDefaultdict(self._tasks_by_type, WeakSet)  # type: Mapping[str, WeakSet[Task]]
+        self.tasks_by_type = CallableDefaultdict(self._tasks_by_type, WeakSet)
         self.tasks_by_type.update(_deserialize_Task_WeakSet_Mapping(tasks_by_type, self.tasks))
 
-        self.tasks_by_worker = CallableDefaultdict(self._tasks_by_worker, WeakSet)  # type: Mapping[str, WeakSet[Task]]
+        self.tasks_by_worker = CallableDefaultdict(self._tasks_by_worker, WeakSet)
         self.tasks_by_worker.update(_deserialize_Task_WeakSet_Mapping(tasks_by_worker, self.tasks))
 
     @cached_property
@@ -578,7 +575,6 @@ class State:
 
     def _create_dispatcher(self):
 
-        # pylint: disable=too-many-statements
         # This code is highly optimized, but not for reusability.
         get_handler = self.handlers.__getitem__
         event_callback = self.event_callback

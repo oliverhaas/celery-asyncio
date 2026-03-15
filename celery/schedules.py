@@ -648,7 +648,6 @@ class crontab(BaseSchedule):
         Returns when the periodic task should run next as a
         :class:`~datetime.timedelta`.
         """
-        # pylint: disable=redefined-outer-name
         # caching global ffwd
         return remaining(*self.remaining_delta(last_run_at, ffwd=ffwd))
 

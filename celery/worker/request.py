@@ -10,9 +10,6 @@ from time import monotonic, time
 from weakref import ref
 
 from celery.exceptions import ExceptionWithTraceback
-
-# Signal name constant - in asyncio mode we use threads not processes
-TERM_SIGNAME = "SIGTERM"
 from kombu.utils.encoding import safe_repr, safe_str
 from kombu.utils.objects import cached_property
 
@@ -41,9 +38,8 @@ from . import state
 
 __all__ = ("Request",)
 
-# pylint: disable=redefined-outer-name
-# We cache globals and attribute lookups, so disable this warning.
-
+# In asyncio mode we use threads not processes, so no SIGKILL.
+TERM_SIGNAME = "SIGTERM"
 
 logger = get_logger(__name__)
 debug, info, warn, error = (logger.debug, logger.info, logger.warning, logger.error)
@@ -422,8 +418,6 @@ class Request:
 
         _, _, embed = self._payload
         request = self._request_dict
-        # pylint: disable=unpacking-non-sequence
-        #    payload is a property, so pylint doesn't think it's a tuple.
         request.update(
             {
                 "loglevel": loglevel,
@@ -754,8 +748,6 @@ class Request:
     def chord(self):
         # used by backend.mark_as_failure when failure is reported
         # by parent process
-        # pylint: disable=unpacking-non-sequence
-        #    payload is a property, so pylint doesn't think it's a tuple.
         _, _, embed = self._payload
         return embed.get("chord")
 
@@ -763,8 +755,6 @@ class Request:
     def errbacks(self):
         # used by backend.mark_as_failure when failure is reported
         # by parent process
-        # pylint: disable=unpacking-non-sequence
-        #    payload is a property, so pylint doesn't think it's a tuple.
         _, _, embed = self._payload
         return embed.get("errbacks")
 
@@ -778,8 +768,6 @@ class Request:
     def _context(self):
         """Context (:class:`~celery.app.task.Context`) of this task."""
         request = self._request_dict
-        # pylint: disable=unpacking-non-sequence
-        #    payload is a property, so pylint doesn't think it's a tuple.
         _, _, embed = self._payload
         request.update(**embed or {})
         return Context(request)
@@ -830,7 +818,6 @@ def create_request_cls(
                 correlation_id=task_id,
             )
             # cannot create weakref to None
-            # pylint: disable=attribute-defined-outside-init
             self._apply_result = maybe(ref, result)
             return result
 

@@ -30,7 +30,5 @@ class Events:
     @contextmanager
     def default_dispatcher(self, hostname=None, enabled=True, buffer_while_offline=False):
         with self.app.amqp.producer_pool.acquire(block=True) as prod:
-            # pylint: disable=too-many-function-args
-            # This is a property pylint...
             with self.Dispatcher(prod.connection, hostname, enabled, prod.channel, buffer_while_offline) as d:
                 yield d

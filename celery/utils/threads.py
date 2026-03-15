@@ -56,7 +56,7 @@ class bgThread(threading.Thread):
             while not shutdown_set():
                 try:
                     body()
-                except Exception as exc:  # pylint: disable=broad-except
+                except Exception as exc:
                     try:
                         self.on_crash("{0!r} crashed: {1!r}", self.name, exc)
                         self._set_stopped()
@@ -198,8 +198,6 @@ class _LocalStack:
         """Push a new item to the stack."""
         rv = getattr(self._local, "stack", None)
         if rv is None:
-            # pylint: disable=assigning-non-slot
-            # This attribute is defined now.
             self._local.stack = rv = []
         rv.append(obj)
         return rv
@@ -315,8 +313,4 @@ class _FastLocalStack(threading.local):
 if USE_FAST_LOCALS:  # pragma: no cover
     LocalStack = _FastLocalStack
 else:  # pragma: no cover
-    # - See #706
-    # since each thread has its own greenlet we can just use those as
-    # identifiers for the context.  If greenlets aren't available we
-    # fall back to the  current thread ident.
     LocalStack = _LocalStack

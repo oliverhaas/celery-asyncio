@@ -38,18 +38,15 @@ class TestWorkController(worker.WorkController):
     __test__ = False
 
     def __init__(self, *args, **kwargs):
-        # type: (*Any, **Any) -> None
         self._on_started = threading.Event()
         super().__init__(*args, **kwargs)
 
     def on_consumer_ready(self, consumer):
-        # type: (celery.worker.consumer.Consumer) -> None
         """Callback called when the Consumer blueprint is fully started."""
         self._on_started.set()
         test_worker_started.send(sender=self.app, worker=self, consumer=consumer)
 
     def ensure_started(self):
-        # type: () -> None
         """Wait for worker to be fully up and running.
 
         Warning:
@@ -61,17 +58,16 @@ class TestWorkController(worker.WorkController):
 
 @contextmanager
 def start_worker(
-    app,  # type: Celery
-    concurrency=1,  # type: int
-    pool="asyncio",  # type: str
-    loglevel=WORKER_LOGLEVEL,  # type: Union[str, int]
-    logfile=None,  # type: str
-    perform_ping_check=True,  # type: bool
-    ping_task_timeout=10.0,  # type: float
-    shutdown_timeout=10.0,  # type: float
-    **kwargs,  # type: Any
+    app,
+    concurrency=1,
+    pool="asyncio",
+    loglevel=WORKER_LOGLEVEL,
+    logfile=None,
+    perform_ping_check=True,
+    ping_task_timeout=10.0,
+    shutdown_timeout=10.0,
+    **kwargs,
 ):
-    # type: (...) -> Iterable
     """Start embedded worker.
 
     Yields:

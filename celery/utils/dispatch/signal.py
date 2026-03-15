@@ -275,7 +275,7 @@ class Signal:  # pragma: no cover
         for receiver in self._live_receivers(sender):
             try:
                 response = receiver(signal=self, sender=sender, **named)
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 if not hasattr(exc, "__traceback__"):
                     exc.__traceback__ = sys.exc_info()[2]
                 logger.exception("Signal handler %r raised: %r", receiver, exc)

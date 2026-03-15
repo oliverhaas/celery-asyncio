@@ -65,7 +65,6 @@ LIT_TUPLE_END_SV = _literal(",)", False, -1)
 
 
 def saferepr(o, maxlen=None, maxlevels=3, seen=None):
-    # type: (Any, int, int, Set) -> str
     """Safe version of :func:`repr`.
 
     Warning:
@@ -77,7 +76,6 @@ def saferepr(o, maxlen=None, maxlevels=3, seen=None):
 
 
 def _chaindict(mapping, LIT_DICT_KVSEP=LIT_DICT_KVSEP, LIT_LIST_SEP=LIT_LIST_SEP):
-    # type: (Dict, _literal, _literal) -> Iterator[Any]
     size = len(mapping)
     for i, (k, v) in enumerate(mapping.items()):
         yield _key(k)
@@ -88,7 +86,6 @@ def _chaindict(mapping, LIT_DICT_KVSEP=LIT_DICT_KVSEP, LIT_LIST_SEP=LIT_LIST_SEP
 
 
 def _chainlist(it, LIT_LIST_SEP=LIT_LIST_SEP):
-    # type: (List) -> Iterator[Any]
     size = len(it)
     for i, v in enumerate(it):
         yield v
@@ -97,12 +94,10 @@ def _chainlist(it, LIT_LIST_SEP=LIT_LIST_SEP):
 
 
 def _repr_empty_set(s):
-    # type: (Set) -> str
     return f"{type(s).__name__}()"
 
 
 def _safetext(val):
-    # type: (AnyStr) -> str
     if isinstance(val, bytes):
         try:
             val.encode("utf-8")
@@ -114,7 +109,6 @@ def _safetext(val):
 
 
 def _format_binary_bytes(val, maxlen, ellipsis="..."):
-    # type: (bytes, int, str) -> str
     if maxlen and len(val) > maxlen:
         # we don't want to copy all the data, just take what we need.
         chunk = memoryview(val)[:maxlen].tobytes()
@@ -127,7 +121,6 @@ def _bytes_prefix(s):
 
 
 def _repr_binary_bytes(val):
-    # type: (bytes) -> str
     try:
         return val.decode("utf-8")
     except UnicodeDecodeError:
@@ -136,7 +129,6 @@ def _repr_binary_bytes(val):
 
 
 def _format_chars(val, maxlen):
-    # type: (AnyStr, int) -> str
     if isinstance(val, bytes):  # pragma: no cover
         return _format_binary_bytes(val, maxlen)
     else:
@@ -144,7 +136,6 @@ def _format_chars(val, maxlen):
 
 
 def _repr(obj):
-    # type: (Any) -> str
     try:
         return repr(obj)
     except Exception as exc:
@@ -153,7 +144,6 @@ def _repr(obj):
 
 
 def _saferepr(o, maxlen=None, maxlevels=3, seen=None):
-    # type: (Any, int, int, Set) -> str
     stack = deque([iter([o])])
     for token, it in reprstream(stack, seen=seen, maxlevels=maxlevels):
         if maxlen is not None and maxlen <= 0:
@@ -181,7 +171,6 @@ def _saferepr(o, maxlen=None, maxlevels=3, seen=None):
 
 
 def _reprseq(val, lit_start, lit_end, builtin_type, chainer):
-    # type: (Sequence, _literal, _literal, Any, Any) -> Tuple[Any, ...]
     if type(val) is builtin_type:
         return lit_start, lit_end, chainer(val)
     return (

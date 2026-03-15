@@ -10,18 +10,17 @@ from celery.canvas import Signature  # noqa
 
 
 def TaskMessage(
-    name,  # type: str
-    id=None,  # type: str
-    args=(),  # type: Sequence
-    kwargs=None,  # type: Mapping
-    callbacks=None,  # type: Sequence[Signature]
-    errbacks=None,  # type: Sequence[Signature]
-    chain=None,  # type: Sequence[Signature]
-    shadow=None,  # type: str
-    utc=None,  # type: bool
-    **options,  # type: Any
+    name,
+    id=None,
+    args=(),
+    kwargs=None,
+    callbacks=None,
+    errbacks=None,
+    chain=None,
+    shadow=None,
+    utc=None,
+    **options,
 ):
-    # type: (...) -> Any
     """Create task message in protocol 2 format."""
     kwargs = {} if not kwargs else kwargs
     from kombu.serialization import dumps
@@ -46,16 +45,15 @@ def TaskMessage(
 
 
 def TaskMessage1(
-    name,  # type: str
-    id=None,  # type: str
-    args=(),  # type: Sequence
-    kwargs=None,  # type: Mapping
-    callbacks=None,  # type: Sequence[Signature]
-    errbacks=None,  # type: Sequence[Signature]
-    chain=None,  # type: Sequence[Signature]
-    **options,  # type: Any
+    name,
+    id=None,
+    args=(),
+    kwargs=None,
+    callbacks=None,
+    errbacks=None,
+    chain=None,
+    **options,
 ):
-    # type: (...) -> Any
     """Create task message in protocol 1 format."""
     kwargs = {} if not kwargs else kwargs
     from kombu.serialization import dumps
@@ -81,7 +79,6 @@ def TaskMessage1(
 
 
 def task_message_from_sig(app, sig, utc=True, TaskMessage=TaskMessage):
-    # type: (Celery, Signature, bool, Any) -> Any
     """Create task message from :class:`celery.Signature`.
 
     Example:
