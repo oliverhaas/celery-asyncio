@@ -430,6 +430,12 @@ class TaskPool(BasePool):
     ) -> ApplyResult:
         """Run a sync task in the thread pool."""
         app = self.app
+
+        # Shared state so the soft timeout timer can find the thread.
+        soft_state = None
+        if soft_timeout:
+            soft_state = {"thread_id": None, "ready": threading.Event()}
+
         f = self._executor.submit(
             self._run_in_thread,
             app,
@@ -438,14 +444,55 @@ class TaskPool(BasePool):
             kwargs,
             callback,
             accept_callback,
+            soft_state,
         )
         self._active_futures.add(f)
         f.add_done_callback(self._active_futures.discard)
+
+        if soft_timeout and soft_state is not None:
+            self._schedule_sync_soft_timeout(f, soft_state, soft_timeout)
 
         if timeout:
             self._schedule_sync_timeout(f, timeout, timeout_callback)
 
         return ApplyResult(f)
+
+    def _schedule_sync_soft_timeout(
+        self,
+        future: Future,
+        soft_state: dict,
+        soft_timeout: float,
+    ) -> None:
+        """Schedule a soft timeout for a sync task running in a thread.
+
+        Uses PyThreadState_SetAsyncExc to inject SoftTimeLimitExceeded
+        into the worker thread.  The exception is delivered at the next
+        bytecode boundary after the current blocking call (e.g.
+        time.sleep) returns.
+        """
+        import ctypes
+
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        def _fire():
+            if future.done():
+                return
+            # Wait for the thread to register its ID.
+            if not soft_state["ready"].wait(timeout=2.0):
+                return
+            thread_id = soft_state["thread_id"]
+            if thread_id is None or future.done():
+                return
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                ctypes.c_ulong(thread_id),
+                ctypes.py_object(SoftTimeLimitExceeded),
+            )
+
+        timer = threading.Timer(soft_timeout, _fire)
+        timer.daemon = True
+        timer.start()
+        # Cancel the timer if the task finishes before soft timeout.
+        future.add_done_callback(lambda _: timer.cancel())
 
     def _schedule_sync_timeout(
         self,
