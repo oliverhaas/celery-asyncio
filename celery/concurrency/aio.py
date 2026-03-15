@@ -12,6 +12,7 @@ This is the default pool for celery-asyncio workers.
 """
 
 import asyncio
+import inspect
 import os
 import threading
 import time
@@ -213,7 +214,7 @@ class TaskPool(BasePool):
             task_name = args[0]
             try:
                 task = self.app.tasks[task_name]
-                return asyncio.iscoroutinefunction(task.run)
+                return inspect.iscoroutinefunction(task.run)
             except KeyError, AttributeError:
                 pass
         return False
@@ -526,9 +527,13 @@ class TaskPool(BasePool):
         kwargs: dict,
         callback: Callable | None,
         accept_callback: Callable | None,
+        soft_state: dict | None = None,
     ) -> Any:
         """Execute apply_target with the correct app context."""
         app.set_current()
+        if soft_state is not None:
+            soft_state["thread_id"] = threading.get_ident()
+            soft_state["ready"].set()
         return apply_target(target, args, kwargs, callback, accept_callback)
 
     def _get_info(self) -> dict[str, Any]:
