@@ -1,6 +1,6 @@
-"""Memcached and in-memory cache result backend."""
+"""In-memory cache result backend."""
 
-from kombu.utils.encoding import bytes_to_str, ensure_bytes
+from kombu.utils.encoding import ensure_bytes
 from kombu.utils.objects import cached_property
 
 from celery.exceptions import ImproperlyConfigured
@@ -10,12 +10,6 @@ from .base import KeyValueStoreBackend
 
 __all__ = ("CacheBackend",)
 
-_imp = [None]
-
-REQUIRES_BACKEND = """\
-The Memcached backend requires either pylibmc or python-memcached.\
-"""
-
 UNKNOWN_BACKEND = """\
 The cache backend {0!r} is unknown,
 Please use one of the following backends instead: {1}\
@@ -24,35 +18,6 @@ Please use one of the following backends instead: {1}\
 # Global shared in-memory cache for in-memory cache client
 # This is to share cache between threads
 _DUMMY_CLIENT_CACHE = LRUCache(limit=5000)
-
-
-def import_best_memcache():
-    if _imp[0] is None:
-        is_pylibmc, memcache_key_t = False, bytes_to_str
-        try:
-            import pylibmc as memcache
-
-            is_pylibmc = True
-        except ImportError:
-            try:
-                import memcache
-            except ImportError:
-                raise ImproperlyConfigured(REQUIRES_BACKEND)
-        _imp[0] = (is_pylibmc, memcache, memcache_key_t)
-    return _imp[0]
-
-
-def get_best_memcache(*args, **kwargs):
-    is_pylibmc, memcache, key_t = import_best_memcache()
-    Client = _Client = memcache.Client
-
-    if not is_pylibmc:
-
-        def Client(*args, **kwargs):
-            kwargs.pop("behaviors", None)
-            return _Client(*args, **kwargs)
-
-    return Client, key_t
 
 
 class DummyClient:
@@ -80,9 +45,6 @@ class DummyClient:
 
 
 backends = {
-    "memcache": get_best_memcache,
-    "memcached": get_best_memcache,
-    "pylibmc": get_best_memcache,
     "memory": lambda: (DummyClient, ensure_bytes),
 }
 

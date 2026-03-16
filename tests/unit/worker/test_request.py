@@ -21,7 +21,7 @@ from celery.app.trace import (
     trace_task,
     trace_task_ret,
 )
-from celery.backends.base import BaseDictBackend
+from celery.backends.base import BaseBackend
 from celery.exceptions import (
     ExceptionInfo,
     Ignore,
@@ -584,7 +584,7 @@ class test_Request(RequestCase):
             job.revoked()
             assert job.id in revoked
             self.app.set_current()
-            assert self.mytask.backend.get_status(job.id) == states.REVOKED
+            assert self.mytask.backend.get_state(job.id) == states.REVOKED
 
     def test_revoked_expires_not_expired(self):
         job = self.xRequest(
@@ -592,7 +592,7 @@ class test_Request(RequestCase):
         )
         job.revoked()
         assert job.id not in revoked
-        assert self.mytask.backend.get_status(job.id) != states.REVOKED
+        assert self.mytask.backend.get_state(job.id) != states.REVOKED
 
     def test_revoked_expires_ignore_result(self):
         self.mytask.ignore_result = True
@@ -601,7 +601,7 @@ class test_Request(RequestCase):
         )
         job.revoked()
         assert job.id in revoked
-        assert self.mytask.backend.get_status(job.id) != states.REVOKED
+        assert self.mytask.backend.get_state(job.id) != states.REVOKED
 
     def test_already_revoked(self):
         job = self.xRequest()
@@ -758,13 +758,13 @@ class test_Request(RequestCase):
         exc_info = get_ei()
         job.on_failure(exc_info)
         self.app.set_current()
-        assert self.mytask.backend.get_status(job.id) == states.FAILURE
+        assert self.mytask.backend.get_state(job.id) == states.FAILURE
 
         self.mytask.ignore_result = True
         exc_info = get_ei()
         job = self.xRequest()
         job.on_failure(exc_info)
-        assert self.mytask.backend.get_status(job.id) == states.PENDING
+        assert self.mytask.backend.get_state(job.id) == states.PENDING
 
     def test_on_failure_acks_late_reject_on_worker_lost_enabled(self):
         try:
@@ -778,13 +778,13 @@ class test_Request(RequestCase):
         job.delivery_info["redelivered"] = False
         job.on_failure(exc_info)
 
-        assert self.mytask.backend.get_status(job.id) == states.PENDING
+        assert self.mytask.backend.get_state(job.id) == states.PENDING
 
         job = self.xRequest()
         job.delivery_info["redelivered"] = True
         job.on_failure(exc_info)
 
-        assert self.mytask.backend.get_status(job.id) == states.PENDING
+        assert self.mytask.backend.get_state(job.id) == states.PENDING
 
     def test_on_failure_acks_late(self):
         job = self.xRequest()
@@ -881,7 +881,7 @@ class test_Request(RequestCase):
         job.task.acks_late = True
         job.on_timeout(soft=False, timeout=1337)
         assert "Hard time limit" in error.call_args[0][0]
-        assert self.mytask.backend.get_status(job.id) == states.FAILURE
+        assert self.mytask.backend.get_state(job.id) == states.FAILURE
         job.acknowledge.assert_called_with()
 
         job = self.xRequest()
@@ -899,7 +899,7 @@ class test_Request(RequestCase):
         job.task.acks_on_failure_or_timeout = True
         job.on_timeout(soft=False, timeout=1337)
         assert "Hard time limit" in error.call_args[0][0]
-        assert self.mytask.backend.get_status(job.id) == states.FAILURE
+        assert self.mytask.backend.get_state(job.id) == states.FAILURE
         job.acknowledge.assert_called_with()
 
         job = self.xRequest()
@@ -908,7 +908,7 @@ class test_Request(RequestCase):
         job.task.acks_on_failure_or_timeout = False
         job.on_timeout(soft=False, timeout=1337)
         assert "Hard time limit" in error.call_args[0][0]
-        assert self.mytask.backend.get_status(job.id) == states.FAILURE
+        assert self.mytask.backend.get_state(job.id) == states.FAILURE
         job.acknowledge.assert_not_called()
 
         job = self.xRequest()
@@ -926,13 +926,13 @@ class test_Request(RequestCase):
         job.task.acks_late = True
         job.on_timeout(soft=True, timeout=1337)
         assert "Soft time limit" in warn.call_args[0][0]
-        assert self.mytask.backend.get_status(job.id) == states.PENDING
+        assert self.mytask.backend.get_state(job.id) == states.PENDING
         job.acknowledge.assert_not_called()
 
         self.mytask.ignore_result = True
         job = self.xRequest()
         job.on_timeout(soft=True, timeout=1336)
-        assert self.mytask.backend.get_status(job.id) == states.PENDING
+        assert self.mytask.backend.get_state(job.id) == states.PENDING
 
     def test_fast_trace_task(self):
         assert self.app.use_fast_trace_task is False
@@ -1038,13 +1038,13 @@ class test_Request(RequestCase):
                     self.mytask.request,
                     store_errors=False,
                 )
-                assert self.mytask.backend.get_status(tid) == states.PENDING
+                assert self.mytask.backend.get_state(tid) == states.PENDING
                 w.handle_retry(
                     self.mytask,
                     self.mytask.request,
                     store_errors=True,
                 )
-                assert self.mytask.backend.get_status(tid) == states.RETRY
+                assert self.mytask.backend.get_state(tid) == states.RETRY
         finally:
             self.mytask.pop_request()
 
@@ -1062,13 +1062,13 @@ class test_Request(RequestCase):
                     self.mytask.request,
                     store_errors=False,
                 )
-                assert self.mytask.backend.get_status(tid) == states.PENDING
+                assert self.mytask.backend.get_state(tid) == states.PENDING
                 w.handle_failure(
                     self.mytask,
                     self.mytask.request,
                     store_errors=True,
                 )
-                assert self.mytask.backend.get_status(tid) == states.FAILURE
+                assert self.mytask.backend.get_state(tid) == states.FAILURE
         finally:
             self.mytask.pop_request()
 
@@ -1123,7 +1123,7 @@ class test_Request(RequestCase):
         job = self.xRequest(id=tid, args=[4], kwargs={})
         job._on_reject = Mock()
         job._on_ack = Mock()
-        self.mytask.backend = BaseDictBackend(app=self.app)
+        self.mytask.backend = BaseBackend(app=self.app)
         self.mytask.backend.mark_as_done = Mock()
         self.mytask.backend.mark_as_done.side_effect = Exception()
         self.mytask.backend.mark_as_failure = Mock()

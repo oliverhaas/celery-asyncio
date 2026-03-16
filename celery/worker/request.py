@@ -327,7 +327,6 @@ class Request:
 
     @property
     def task_id(self):
-        # XXX compat
         return self.id
 
     @task_id.setter
@@ -336,7 +335,6 @@ class Request:
 
     @property
     def task_name(self):
-        # XXX compat
         return self.name
 
     @task_name.setter

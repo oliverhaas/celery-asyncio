@@ -1372,8 +1372,6 @@ class Celery:
         """
         return FallbackContext(connection, self._acquire_connection, pool=pool)
 
-    default_connection = connection_or_acquire  # XXX compat
-
     @contextmanager
     def producer_or_acquire(self, producer=None):
         """No-op context manager for backward compatibility.
@@ -1385,8 +1383,6 @@ class Celery:
         signature handles its own sending).
         """
         yield None
-
-    default_producer = producer_or_acquire  # XXX compat
 
     def prepare_config(self, c):
         """Prepare configuration before it is merged with the defaults."""
@@ -1854,4 +1850,3 @@ class Celery:
         return timezone.get_timezone(conf.timezone)
 
 
-App = Celery  # XXX compat

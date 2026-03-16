@@ -796,8 +796,6 @@ class Task:
                 options.update(delivery_info)
         return self.signature(args, kwargs, options, type=self, **extra_options)
 
-    subtask_from_request = signature_from_request  # XXX compat
-
     def retry(
         self, args=None, kwargs=None, exc=None, throw=True, eta=None, countdown=None, max_retries=None, **options
     ):
@@ -1175,8 +1173,6 @@ class Task:
         starkwargs.setdefault("app", self.app)
         return signature(self, args, *starargs, **starkwargs)
 
-    subtask = signature
-
     def s(self, *args, **kwargs):
         """Create signature.
 
@@ -1479,4 +1475,3 @@ class Task:
         return self.__class__.__name__
 
 
-BaseTask = Task  # XXX compat alias

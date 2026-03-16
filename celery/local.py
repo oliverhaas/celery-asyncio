@@ -231,9 +231,6 @@ class Proxy:
     def __or__(self, other):
         return self._get_current_object() | other
 
-    def __div__(self, other):
-        return self._get_current_object().__div__(other)
-
     def __truediv__(self, other):
         return self._get_current_object().__truediv__(other)
 
@@ -258,17 +255,8 @@ class Proxy:
     def __float__(self):
         return float(self._get_current_object())
 
-    def __oct__(self):
-        return oct(self._get_current_object())
-
-    def __hex__(self):
-        return hex(self._get_current_object())
-
     def __index__(self):
         return self._get_current_object().__index__()
-
-    def __coerce__(self, other):
-        return self._get_current_object().__coerce__(other)
 
     def __enter__(self):
         return self._get_current_object().__enter__()
@@ -364,20 +352,11 @@ def maybe_evaluate(obj):
 # to create old modules at runtime instead of
 # having them litter the source tree.
 
-# import fails in python 2.5. fallback to reduce in stdlib
-
-
 MODULE_DEPRECATED = """
 The module %s is deprecated and will be removed in a future version.
 """
 
 DEFAULT_ATTRS = {"__file__", "__path__", "__doc__", "__all__"}
-
-
-# im_func is no longer available in Py3.
-# instead the unbound method itself can be used.
-def fun_of_method(method):
-    return method
 
 
 def getappattr(path):
@@ -391,29 +370,7 @@ def getappattr(path):
     return current_app._rgetattr(path)
 
 
-COMPAT_MODULES = {
-    "celery": {
-        "execute": {
-            "send_task": "send_task",
-        },
-        "log": {
-            "get_default_logger": "log.get_default_logger",
-            "setup_logging_subsystem": "log.setup_logging_subsystem",
-            "redirect_stdouts_to_logger": "log.redirect_stdouts_to_logger",
-        },
-        "messaging": {
-            "TaskConsumer": "amqp.TaskConsumer",
-            "establish_connection": "connection",
-            "get_consumer_set": "amqp.TaskConsumer",
-        },
-        "registry": {
-            "tasks": "tasks",
-        },
-    },
-}
-
-#: We exclude these from dir(celery)
-DEPRECATED_ATTRS = set(COMPAT_MODULES["celery"].keys()) | {"subtask"}
+COMPAT_MODULES = {}
 
 
 class class_property:
@@ -444,10 +401,6 @@ class class_property:
         return self.__class__(self.__get, setter)
 
 
-def reclassmethod(method):
-    return classmethod(fun_of_method(method))
-
-
 class LazyModule(ModuleType):
     _compat_modules = ()
     _all_by_module = {}
@@ -467,7 +420,7 @@ class LazyModule(ModuleType):
         return ModuleType.__getattribute__(self, name)
 
     def __dir__(self):
-        return [attr for attr in set(self.__all__) | DEFAULT_ATTRS if attr not in DEPRECATED_ATTRS]
+        return list(set(self.__all__) | DEFAULT_ATTRS)
 
     def __reduce__(self):
         return import_module, (self.__name__,)

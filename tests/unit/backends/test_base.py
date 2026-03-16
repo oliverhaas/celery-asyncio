@@ -505,7 +505,7 @@ class test_BaseBackend_dict:
         b._store_result = Mock()
         request = Mock(name="request")
         request.delivery_info = {"is_eager": True}
-        request.errbacks = [self.bound_errback.subtask(args=[1], immutable=True)]
+        request.errbacks = [self.bound_errback.signature(args=[1], immutable=True)]
         exc = KeyError()
         group = self.patching("celery.backends.base.group")
         b.mark_as_failure("id", exc, request=request)
@@ -517,7 +517,7 @@ class test_BaseBackend_dict:
         b._store_result = Mock()
         request = Mock(name="request")
         request.delivery_info = {}
-        request.errbacks = [self.bound_errback.subtask(args=[1], immutable=True)]
+        request.errbacks = [self.bound_errback.signature(args=[1], immutable=True)]
         exc = KeyError()
         group = self.patching("celery.backends.base.group")
         b.mark_as_failure("id", exc, request=request)
@@ -528,7 +528,7 @@ class test_BaseBackend_dict:
         b = BaseBackend(app=self.app)
         b._store_result = Mock()
         request = Mock(name="request")
-        request.errbacks = [self.errback.subtask(args=[2, 3], immutable=True)]
+        request.errbacks = [self.errback.signature(args=[2, 3], immutable=True)]
         exc = KeyError()
         b.mark_as_failure("id", exc, request=request)
         assert self.errback.last_result == 5
@@ -545,7 +545,7 @@ class test_BaseBackend_dict:
         TaskBasedClass = self.app.register_task(TaskBasedClass())
 
         request = Mock(name="request")
-        request.errbacks = [TaskBasedClass.subtask(args=[], immutable=True)]
+        request.errbacks = [TaskBasedClass.signature(args=[], immutable=True)]
         exc = KeyError()
         b.mark_as_failure("id", exc, request=request)
         mock_group.assert_called_once_with(request.errbacks, app=self.app)

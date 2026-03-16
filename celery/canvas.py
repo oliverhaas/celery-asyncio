@@ -2913,8 +2913,6 @@ def signature(varies, *args, **kwargs):
     return Signature(varies, *args, **kwargs)
 
 
-subtask = signature  # XXX compat
-
 
 def maybe_signature(d, app=None, clone=False):
     """Ensure obj is a signature, or None.
@@ -2943,4 +2941,3 @@ def maybe_signature(d, app=None, clone=False):
     return d
 
 
-maybe_subtask = maybe_signature  # XXX compat

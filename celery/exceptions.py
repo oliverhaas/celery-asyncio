@@ -152,8 +152,6 @@ class Retry(TaskPredicate):
         return self.__class__, (self.message, self.exc, self.when)
 
 
-RetryTaskError = Retry  # XXX compat
-
 
 class Ignore(TaskPredicate):
     """A task can raise this to ignore doing state updates."""
@@ -235,8 +233,6 @@ class CDeprecationWarning(DeprecationWarning):
 class WorkerTerminate(SystemExit):
     """Signals that the worker should terminate immediately."""
 
-
-SystemTerminate = WorkerTerminate  # XXX compat
 
 
 class WorkerShutdown(SystemExit):

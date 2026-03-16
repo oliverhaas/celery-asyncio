@@ -20,7 +20,6 @@ __all__ = (
     "default_socket_timeout",
 )
 
-USE_FAST_LOCALS = os.environ.get("USE_FAST_LOCALS")
 
 
 @contextmanager
@@ -292,7 +291,9 @@ class LocalManager:
         return f"<{self.__class__.__name__} storages: {len(self.locals)}>"
 
 
-class _FastLocalStack(threading.local):
+class LocalStack(threading.local):
+    """Thread-local stack."""
+
     def __init__(self):
         self.stack = []
         self.push = self.stack.append
@@ -303,14 +304,8 @@ class _FastLocalStack(threading.local):
     def top(self):
         try:
             return self.stack[-1]
-        except AttributeError, IndexError:
+        except (AttributeError, IndexError):  # fmt: skip
             return None
 
     def __len__(self):
         return len(self.stack)
-
-
-if USE_FAST_LOCALS:  # pragma: no cover
-    LocalStack = _FastLocalStack
-else:  # pragma: no cover
-    LocalStack = _LocalStack

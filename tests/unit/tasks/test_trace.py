@@ -23,7 +23,7 @@ from celery.app.trace import (
     trace_task_ret,
     traceback_clear,
 )
-from celery.backends.base import BaseDictBackend
+from celery.backends.base import BaseBackend
 from celery.backends.cache import CacheBackend
 from celery.exceptions import BackendGetMetaError, ExceptionInfo, Ignore, Reject, Retry
 from celery.states import PENDING
@@ -190,7 +190,7 @@ class test_trace(TraceCase):
         def add(x, y):
             return x + y
 
-        backend = BaseDictBackend(app=self.app)
+        backend = BaseBackend(app=self.app)
         backend.store_result = Mock()
         add.backend = backend
         add.ignore_result = False
@@ -222,7 +222,7 @@ class test_trace(TraceCase):
         def add(x, y):
             return x + y
 
-        backend = BaseDictBackend(app=self.app)
+        backend = BaseBackend(app=self.app)
         backend.store_result = Mock()
         add.backend = backend
         add.store_eager_result = True
@@ -468,7 +468,7 @@ class test_trace(TraceCase):
         def xtask():
             pass
 
-        xtask.backend = BaseDictBackend(app=self.app)
+        xtask.backend = BaseBackend(app=self.app)
         xtask.backend.mark_as_done = Mock()
         xtask.backend.mark_as_done.side_effect = Exception()
         xtask.backend.mark_as_failure = Mock()

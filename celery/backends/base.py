@@ -76,7 +76,7 @@ Starting chords requires a result backend to be configured.
 Note that a group chained with a task is also upgraded to be a chord,
 as this pattern requires synchronization.
 
-Result backends that supports chords: Redis, Database, Memcached, and more.
+Result backends that supports chords: Redis, Database, and more.
 """
 
 
@@ -666,7 +666,6 @@ class Backend:
         """Get the state of a task."""
         return self.get_task_meta(task_id)["status"]
 
-    get_status = get_state  # XXX compat
 
     def get_traceback(self, task_id):
         """Get the traceback for a failed task."""
@@ -1073,8 +1072,6 @@ class SyncBackendMixin:
 class BaseBackend(Backend, SyncBackendMixin):
     """Base (synchronous) result backend."""
 
-
-BaseDictBackend = BaseBackend  # XXX compat
 
 
 class BaseKeyValueStoreBackend(Backend):

@@ -7,9 +7,7 @@
 #                 All rights reserved.
 # :license:   BSD (3 Clause), see LICENSE for more details.
 
-import os
 import re
-import sys
 from collections import namedtuple
 
 # Lazy loading
@@ -64,17 +62,6 @@ VERSION = version_info = version_info_t(int(_temp[0]), int(_temp[1]), int(_temp[
 del _temp
 del re
 
-if os.environ.get("C_IMPDEBUG"):  # pragma: no cover
-    import builtins
-
-    def debug_import(name, locals=None, globals=None, fromlist=None, level=-1, real_import=builtins.__import__):
-        glob = globals or getattr(sys, "emarfteg_"[::-1])(1).f_globals
-        importer_name = (glob and glob.get("__name__")) or "unknown"
-        print(f"-- {importer_name} imports {name}")
-        return real_import(name, locals, globals, fromlist, level)
-
-    builtins.__import__ = debug_import
-
 # This is never executed, but tricks static analyzers (PyDev, PyCharm,
 # pylint, etc.) into knowing the types of these symbols, and what
 # they contain.
@@ -86,9 +73,8 @@ if STATICA_HACK:  # pragma: no cover
     from celery.app.base import Celery
     from celery.app.task import Task
     from celery.app.utils import bugreport
-    from celery.canvas import chain, chord, chunks, group, maybe_signature, signature, subtask, xmap, xstarmap  # noqa
+    from celery.canvas import chain, chord, chunks, group, maybe_signature, signature, xmap, xstarmap
     from celery.utils import uuid
-
 
 
 # this just creates a new module, that imports stuff on first attribute
@@ -107,7 +93,6 @@ old_module, new_module = local.recreate_module(  # pragma: no cover
             "group",
             "signature",
             "maybe_signature",
-            "subtask",
             "xmap",
             "xstarmap",
         ],

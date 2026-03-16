@@ -177,13 +177,6 @@ class test_EventDispatcher:
             assert dispatcher.enabled
             assert dispatcher.producer
 
-            # XXX test compat attribute
-            assert dispatcher.publisher is dispatcher.producer
-            prev, dispatcher.publisher = dispatcher.producer, 42
-            try:
-                assert dispatcher.producer == 42
-            finally:
-                dispatcher.producer = prev
         finally:
             channel.close()
             connection.close()

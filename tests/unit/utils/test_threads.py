@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from celery.utils.threads import Local, LocalManager, _FastLocalStack, _LocalStack, bgThread
+from celery.utils.threads import Local, LocalManager, LocalStack, bgThread
 from tests.unit import conftest
 
 
@@ -43,25 +43,7 @@ class test_Local:
 
 class test_LocalStack:
     def test_stack(self):
-        x = _LocalStack()
-        assert x.pop() is None
-        x.__release_local__()
-        ident = x.__ident_func__
-        x.__ident_func__ = ident
-
-        with pytest.raises(RuntimeError):
-            x()[0]
-
-        x.push(["foo"])
-        assert x()[0] == "foo"
-        x.pop()
-        with pytest.raises(RuntimeError):
-            x()[0]
-
-
-class test_FastLocalStack:
-    def test_stack(self):
-        x = _FastLocalStack()
+        x = LocalStack()
         x.push(["foo"])
         x.push(["bar"])
         assert x.top == ["bar"]
