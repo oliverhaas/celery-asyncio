@@ -287,6 +287,9 @@ class Scheduler:
             result = self.apply_async(entry, producer=producer, advance=False)
         except Exception as exc:
             error("Message Error: %s\n%s", exc, traceback.format_stack(), exc_info=True)
+            # Clear cached connection/producer so the next attempt
+            # creates a fresh connection (handles broker restarts).
+            self._reset_producer()
         else:
             if result and hasattr(result, "id"):
                 debug("%s sent. id->%s", entry.task, result.id)
@@ -471,6 +474,21 @@ class Scheduler:
         self.data = schedule
 
     schedule = property(get_schedule, set_schedule)
+
+    def _reset_producer(self):
+        """Clear cached connection and producer so the next access reconnects."""
+        try:
+            if "producer" in self.__dict__:
+                del self.__dict__["producer"]
+            if "connection" in self.__dict__:
+                conn = self.__dict__.pop("connection", None)
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     @cached_property
     def connection(self):

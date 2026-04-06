@@ -878,7 +878,7 @@ class Backend:
         if store_result and not _is_request_ignore_result(request):
             await self.astore_result(task_id, result, state, request=request)
         if request and request.chord:
-            self.on_chord_part_return(request, state, result)
+            await self.aon_chord_part_return(request, state, result)
 
     async def amark_as_failure(
         self, task_id, exc, traceback=None, request=None, store_result=True, call_errbacks=True, state=states.FAILURE
@@ -888,7 +888,7 @@ class Backend:
             await self.astore_result(task_id, exc, state, traceback=traceback, request=request)
         if request:
             if request.chord:
-                self.on_chord_part_return(request, state, exc)
+                await self.aon_chord_part_return(request, state, exc)
             try:
                 chain_data = iter(request.chain)
             except AttributeError, TypeError:
@@ -907,7 +907,7 @@ class Backend:
                         request=chain_elem_ctx,
                     )
                 if "chord" in chain_elem_ctx.options:
-                    self.on_chord_part_return(chain_elem_ctx, state, exc)
+                    await self.aon_chord_part_return(chain_elem_ctx, state, exc)
             if call_errbacks and request.errbacks:
                 self._call_task_errbacks(request, exc, traceback)
 
@@ -921,7 +921,7 @@ class Backend:
         if store_result:
             await self.astore_result(task_id, exc, state, traceback=None, request=request)
         if request and request.chord:
-            self.on_chord_part_return(request, state, exc)
+            await self.aon_chord_part_return(request, state, exc)
 
     def cleanup(self):
         """Backend cleanup."""
@@ -938,8 +938,22 @@ class Backend:
     def on_chord_part_return(self, request, state, result, **kwargs):
         pass
 
+    async def aon_chord_part_return(self, request, state, result, **kwargs):
+        """Async version of on_chord_part_return.
+
+        Default delegates to sync version via sync_to_async.
+        Backends with native async support should override this.
+        """
+        return await sync_to_async(self.on_chord_part_return, thread_sensitive=False)(
+            request, state, result, **kwargs
+        )
+
     def set_chord_size(self, group_id, chord_size):
         pass
+
+    async def aset_chord_size(self, group_id, chord_size):
+        """Async version of set_chord_size. Default delegates to sync."""
+        return await sync_to_async(self.set_chord_size, thread_sensitive=False)(group_id, chord_size)
 
     def fallback_chord_unlock(self, header_result, body, countdown=1, **kwargs):
         kwargs["result"] = [r.as_tuple() for r in header_result]

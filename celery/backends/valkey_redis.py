@@ -556,6 +556,91 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                     ChordError(f"Join error: {exc!r}"),
                 )
 
+    async def aon_chord_part_return(self, request, state, result, propagate=None, **kwargs):
+        """Async version of on_chord_part_return using async Redis client."""
+        app = self.app
+        tid, gid, group_index = request.id, request.group, request.group_index
+        if not gid or not tid:
+            return None
+        if group_index is None:
+            group_index = "+inf"
+
+        client = self.async_client
+        jkey = self.get_key_for_group(gid, ".j")
+        tkey = self.get_key_for_group(gid, ".t")
+        skey = self.get_key_for_group(gid, ".s")
+        result = self.encode_result(result, state)
+        encoded = self.encode([1, tid, state, result])
+
+        # Atomic pipeline: store result + get counts
+        async with client.pipeline() as pipe:
+            if self._chord_zset:
+                pipe.zadd(jkey, {encoded: group_index})
+                pipe.zcount(jkey, "-inf", "+inf")
+            else:
+                pipe.rpush(jkey, encoded)
+                pipe.llen(jkey)
+            pipe.get(tkey)
+            pipe.get(skey)
+            if self.expires:
+                pipe.expire(jkey, self.expires)
+                pipe.expire(tkey, self.expires)
+                pipe.expire(skey, self.expires)
+            pipe_results = await pipe.execute()
+
+        _, readycount, totaldiff, chord_size_bytes = pipe_results[:4]
+        totaldiff = int(totaldiff or 0)
+
+        if chord_size_bytes:
+            try:
+                callback = maybe_signature(request.chord, app=app)
+                total = int(chord_size_bytes) + totaldiff
+                if readycount == total:
+                    header_result = GroupResult.restore(gid, app=app)
+                    if header_result is not None:
+                        header_result.on_ready()
+                        join_func = (
+                            header_result.join_native if header_result.supports_native_join else header_result.join
+                        )
+                        with allow_join_result():
+                            resl = join_func(timeout=app.conf.result_chord_join_timeout, propagate=True)
+                    else:
+                        decode, unpack = self.decode, self._unpack_chord_result
+                        async with client.pipeline() as pipe:
+                            if self._chord_zset:
+                                pipe.zrange(jkey, 0, -1)
+                            else:
+                                pipe.lrange(jkey, 0, total)
+                            (resl,) = await pipe.execute()
+                        resl = [unpack(tup, decode) for tup in resl]
+                    try:
+                        callback.delay(resl)
+                    except Exception as exc:
+                        logger.exception("Chord callback for %r raised: %r", request.group, exc)
+                        return self.chord_error_from_stack(
+                            callback,
+                            ChordError(f"Callback error: {exc!r}"),
+                        )
+                    finally:
+                        async with client.pipeline() as pipe:
+                            pipe.delete(jkey)
+                            pipe.delete(tkey)
+                            pipe.delete(skey)
+                            await pipe.execute()
+            except ChordError as exc:
+                logger.exception("Chord %r raised: %r", request.group, exc)
+                return self.chord_error_from_stack(callback, exc)
+            except Exception as exc:
+                logger.exception("Chord %r raised: %r", request.group, exc)
+                return self.chord_error_from_stack(
+                    callback,
+                    ChordError(f"Join error: {exc!r}"),
+                )
+
+    async def aset_chord_size(self, group_id, chord_size):
+        """Async version of set_chord_size."""
+        await self.aset(self.get_key_for_group(group_id, ".s"), chord_size)
+
     def _create_client(self, **params):
         return self._get_client()(
             connection_pool=self._get_pool(**params),

@@ -2193,7 +2193,7 @@ class group(Signature):
             chord_obj = chord if chord is not None else sig.options.get("chord")
             chord_size += _chord._descend(sig)
             if chord_obj is not None and next_task is None:
-                app.backend.set_chord_size(group_id, chord_size)
+                await app.backend.aset_chord_size(group_id, chord_size)
 
             # Use aapply_async for the actual task dispatch
             # In native async mode, we don't pass producer - each call manages its own connection
