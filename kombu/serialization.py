@@ -362,7 +362,7 @@ def register_msgpack():
                 raise SerializerNotInstalled("msgpack requires msgpack-python >= 0.4.0")
 
             pack = unpack = version_mismatch
-    except ImportError, ValueError:
+    except ImportError, ValueError:  # fmt: skip
 
         def not_available(*_args, **_kwargs):
             raise SerializerNotInstalled("No decoder installed for msgpack. Please install the msgpack-python library")

@@ -382,10 +382,17 @@ class Channel(BaseChannel):
                 await self._put_message(binding.queue, message)
 
     def _topic_match(self, routing_key: str, pattern: str) -> bool:
-        """Match routing key against topic pattern."""
+        """Match routing key against topic pattern.
+
+        Supports:
+        - * matches exactly one word
+        - # matches zero or more words (including zero)
+        """
         regex_pattern = pattern.replace(".", r"\.")
         regex_pattern = regex_pattern.replace("*", r"[^.]+")
-        regex_pattern = regex_pattern.replace("#", r".*")
+        regex_pattern = regex_pattern.replace(r"\.#", r"(\..*)?")  # dot-hash: zero or more words
+        regex_pattern = regex_pattern.replace(r"#\.", r"(.*\.)?")  # hash-dot: zero or more words
+        regex_pattern = regex_pattern.replace("#", r".*")  # standalone hash
         regex_pattern = f"^{regex_pattern}$"
         return bool(re.match(regex_pattern, routing_key))
 
@@ -541,7 +548,7 @@ class Channel(BaseChannel):
                     body = body.encode("utf-8")
             elif isinstance(body, dict | list):
                 body = json_dumps(body).encode("utf-8")
-        except ValueError, TypeError:
+        except ValueError, TypeError:  # fmt: skip
             body = data
             content_type = "application/data"
             content_encoding = "binary"

@@ -140,10 +140,17 @@ def _queue_score(priority: int, timestamp: float | None = None) -> float:
 
 
 def _topic_match(routing_key: str, pattern: str) -> bool:
-    """Match routing key against AMQP topic pattern (* and #)."""
+    """Match routing key against AMQP topic pattern (* and #).
+
+    Supports:
+    - * matches exactly one word
+    - # matches zero or more words (including zero)
+    """
     regex = pattern.replace(".", r"\.")
     regex = regex.replace("*", r"[^.]+")
-    regex = regex.replace("#", r".*")
+    regex = regex.replace(r"\.#", r"(\..*)?")  # dot-hash: zero or more words
+    regex = regex.replace(r"#\.", r"(.*\.)?")  # hash-dot: zero or more words
+    regex = regex.replace("#", r".*")  # standalone hash
     return bool(re.match(f"^{regex}$", routing_key))
 
 

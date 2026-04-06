@@ -25,17 +25,10 @@ def get_default_encoding_file():
     return default_encoding_file
 
 
-if sys.platform.startswith("java"):  # pragma: no cover
-
-    def default_encoding(_file=None):
-        """Get default encoding."""
-        return "utf-8"
-else:
-
-    def default_encoding(file=None):
-        """Get default encoding."""
-        file = file or get_default_encoding_file()
-        return getattr(file, "encoding", None) or sys.getfilesystemencoding()
+def default_encoding(file=None):
+    """Get default encoding."""
+    file = file or get_default_encoding_file()
+    return getattr(file, "encoding", None) or sys.getfilesystemencoding()
 
 
 def str_to_bytes(s):

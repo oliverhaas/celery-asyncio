@@ -301,7 +301,7 @@ class Connection:
                     errback(exc, interval)
 
                 if callback:
-                    callback()
+                    callback(exc, interval)
 
                 logger.warning(
                     "Connection failed, retrying in %.2fs: %r",

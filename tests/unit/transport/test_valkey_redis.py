@@ -979,7 +979,7 @@ class TestParseConsumeResult:
         assert payload == '{"body": "hi"}'
         assert rc == 5
 
-    def test_string_result(self):
+    async def test_string_result(self):
         ch = _make_channel()
         result = ["q1", "tag1", '{"body": "hi"}', "0"]
         q, tag, payload, rc = ch._parse_consume_result(result)
@@ -987,7 +987,7 @@ class TestParseConsumeResult:
         assert tag == "tag1"
         assert rc == 0
 
-    def test_none_restore_count(self):
+    async def test_none_restore_count(self):
         ch = _make_channel()
         result = [b"q1", b"tag1", b'{"body": "hi"}', None]
         _, _, _, rc = ch._parse_consume_result(result)
@@ -2005,7 +2005,7 @@ class TestDeliverToConsumer:
 
 
 class TestCreateMessage:
-    def test_base64_body(self):
+    async def test_base64_body(self):
         ch = _make_channel()
         import base64
 
@@ -2020,7 +2020,7 @@ class TestCreateMessage:
         msg = ch._create_message("q1", payload, "tag1")
         assert msg.body == b"binary data"
 
-    def test_dict_body(self):
+    async def test_dict_body(self):
         ch = _make_channel()
         payload = {
             "body": {"key": "value"},
@@ -2032,7 +2032,7 @@ class TestCreateMessage:
         msg = ch._create_message("q1", payload, "tag1")
         assert isinstance(msg.body, bytes)
 
-    def test_binary_content_encoding(self):
+    async def test_binary_content_encoding(self):
         ch = _make_channel()
         payload = {
             "body": "raw string",

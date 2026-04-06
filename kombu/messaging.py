@@ -166,7 +166,7 @@ class Producer:
         if isinstance(serialized_body, bytes):
             try:
                 body_str = serialized_body.decode(content_encoding or "utf-8")
-            except UnicodeDecodeError, LookupError:
+            except UnicodeDecodeError, LookupError:  # fmt: skip
                 # Binary serializers (pickle, msgpack) produce non-UTF-8 bytes
                 body_str = base64.b64encode(serialized_body).decode("ascii")
                 if headers is None:
@@ -265,6 +265,7 @@ class Consumer:
         self._consumer_tags: list[str] = []
         self._running = False
         self._declared = False
+        self._iter_timeout: float = 1.0
         self.on_decode_error = kwargs.get("on_decode_error")
 
     @property
@@ -385,7 +386,7 @@ class Consumer:
             raise StopAsyncIteration
 
         try:
-            await self._connection.drain_events(timeout=1.0)
+            await self._connection.drain_events(timeout=self._iter_timeout)
         except TimeoutError:
             pass
 

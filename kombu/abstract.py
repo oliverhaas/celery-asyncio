@@ -105,7 +105,7 @@ class MaybeChannelBound(Object):
     def _repr_entity(self, item: str = "") -> str:
         item = item or type(self).__name__
         if self.is_bound:
-            return f"<{item or type(self).__name__} bound to chan:{self.channel.channel_id}>"
+            return f"<{item or type(self).__name__} bound to chan:{self.channel._channel_id}>"
         return f"<unbound {item}>"
 
     @property

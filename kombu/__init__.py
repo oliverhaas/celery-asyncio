@@ -1,6 +1,6 @@
 """Kombu - Pure asyncio messaging library for Python.
 
-This is an asyncio-native version of Kombu supporting only Redis transport.
+This is an asyncio-native version of Kombu supporting Redis, AMQP, Memory, and Filesystem transports.
 All operations are async.
 
 Example:
@@ -18,10 +18,10 @@ import re
 from collections import namedtuple
 from typing import cast
 
-__version__ = "6.0.0a2"
-__author__ = "Ask Solem"
-__contact__ = "auvipy@gmail.com"
-__homepage__ = "https://kombu.readthedocs.io"
+__version__ = "6.0.0a3"
+__author__ = "Oliver Haas"
+__contact__ = "ohaas@e1plus.de"
+__homepage__ = "https://github.com/oliverhaas/kombu-asyncio"
 __docformat__ = "restructuredtext en"
 
 # Version info

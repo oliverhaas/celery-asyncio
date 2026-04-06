@@ -1,7 +1,6 @@
 """DEPRECATED - Import from modules below."""
 
 from .collections import EqualityDict
-from .compat import fileno, maybe_fileno, register_after_fork
 from .div import emergency_dump_state
 from .functional import fxrange, fxrangemax, maybe_list, reprcall, retry_over_time
 from .imports import symbol_by_name
@@ -12,14 +11,10 @@ __all__ = (
     "EqualityDict",
     "cached_property",
     "emergency_dump_state",
-    "fileno",
     "fxrange",
     "fxrangemax",
-    "maybe_fileno",
     "maybe_list",
-    "register_after_fork",
     "reprcall",
-    "reprkwargs",
     "retry_over_time",
     "symbol_by_name",
     "uuid",

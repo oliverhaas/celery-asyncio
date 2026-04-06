@@ -253,11 +253,13 @@ class SimpleQueue:
     async def qsize(self) -> int:
         """Get the approximate number of messages in the queue.
 
-        Returns:
-            Number of messages.
+        Raises:
+            NotImplementedError: This method is not supported across all
+                transports. Use transport-specific APIs for queue size.
         """
-        channel = await self._ensure_channel()
-        return await channel.client.llen(self._queue.name)
+        raise NotImplementedError(
+            "qsize() is not supported in a transport-agnostic way. Use transport-specific APIs to query queue depth.",
+        )
 
     async def close(self) -> None:
         """Close the simple queue."""

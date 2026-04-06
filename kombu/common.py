@@ -39,12 +39,15 @@ PREFETCH_COUNT_MAX = 0xFFFF
 logger = get_logger(__name__)
 
 _node_id = None
+_node_id_lock = threading.Lock()
 
 
 def get_node_id():
     global _node_id
     if _node_id is None:
-        _node_id = uuid4().int
+        with _node_id_lock:
+            if _node_id is None:
+                _node_id = uuid4().int
     return _node_id
 
 
@@ -235,7 +238,7 @@ async def eventloop(
             await conn.drain_events(timeout=timeout)
             yield
         except TimeoutError:
-            if timeout and not ignore_timeouts:
+            if timeout is not None and not ignore_timeouts:
                 raise
             yield
 
@@ -394,4 +397,5 @@ class QoS:
     async def update(self) -> int:
         """Update prefetch count with current value."""
         with self._mutex:
-            return await self.set(self.value)
+            value = self.value
+        return await self.set(value)
