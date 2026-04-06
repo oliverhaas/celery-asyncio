@@ -9,7 +9,6 @@ from datetime import datetime
 from time import monotonic, time
 from weakref import ref
 
-from celery.exceptions import ExceptionWithTraceback
 from kombu.utils.encoding import safe_repr, safe_str
 from kombu.utils.objects import cached_property
 
@@ -18,6 +17,7 @@ from celery.app.task import Context
 from celery.app.trace import fast_trace_task, trace_task, trace_task_ret
 from celery.concurrency.base import BasePool
 from celery.exceptions import (
+    ExceptionWithTraceback,
     Ignore,
     InvalidTaskError,
     Reject,

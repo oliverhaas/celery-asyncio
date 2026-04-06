@@ -63,6 +63,7 @@ yaml = ["PyYAML>=3.10"]
 # Transports and Backends
 valkey = ["kombu-asyncio[valkey]"]
 redis = ["kombu-asyncio[redis]"]
+amqp = ["aio-pika>=9.0.0"]
 
 # Testing
 tblib = ["tblib>=1.3.0"]
@@ -80,19 +81,19 @@ zstd = ["zstandard>=0.22.0"]
 
 [dependency-groups]
 dev = [
-  "mypy==1.19.1",
+  "mypy==1.20.0",
   "pre-commit==4.5.1",
   "pytest==9.0.2",
   "pytest-asyncio==1.3.0",
-  "pytest-cov==7.0.0",
+  "pytest-cov==7.1.0",
   "pytest-mock==3.15.1",
   "pytest-timeout==2.4.0",
   "pytest-xdist==3.8.0",
   "pytest-flakefinder==1.1.0",
-  "redis==7.1.0",
-  "ruff==0.15.4",
+  "redis==7.4.0",
+  "ruff==0.15.9",
   "valkey==6.1.1",
-  "ty==0.0.19",
+  "ty==0.0.29",
 ]
 docs = [
     "mkdocs==1.6.1",
@@ -276,6 +277,7 @@ xfail_strict = true
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
+  "celery",
   "sleepdeprived_patched_module",
   "masked_modules",
   "patched_environ",

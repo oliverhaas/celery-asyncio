@@ -1473,5 +1473,3 @@ class Task:
     @property
     def __name__(self):
         return self.__class__.__name__
-
-

@@ -67,7 +67,6 @@ class OrderedDict(_OrderedDict):
         return next(iter(self.keys()))
 
 
-
 class AttributeDictMixin:
     """Mixin for Mapping interface that adds attribute access.
 

@@ -67,7 +67,6 @@ def flatten_reply(reply):
     return nodes
 
 
-
 class Inspect:
     """API for inspecting workers.
 

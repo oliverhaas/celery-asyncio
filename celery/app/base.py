@@ -165,7 +165,6 @@ def _unpickle_appattr(reverse_name, args):
     return get_current_app()._rgetattr(reverse_name)(*args)
 
 
-
 def pydantic_wrapper(
     app: Celery,
     task_fun: typing.Callable[..., typing.Any],
@@ -370,7 +369,6 @@ class Celery:
 
     #: Signal sent after app has prepared the configuration.
     on_after_configure = None
-
 
     #: Signal sent after app has been finalized.
     on_after_finalize = None
@@ -1848,5 +1846,3 @@ class Celery:
                 return timezone.utc
             return timezone.local
         return timezone.get_timezone(conf.timezone)
-
-

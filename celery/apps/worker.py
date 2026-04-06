@@ -165,7 +165,6 @@ class Worker(WorkController):
         if not self._custom_logging and self.redirect_stdouts:
             app.log.redirect_stdouts(self.redirect_stdouts_level)
 
-
     def emit_banner(self):
         # Dump configuration to screen so we have some basic information
         # for when users sends bug reports.

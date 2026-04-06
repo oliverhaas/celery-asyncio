@@ -110,10 +110,7 @@ group(add.s(i, i) for i in range(10)).delay()
 chord(group(add.s(i, i) for i in range(10)), add.s()).delay()
 ```
 
-!!! note
-
-    Canvas primitives are carried over from upstream and need an async audit
-    (see [GitHub issue #4](https://github.com/oliverhaas/celery-asyncio/issues/4)).
+Canvas also supports async dispatch via `aapply_async()` and `adelay()`.
 
 ## Result retrieval
 
@@ -124,11 +121,8 @@ result = add.delay(2, 3)
 meta = app.backend.get_task_meta(result.id)
 ```
 
-!!! note
-
-    The result backend currently uses synchronous Redis calls internally.
-    Native async result methods are planned
-    (see [GitHub issue #7](https://github.com/oliverhaas/celery-asyncio/issues/7)).
+The result backend supports native async operations (`aget_task_meta()`,
+`astore_result()`, etc.) using the async Redis client.
 
 ## Monitoring with Flower
 

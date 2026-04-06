@@ -1,7 +1,6 @@
 """Embedded workers for integration tests."""
 
 import asyncio
-import logging
 import os
 import threading
 from collections.abc import Iterable

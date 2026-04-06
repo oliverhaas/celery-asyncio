@@ -17,7 +17,6 @@ else:
 NO_WORKER = os.environ.get("NO_WORKER")
 
 
-
 def pytest_configure(config):
     """Register additional pytest configuration."""
     # add the pytest.mark.celery() marker registration to the pytest.ini [markers] section

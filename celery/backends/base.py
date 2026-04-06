@@ -666,7 +666,6 @@ class Backend:
         """Get the state of a task."""
         return self.get_task_meta(task_id)["status"]
 
-
     def get_traceback(self, task_id):
         """Get the traceback for a failed task."""
         return self.get_task_meta(task_id).get("traceback")
@@ -944,9 +943,7 @@ class Backend:
         Default delegates to sync version via sync_to_async.
         Backends with native async support should override this.
         """
-        return await sync_to_async(self.on_chord_part_return, thread_sensitive=False)(
-            request, state, result, **kwargs
-        )
+        return await sync_to_async(self.on_chord_part_return, thread_sensitive=False)(request, state, result, **kwargs)
 
     def set_chord_size(self, group_id, chord_size):
         pass
@@ -1085,7 +1082,6 @@ class SyncBackendMixin:
 
 class BaseBackend(Backend, SyncBackendMixin):
     """Base (synchronous) result backend."""
-
 
 
 class BaseKeyValueStoreBackend(Backend):

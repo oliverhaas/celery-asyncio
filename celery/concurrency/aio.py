@@ -149,8 +149,7 @@ class LoopWorker:
             self._thread.join(timeout=10)
             if self._thread.is_alive():
                 logger.warning(
-                    "Loop worker %s did not stop within 10s — "
-                    "thread may be leaked (%d tasks were active)",
+                    "Loop worker %s did not stop within 10s — thread may be leaked (%d tasks were active)",
                     self._index,
                     self._active_count,
                 )

@@ -2,9 +2,10 @@
 
 import time
 
+from kombu.utils.encoding import bytes_to_str
+
 from celery import states
 from celery.exceptions import TimeoutError
-from kombu.utils.encoding import bytes_to_str
 
 __all__ = (
     "AsyncBackendMixin",
@@ -60,7 +61,9 @@ class AsyncBackendMixin:
                 raise TimeoutError("The operation timed out.")
             time.sleep(poll)
 
-    def iter_native(self, result, timeout=None, interval=None, no_ack=True, on_message=None, on_interval=None, **kwargs):
+    def iter_native(
+        self, result, timeout=None, interval=None, no_ack=True, on_message=None, on_interval=None, **kwargs
+    ):
         """Iterate over task results using MGET polling."""
         from celery.result import ResultSet
 

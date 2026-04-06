@@ -21,10 +21,8 @@ Initial alpha of celery-asyncio.
 
 ### What's not yet tested
 
-- Canvas primitives (chain, chord, group, starmap)
-- Beat scheduler
-- Result backend async paths
 - Multi-worker deployments
+- Rate limiting and autoscaling
 
 ### Breaking changes from upstream Celery
 

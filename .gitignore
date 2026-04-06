@@ -16,6 +16,8 @@ __pycache__/
 coverage.xml
 cobertura.xml
 CLAUDE.md
+.env
+.env.*
 dump.rdb
 .ruff_cache/
 .mypy_cache/

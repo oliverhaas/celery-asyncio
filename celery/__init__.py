@@ -16,9 +16,9 @@ from . import local
 SERIES = "asyncio"
 
 __version__ = "6.0.0a2"
-__author__ = "Ask Solem"
-__contact__ = "auvipy@gmail.com"
-__homepage__ = "https://docs.celeryq.dev/"
+__author__ = "Oliver Haas"
+__contact__ = "ohaas@e1plus.de"
+__homepage__ = "https://oliverhaas.github.io/celery-asyncio/"
 __docformat__ = "restructuredtext"
 __keywords__ = "task job queue distributed messaging actor"
 
@@ -26,6 +26,7 @@ __keywords__ = "task job queue distributed messaging actor"
 
 __all__ = (
     "Celery",
+    "Signature",
     "bugreport",
     "shared_task",
     "Task",
@@ -73,7 +74,7 @@ if STATICA_HACK:  # pragma: no cover
     from celery.app.base import Celery
     from celery.app.task import Task
     from celery.app.utils import bugreport
-    from celery.canvas import chain, chord, chunks, group, maybe_signature, signature, xmap, xstarmap
+    from celery.canvas import Signature, chain, chord, chunks, group, maybe_signature, signature, xmap, xstarmap
     from celery.utils import uuid
 
 

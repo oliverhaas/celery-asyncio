@@ -31,7 +31,7 @@ uv add celery-asyncio[amqp]
 ## Optional extras
 
 ```console
-# Django 6.0 Tasks integration
+# Django integration
 uv add celery-asyncio[django]
 
 # Serializers

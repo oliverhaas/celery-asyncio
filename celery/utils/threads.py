@@ -21,7 +21,6 @@ __all__ = (
 )
 
 
-
 @contextmanager
 def default_socket_timeout(timeout):
     """Context temporarily setting the default socket timeout."""

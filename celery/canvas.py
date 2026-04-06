@@ -2913,7 +2913,6 @@ def signature(varies, *args, **kwargs):
     return Signature(varies, *args, **kwargs)
 
 
-
 def maybe_signature(d, app=None, clone=False):
     """Ensure obj is a signature, or None.
 
@@ -2939,5 +2938,3 @@ def maybe_signature(d, app=None, clone=False):
         if app is not None:
             d._app = app
     return d
-
-

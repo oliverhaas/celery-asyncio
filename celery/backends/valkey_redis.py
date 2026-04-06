@@ -14,7 +14,6 @@ from urllib.parse import unquote
 from kombu.transport._valkey_redis_compat import (
     get_all_channel_errors,
     get_all_connection_errors,
-    normalize_url,
     resolve_async_lib,
     resolve_lib,
 )
@@ -32,16 +31,16 @@ _SSL_CONNECTION_CLASSES: list[type] = []
 _URL_QUERY_ARGUMENT_PARSERS: dict = {}
 
 try:
-    from redis.connection import SSLConnection as _RedisSSLConnection
     from redis.connection import URL_QUERY_ARGUMENT_PARSERS as _URL_QUERY_ARGUMENT_PARSERS
+    from redis.connection import SSLConnection as _RedisSSLConnection
 
     _SSL_CONNECTION_CLASSES.append(_RedisSSLConnection)
 except ImportError:
     pass
 
 try:
-    from valkey.connection import SSLConnection as _ValkeySSLConnection
     from valkey.connection import URL_QUERY_ARGUMENT_PARSERS as _vk_URL_QUERY_ARGUMENT_PARSERS
+    from valkey.connection import SSLConnection as _ValkeySSLConnection
 
     _SSL_CONNECTION_CLASSES.append(_ValkeySSLConnection)
     if not _URL_QUERY_ARGUMENT_PARSERS:
@@ -50,12 +49,11 @@ except ImportError:
     pass
 
 _SSLConnection = tuple(_SSL_CONNECTION_CLASSES) or None
+from asgiref.sync import sync_to_async
 from kombu.utils.encoding import bytes_to_str
 from kombu.utils.functional import retry_over_time
 from kombu.utils.objects import cached_property
 from kombu.utils.url import _parse_url, maybe_sanitize_url
-
-from asgiref.sync import sync_to_async
 
 from celery import states
 from celery.backends.base import _create_chord_error_with_cause
@@ -233,9 +231,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                 credential_provider = credential_provider_cls()
 
             if CredentialProvider is not None and not isinstance(credential_provider, CredentialProvider):
-                raise ValueError(
-                    "Credential provider is not an instance of a CredentialProvider or a subclass"
-                )
+                raise ValueError("Credential provider is not an instance of a CredentialProvider or a subclass")
 
             self.connparams["credential_provider"] = credential_provider
 
@@ -358,9 +354,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                 credential_provider = credential_provider_cls()
 
             if CredentialProvider is not None and not isinstance(credential_provider, CredentialProvider):
-                raise ValueError(
-                    "Credential provider is not an instance of a CredentialProvider or a subclass"
-                )
+                raise ValueError("Credential provider is not an instance of a CredentialProvider or a subclass")
 
             connparams["credential_provider"] = credential_provider
             # drop username and password if credential provider is configured
@@ -606,6 +600,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                         join_func = (
                             header_result.join_native if header_result.supports_native_join else header_result.join
                         )
+
                         # join() is sync — offload to thread to avoid blocking the loop.
                         def _join_in_thread():
                             with allow_join_result():
@@ -918,14 +913,14 @@ try:
     class SentinelManagedSSLConnection(redis.sentinel.SentinelManagedConnection, redis.SSLConnection):
         """Connect to a Valkey/Redis server using Sentinel + TLS."""
 
-except (ImportError, AttributeError):
+except ImportError, AttributeError:
     try:
         import valkey.sentinel
 
         class SentinelManagedSSLConnection(valkey.sentinel.SentinelManagedConnection, valkey.SSLConnection):
             """Connect to a Valkey/Redis server using Sentinel + TLS."""
 
-    except (ImportError, AttributeError):
+    except ImportError, AttributeError:
         SentinelManagedSSLConnection = None
 
 

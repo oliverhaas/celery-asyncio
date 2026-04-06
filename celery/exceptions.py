@@ -152,7 +152,6 @@ class Retry(TaskPredicate):
         return self.__class__, (self.message, self.exc, self.when)
 
 
-
 class Ignore(TaskPredicate):
     """A task can raise this to ignore doing state updates."""
 
@@ -196,7 +195,6 @@ class NotRegistered(KeyError, TaskError):
         return UNREGISTERED_FMT.format(self)
 
 
-
 class TimeoutError(TaskError):
     """The operation timed out."""
 
@@ -232,7 +230,6 @@ class CDeprecationWarning(DeprecationWarning):
 
 class WorkerTerminate(SystemExit):
     """Signals that the worker should terminate immediately."""
-
 
 
 class WorkerShutdown(SystemExit):

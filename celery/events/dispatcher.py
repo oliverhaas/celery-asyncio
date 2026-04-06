@@ -281,4 +281,3 @@ class EventDispatcher:
         """Close the event dispatcher."""
         self.mutex.locked() and self.mutex.release()
         self.producer = None
-
