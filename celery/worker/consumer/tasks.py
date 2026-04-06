@@ -50,7 +50,7 @@ class Tasks(bootsteps.StartStopStep):
             try:
                 await c.task_consumer.cancel()
             except Exception:
-                pass
+                logger.debug("Error cancelling task consumer", exc_info=True)
 
     async def shutdown(self, c):
         """Shutdown task consumer."""
@@ -60,7 +60,7 @@ class Tasks(bootsteps.StartStopStep):
             try:
                 await c.task_consumer.close()
             except Exception:
-                pass
+                logger.debug("Error closing task consumer", exc_info=True)
             c.task_consumer = None
 
     def info(self, c):

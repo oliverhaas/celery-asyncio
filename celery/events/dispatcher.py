@@ -82,7 +82,9 @@ class EventDispatcher:
         self._group_buffer = defaultdict(list)
         self.mutex = threading.Lock()
         self.producer = None
-        self._outbound_buffer = deque()
+        # Bound the outbound buffer to prevent OOM when the broker is down.
+        # At ~1KB per event, 10000 events ≈ 10MB worst case.
+        self._outbound_buffer = deque(maxlen=10000)
         self.serializer = serializer or self.app.conf.event_serializer
         self.on_enabled = set()
         self.on_disabled = set()

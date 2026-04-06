@@ -420,11 +420,11 @@ class ConsumerStep(StartStopStep):
                 try:
                     await consumer.cancel()
                 except Exception:
-                    pass
+                    logger.debug("Error cancelling consumer during close", exc_info=True)
             if consumer._channel:
                 channels.add(consumer._channel)
         for channel in channels:
             try:
                 await channel.close()
             except Exception:
-                pass
+                logger.debug("Error closing channel during close", exc_info=True)

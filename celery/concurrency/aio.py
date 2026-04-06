@@ -146,7 +146,14 @@ class LoopWorker:
                 self._loop.stop,
             )
         if self._thread:
-            self._thread.join(timeout=6)
+            self._thread.join(timeout=10)
+            if self._thread.is_alive():
+                logger.warning(
+                    "Loop worker %s did not stop within 10s — "
+                    "thread may be leaked (%d tasks were active)",
+                    self._index,
+                    self._active_count,
+                )
 
 
 class TaskPool(BasePool):
@@ -200,7 +207,10 @@ class TaskPool(BasePool):
             w.stop()
         self._loop_workers.clear()
         if self._executor:
-            self._executor.shutdown(wait=False)
+            # wait=True ensures all submitted sync tasks finish before
+            # the worker process exits, preventing resource leaks.
+            # cancel_futures=True cancels queued-but-not-started tasks.
+            self._executor.shutdown(wait=True, cancel_futures=True)
             self._executor = None
 
     def restart(self) -> None:

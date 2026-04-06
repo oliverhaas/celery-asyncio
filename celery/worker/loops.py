@@ -4,6 +4,7 @@ In celery-asyncio, this is a thin wrapper around connection.drain_events().
 The old Hub-based asynloop and blocking synloop are removed.
 """
 
+import asyncio
 import time
 
 from celery.platforms import EX_OK
@@ -80,18 +81,19 @@ async def _enter_draining(consumer, reason: str) -> None:
     try:
         await consumer.cancel()
     except Exception:
-        pass
+        logger.debug("Error cancelling consumer during drain", exc_info=True)
 
     # Reject/requeue any reserved-but-not-active requests back to the broker.
-    reserved = set(state.reserved_requests)
-    active = set(state.active_requests)
+    with state._lock:
+        reserved = set(state.reserved_requests)
+        active = set(state.active_requests)
     prefetched = reserved - active
     for req in prefetched:
         try:
             req.reject(requeue=True)
             logger.debug("Requeued prefetched task %s[%s]", req.name, req.id)
         except Exception:
-            pass
+            logger.debug("Error requeuing task %s[%s]", req.name, req.id, exc_info=True)
 
 
 def _check_restart_conditions(obj, consumer, pool) -> str | None:
@@ -107,7 +109,9 @@ def _check_restart_conditions(obj, consumer, pool) -> str | None:
 
     # If already draining, check if all active tasks finished → restart.
     if state.is_draining:
-        if not tuple(state.active_requests):
+        with state._lock:
+            still_active = bool(state.active_requests)
+        if not still_active:
             _trigger_restart("all tasks finished during drain")
         return None
 
@@ -183,9 +187,15 @@ async def asynloop(
             await connection.drain_events(timeout=drain_timeout)
             # Got one — now drain remaining available messages non-blocking
             # to fill the concurrency pipeline.
+            batch = 0
             while blueprint.state == 1:
                 try:
                     await connection.drain_events(timeout=0)
+                    batch += 1
+                    # Yield to the event loop periodically so other coroutines
+                    # (ack/reject, timer callbacks) get a chance to run.
+                    if batch % 100 == 0:
+                        await asyncio.sleep(0)
                 except TimeoutError:
                     break
         except TimeoutError:

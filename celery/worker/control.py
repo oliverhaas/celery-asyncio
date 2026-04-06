@@ -132,23 +132,21 @@ def query_task(state, ids, **kwargs):
     return {req.id: (_state_of_task(req), req.info()) for req in _find_requests_by_id(maybe_list(ids))}
 
 
-def _find_requests_by_id(ids, get_request=worker_state.requests.__getitem__):
-    for task_id in ids:
-        try:
-            yield get_request(task_id)
-        except KeyError:
-            pass
+def _find_requests_by_id(ids):
+    with worker_state._lock:
+        for task_id in ids:
+            try:
+                yield worker_state.requests[task_id]
+            except KeyError:
+                pass
 
 
-def _state_of_task(
-    request,
-    is_active=worker_state.active_requests.__contains__,
-    is_reserved=worker_state.reserved_requests.__contains__,
-):
-    if is_active(request):
-        return "active"
-    elif is_reserved(request):
-        return "reserved"
+def _state_of_task(request):
+    with worker_state._lock:
+        if request in worker_state.active_requests:
+            return "active"
+        elif request in worker_state.reserved_requests:
+            return "reserved"
     return "ready"
 
 
@@ -203,7 +201,8 @@ def revoke_by_stamped_headers(state, headers, terminate=False, signal=None, **kw
     if not terminate:
         return ok(f"headers {headers} flagged as revoked, but not terminated")
 
-    active_requests = list(worker_state.active_requests)
+    with worker_state._lock:
+        active_requests = list(worker_state.active_requests)
 
     terminated_scheme_to_stamps_mapping = defaultdict(set)
 
@@ -430,7 +429,8 @@ def _iter_schedule_requests(timer):
 @inspect_command(alias="dump_reserved")
 def reserved(state, **kwargs):
     """List of currently reserved tasks, not including scheduled/active."""
-    reserved_tasks = state.tset(worker_state.reserved_requests) - state.tset(worker_state.active_requests)
+    with worker_state._lock:
+        reserved_tasks = state.tset(worker_state.reserved_requests) - state.tset(worker_state.active_requests)
     if not reserved_tasks:
         return []
     return [request.info() for request in reserved_tasks]
@@ -439,7 +439,9 @@ def reserved(state, **kwargs):
 @inspect_command(alias="dump_active")
 def active(state, safe=False, **kwargs):
     """List of tasks currently being executed."""
-    return [request.info(safe=safe) for request in state.tset(worker_state.active_requests)]
+    with worker_state._lock:
+        reqs = list(worker_state.active_requests)
+    return [request.info(safe=safe) for request in reqs]
 
 
 @inspect_command(alias="dump_revoked")

@@ -409,14 +409,16 @@ class WorkController:
         immediately. After timeout, force-cancels remaining tasks.
         """
         app = self.app
-        active = tuple(state.active_requests)
+        with state._lock:
+            active = tuple(state.active_requests)
         timeout = app.conf.worker_soft_shutdown_timeout
 
         if app.conf.worker_enable_soft_shutdown_on_idle:
             active = True
 
         if timeout > 0 and active:
-            active_count = len(tuple(state.active_requests))
+            with state._lock:
+                active_count = len(state.active_requests)
             logger.warning(
                 "Soft shutdown: waiting up to %s seconds for %d active task(s)",
                 timeout,
@@ -426,11 +428,16 @@ class WorkController:
             import time
 
             deadline = time.monotonic() + timeout
-            while tuple(state.active_requests) and time.monotonic() < deadline:
+            while time.monotonic() < deadline:
+                with state._lock:
+                    still_active = bool(state.active_requests)
+                if not still_active:
+                    break
                 await asyncio.sleep(0.5)
 
             # Force-cancel any remaining tasks
-            remaining = tuple(state.active_requests)
+            with state._lock:
+                remaining = tuple(state.active_requests)
             if remaining:
                 logger.warning(
                     "Force-cancelling %d remaining task(s) after %ss timeout",

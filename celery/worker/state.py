@@ -2,12 +2,18 @@
 
 This includes the currently active and reserved tasks,
 statistics, and revoked tasks.
+
+Thread-safety: All mutable state is protected by _lock for
+Python 3.14t free-threading compatibility. The lock is a
+simple threading.Lock; callers should not hold it across
+await points.
 """
 
 import os
 import platform
 import shelve
 import sys
+import threading
 import weakref
 import zlib
 from collections import Counter
@@ -31,6 +37,11 @@ __all__ = (
     "task_ready",
     "Persistent",
 )
+
+#: Lock protecting mutable module-level state for free-threading safety.
+#: RLock because inspect commands may nest calls (e.g. _find_requests_by_id
+#: yields under lock, then _state_of_task re-acquires).
+_lock = threading.RLock()
 
 #: Worker software/platform information.
 SOFTWARE_INFO = {
@@ -86,15 +97,16 @@ is_draining = False
 
 def reset_state():
     global is_draining
-    requests.clear()
-    reserved_requests.clear()
-    active_requests.clear()
-    successful_requests.clear()
-    total_count.clear()
-    is_draining = False
-    all_total_count[:] = [0]
-    revoked.clear()
-    revoked_stamps.clear()
+    with _lock:
+        requests.clear()
+        reserved_requests.clear()
+        active_requests.clear()
+        successful_requests.clear()
+        total_count.clear()
+        is_draining = False
+        all_total_count[:] = [0]
+        revoked.clear()
+        revoked_stamps.clear()
 
 
 def maybe_shutdown():
@@ -105,42 +117,30 @@ def maybe_shutdown():
         raise WorkerShutdown(should_stop)
 
 
-def task_reserved(request, add_request=requests.__setitem__, add_reserved_request=reserved_requests.add):
+def task_reserved(request):
     """Update global state when a task has been reserved."""
-    add_request(request.id, request)
-    add_reserved_request(request)
+    with _lock:
+        requests[request.id] = request
+        reserved_requests.add(request)
 
 
-def task_accepted(
-    request,
-    _all_total_count=None,
-    add_request=requests.__setitem__,
-    add_active_request=active_requests.add,
-    add_to_total_count=total_count.update,
-):
+def task_accepted(request):
     """Update global state when a task has been accepted."""
-    if not _all_total_count:
-        _all_total_count = all_total_count
-    add_request(request.id, request)
-    add_active_request(request)
-    add_to_total_count({request.name: 1})
-    all_total_count[0] += 1
+    with _lock:
+        requests[request.id] = request
+        active_requests.add(request)
+        total_count[request.name] = total_count.get(request.name, 0) + 1
+        all_total_count[0] += 1
 
 
-def task_ready(
-    request,
-    successful=False,
-    remove_request=requests.pop,
-    discard_active_request=active_requests.discard,
-    discard_reserved_request=reserved_requests.discard,
-):
+def task_ready(request, successful=False):
     """Update global state when a task is ready."""
-    if successful:
-        successful_requests.add(request.id)
-
-    remove_request(request.id, None)
-    discard_active_request(request)
-    discard_reserved_request(request)
+    with _lock:
+        if successful:
+            successful_requests.add(request.id)
+        requests.pop(request.id, None)
+        active_requests.discard(request)
+        reserved_requests.discard(request)
 
 
 C_BENCH = os.environ.get("C_BENCH") or os.environ.get("CELERY_BENCH")
