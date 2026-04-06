@@ -55,6 +55,8 @@ from kombu.utils.functional import retry_over_time
 from kombu.utils.objects import cached_property
 from kombu.utils.url import _parse_url, maybe_sanitize_url
 
+from asgiref.sync import sync_to_async
+
 from celery import states
 from celery.backends.base import _create_chord_error_with_cause
 from celery.canvas import maybe_signature
@@ -596,15 +598,22 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                 callback = maybe_signature(request.chord, app=app)
                 total = int(chord_size_bytes) + totaldiff
                 if readycount == total:
-                    header_result = GroupResult.restore(gid, app=app)
+                    # Try to restore a saved GroupResult (only exists for
+                    # complex nested headers saved by apply_chord()).
+                    header_result = await self.arestore_group(gid)
                     if header_result is not None:
                         header_result.on_ready()
                         join_func = (
                             header_result.join_native if header_result.supports_native_join else header_result.join
                         )
-                        with allow_join_result():
-                            resl = join_func(timeout=app.conf.result_chord_join_timeout, propagate=True)
+                        # join() is sync — offload to thread to avoid blocking the loop.
+                        def _join_in_thread():
+                            with allow_join_result():
+                                return join_func(timeout=app.conf.result_chord_join_timeout, propagate=True)
+
+                        resl = await sync_to_async(_join_in_thread, thread_sensitive=False)()
                     else:
+                        # Common fast path: extract results directly from Redis.
                         decode, unpack = self.decode, self._unpack_chord_result
                         async with client.pipeline() as pipe:
                             if self._chord_zset:
@@ -614,7 +623,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                             (resl,) = await pipe.execute()
                         resl = [unpack(tup, decode) for tup in resl]
                     try:
-                        callback.delay(resl)
+                        await callback.adelay(resl)
                     except Exception as exc:
                         logger.exception("Chord callback for %r raised: %r", request.group, exc)
                         return self.chord_error_from_stack(
