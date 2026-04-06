@@ -1,6 +1,7 @@
 """Sending/Receiving Messages (Kombu integration)."""
 
 import numbers
+import threading
 from collections import namedtuple
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -27,6 +28,7 @@ __all__ = ("AMQP", "Queues", "task_message")
 # use it for sorted-set delayed delivery without importing celery itself.
 
 _eta_signal_connected = False
+_eta_signal_lock = threading.Lock()
 
 
 def _convert_eta_to_properties(body, properties, **kwargs):
@@ -295,8 +297,10 @@ class AMQP:
         # Register ETA signal handler (once, idempotent)
         global _eta_signal_connected
         if not _eta_signal_connected:
-            signals.before_task_publish.connect(_convert_eta_to_properties)
-            _eta_signal_connected = True
+            with _eta_signal_lock:
+                if not _eta_signal_connected:
+                    signals.before_task_publish.connect(_convert_eta_to_properties)
+                    _eta_signal_connected = True
 
     @cached_property
     def create_task_message(self):

@@ -279,5 +279,8 @@ class EventDispatcher:
 
     def close(self):
         """Close the event dispatcher."""
-        self.mutex.locked() and self.mutex.release()
+        try:
+            self.mutex.release()
+        except RuntimeError:
+            pass
         self.producer = None

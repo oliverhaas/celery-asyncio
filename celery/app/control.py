@@ -316,7 +316,12 @@ class Inspect:
             :meth:`broadcast` for supported keyword arguments.
         """
         if destination:
+            old_destination = self.destination
             self.destination = destination
+            try:
+                return self._request("ping")
+            finally:
+                self.destination = old_destination
         return self._request("ping")
 
     def active_queues(self):
@@ -501,7 +506,11 @@ class Control:
         try:
             if not conn.is_connected:
                 await conn.connect()
-            return await self.app.amqp.TaskConsumer(conn).purge()
+            consumer = self.app.amqp.TaskConsumer(conn)
+            try:
+                return await consumer.purge()
+            finally:
+                await consumer.close()
         finally:
             if own_connection:
                 await conn.close()

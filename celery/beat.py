@@ -448,7 +448,7 @@ class Scheduler:
         A, B = set(schedule), set(b)
 
         # Remove items from disk not in the schedule anymore.
-        for key in A ^ B:
+        for key in A - B:
             schedule.pop(key, None)
 
         # Update and add new items in the schedule
@@ -625,7 +625,7 @@ class Service:
         self._is_stopped = Event()
 
     def __reduce__(self):
-        return self.__class__, (self.max_interval, self.schedule_filename, self.scheduler_cls, self.app)
+        return self.__class__, (self.app, self.max_interval, self.schedule_filename, self.scheduler_cls)
 
     def start(self, embedded_process=False):
         info("beat: Starting...")

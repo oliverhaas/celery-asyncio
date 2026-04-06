@@ -33,7 +33,7 @@ from celery.utils.nodenames import gethostname
 from celery.utils.objects import Bunch
 from celery.utils.text import truncate
 from celery.utils.time import humanize_seconds, rate
-from celery.worker import loops
+from celery.worker import loops, state
 from celery.worker.state import active_requests, maybe_shutdown, requests, reserved_requests, task_reserved
 
 __all__ = ("Consumer", "Evloop", "dump_body")
@@ -381,7 +381,9 @@ class Consumer:
         warn(CONNECTION_RETRY, exc_info=True)
 
         if self.app.conf.worker_cancel_long_running_tasks_on_connection_loss:
-            for request in tuple(active_requests):
+            with state._lock:
+                active_snapshot = tuple(active_requests)
+            for request in active_snapshot:
                 if request.task.acks_late and not request.acknowledged:
                     warn(TERMINATING_TASK_ON_RESTART_AFTER_A_CONNECTION_LOSS, request)
                     request.cancel(self.pool)
@@ -389,16 +391,18 @@ class Consumer:
             warnings.warn(CANCEL_TASKS_BY_DEFAULT, CPendingDeprecationWarning, stacklevel=2)
 
         if self.app.conf.worker_enable_prefetch_count_reduction:
+            with state._lock:
+                active_count = len(active_requests)
             self.initial_prefetch_count = max(
                 self.prefetch_multiplier,
-                self.max_prefetch_count - len(tuple(active_requests)) * self.prefetch_multiplier,
+                self.max_prefetch_count - active_count * self.prefetch_multiplier,
             )
 
             self._maximum_prefetch_restored = self.initial_prefetch_count == self.max_prefetch_count
             if not self._maximum_prefetch_restored:
                 logger.info(
                     f"Temporarily reducing the prefetch count to {self.initial_prefetch_count} to avoid "
-                    f"over-fetching since {len(tuple(active_requests))} tasks are currently being processed.\n"
+                    f"over-fetching since {active_count} tasks are currently being processed.\n"
                     f"The prefetch count will be gradually restored to {self.max_prefetch_count} as the tasks "
                     "complete processing."
                 )
@@ -450,10 +454,10 @@ class Consumer:
         for bucket in self.task_buckets.values():
             if bucket:
                 bucket.clear_pending()
-        for request_id in reserved_requests:
-            if request_id in requests:
-                del requests[request_id]
-        reserved_requests.clear()
+        with state._lock:
+            for request in tuple(reserved_requests):
+                requests.pop(request.id, None)
+            reserved_requests.clear()
         if self.pool and self.pool.flush:
             self.pool.flush()
 
@@ -686,7 +690,8 @@ class Consumer:
                 return True
             return False
 
-        requests_to_cancel = tuple(filter(should_cancel, active_requests))
+        with state._lock:
+            requests_to_cancel = tuple(filter(should_cancel, active_requests))
 
         if requests_to_cancel:
             for request in requests_to_cancel:

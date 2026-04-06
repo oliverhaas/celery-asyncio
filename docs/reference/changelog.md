@@ -8,7 +8,7 @@ Initial alpha of celery-asyncio.
 
 - Async worker with hybrid asyncio + thread pool
 - `async def` and regular `def` tasks in the same worker
-- Redis transport (with sorted-set priority queues, Lua scripts, fanout)
+- Valkey/Redis transport (with sorted-set priority queues, Lua scripts, fanout)
 - AMQP transport (via aio-pika, RabbitMQ)
 - Full CLI (`celery worker`, `celery inspect`, `celery control`, `celery result`)
 - Task events and Celery Flower monitoring

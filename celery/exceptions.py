@@ -265,7 +265,8 @@ class BackendGetMetaError(BackendError):
     """An issue reading from the backend."""
 
     def __init__(self, *args, **kwargs):
-        self.task_id = kwargs.get("task_id", "")
+        self.task_id = kwargs.pop("task_id", "")
+        super().__init__(*args, **kwargs)
 
     def __repr__(self):
         return super().__repr__() + " task_id:" + self.task_id
@@ -275,8 +276,9 @@ class BackendStoreError(BackendError):
     """An issue writing to the backend."""
 
     def __init__(self, *args, **kwargs):
-        self.state = kwargs.get("state", "")
-        self.task_id = kwargs.get("task_id", "")
+        self.state = kwargs.pop("state", "")
+        self.task_id = kwargs.pop("task_id", "")
+        super().__init__(*args, **kwargs)
 
     def __repr__(self):
         return super().__repr__() + " state:" + self.state + " task_id:" + self.task_id

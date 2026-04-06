@@ -273,6 +273,7 @@ class test_Control:
     def test_purge(self):
         consumer_mock = Mock(name="TaskConsumer_instance")
         consumer_mock.purge = AsyncMock(return_value=0)
+        consumer_mock.close = AsyncMock()
         self.app.amqp.TaskConsumer = Mock(name="TaskConsumer", return_value=consumer_mock)
         conn = Mock(name="conn")
         conn.is_connected = False

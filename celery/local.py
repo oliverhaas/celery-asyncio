@@ -308,33 +308,29 @@ class PromiseProxy(Proxy):
         return self._get_current_object()
 
     def __evaluate__(self, _clean=("_Proxy__local", "_Proxy__args", "_Proxy__kwargs")):
-        try:
-            thing = Proxy._get_current_object(self)
-        except Exception:
-            raise
-        else:
-            object.__setattr__(self, "__thing", thing)
-            for attr in _clean:
-                try:
-                    object.__delattr__(self, attr)
-                except AttributeError:  # pragma: no cover
-                    # May mask errors so ignore
-                    pass
+        thing = Proxy._get_current_object(self)
+        object.__setattr__(self, "__thing", thing)
+        for attr in _clean:
             try:
-                pending = object.__getattribute__(self, "__pending__")
-            except AttributeError:
+                object.__delattr__(self, attr)
+            except AttributeError:  # pragma: no cover
+                # May mask errors so ignore
                 pass
-            else:
+        try:
+            pending = object.__getattribute__(self, "__pending__")
+        except AttributeError:
+            pass
+        else:
+            try:
+                while pending:
+                    fun, args, kwargs = pending.popleft()
+                    fun(*args, **kwargs)
+            finally:
                 try:
-                    while pending:
-                        fun, args, kwargs = pending.popleft()
-                        fun(*args, **kwargs)
-                finally:
-                    try:
-                        object.__delattr__(self, "__pending__")
-                    except AttributeError:  # pragma: no cover
-                        pass
-            return thing
+                    object.__delattr__(self, "__pending__")
+                except AttributeError:  # pragma: no cover
+                    pass
+        return thing
 
 
 def maybe_evaluate(obj):

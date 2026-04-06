@@ -34,7 +34,8 @@ class MockPool(BasePool):
 
 
 class test_WorkerComponent:
-    def test_register_with_event_loop(self):
+    def test_create_returns_none(self):
+        """In celery-asyncio, create() always returns None (event loop always used)."""
         parent = Mock(name="parent")
         parent.autoscale = True
         parent.consumer.on_task_message = set()
@@ -42,27 +43,16 @@ class test_WorkerComponent:
         assert parent.autoscaler is None
         assert w.enabled
 
-        hub = Mock(name="hub")
-        w.create(parent)
-        w.register_with_event_loop(parent, hub)
-        assert parent.autoscaler.maybe_scale in parent.consumer.on_task_message
-        hub.call_repeatedly.assert_called_with(
-            parent.autoscaler.keepalive,
-            parent.autoscaler.maybe_scale,
-        )
+        result = w.create(parent)
+        assert result is None
+        # autoscaler should still be set on the worker
+        assert parent.autoscaler is not None
 
-        parent.hub = hub
-        hub.on_init = []
-        w.instantiate = Mock()
-        w.register_with_event_loop(parent, Mock(name="loop"))
-        assert parent.consumer.on_task_message
-
-    def test_info_without_event_loop(self):
+    def test_info(self):
         parent = Mock(name="parent")
         parent.autoscale = True
         parent.max_concurrency = "10"
         parent.min_concurrency = "2"
-        parent.use_eventloop = False
         w = autoscale.WorkerComponent(parent)
         w.create(parent)
         info = w.info(parent)

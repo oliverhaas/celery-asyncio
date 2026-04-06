@@ -29,6 +29,11 @@ class Events:
 
     @contextmanager
     def default_dispatcher(self, hostname=None, enabled=True, buffer_while_offline=False):
-        with self.app.amqp.producer_pool.acquire(block=True) as prod:
-            with self.Dispatcher(prod.connection, hostname, enabled, prod.channel, buffer_while_offline) as d:
+        conn = self.app.connection_for_write()
+        try:
+            prod = self.app.amqp.Producer(conn)
+            with self.Dispatcher(conn, hostname, enabled, channel=None, buffer_while_offline=buffer_while_offline) as d:
+                d.producer = prod
                 yield d
+        finally:
+            conn.close()

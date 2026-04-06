@@ -1,6 +1,6 @@
 [project]
 name = "celery-asyncio"
-version = "6.0.0a2"
+version = "6.0.0a3"
 description = "Distributed Task Queue with native asyncio support"
 readme = "README.md"
 license = { text = "BSD-3-Clause" }
@@ -36,7 +36,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "kombu-asyncio==6.0.0a2",
+  "kombu-asyncio==6.0.0a3",
   "asgiref>=3.5.0",
   "click>=8.1.2,<9.0",
   "click-didyoumean>=0.3.0",

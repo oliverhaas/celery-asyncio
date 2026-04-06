@@ -1,5 +1,7 @@
 """The ``celery list bindings`` command, used to inspect queue bindings."""
 
+import asyncio
+
 import click
 
 from celery.bin.base import CeleryCommand, handle_preload_options
@@ -23,18 +25,26 @@ def bindings(ctx):
     """Inspect queue bindings."""
     # TODO: Consider using a table formatter for this command.
     app = ctx.obj.app
-    with app.connection() as conn:
-        app.amqp.TaskConsumer(conn).declare()
 
-        try:
-            bindings = conn.manager.get_bindings()
-        except NotImplementedError:
-            raise click.UsageError("Your transport cannot list bindings.")
+    async def _get_bindings():
+        async with app.connection() as conn:
+            consumer = app.amqp.TaskConsumer(conn)
+            try:
+                await consumer.declare()
+            finally:
+                await consumer.close()
 
-        def fmt(q, e, r):
-            ctx.obj.echo(f"{q:<28} {e:<28} {r}")
+            try:
+                return conn.manager.get_bindings()
+            except NotImplementedError:
+                raise click.UsageError("Your transport cannot list bindings.")
 
-        fmt("Queue", "Exchange", "Routing Key")
-        fmt("-" * 16, "-" * 16, "-" * 16)
-        for b in bindings:
-            fmt(b["destination"], b["source"], b["routing_key"])
+    bindings_list = asyncio.run(_get_bindings())
+
+    def fmt(q, e, r):
+        ctx.obj.echo(f"{q:<28} {e:<28} {r}")
+
+    fmt("Queue", "Exchange", "Routing Key")
+    fmt("-" * 16, "-" * 16, "-" * 16)
+    for b in bindings_list:
+        fmt(b["destination"], b["source"], b["routing_key"])

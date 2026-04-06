@@ -24,6 +24,9 @@ __all__ = (
     "connect_on_app_finalize",
 )
 
+#: Lock protecting mutable module-level state for free-threading safety.
+_state_lock = threading.Lock()
+
 #: Global default app used when no current app.
 default_app = None
 
@@ -46,12 +49,14 @@ _task_join_will_block = False
 
 def connect_on_app_finalize(callback):
     """Connect callback to be called when any app is finalized."""
-    _on_app_finalizers.add(callback)
+    with _state_lock:
+        _on_app_finalizers.add(callback)
     return callback
 
 
 def _announce_app_finalized(app):
-    callbacks = set(_on_app_finalizers)
+    with _state_lock:
+        callbacks = set(_on_app_finalizers)
     for callback in callbacks:
         callback(app)
 
@@ -90,7 +95,8 @@ pop_current_task = _task_stack.pop
 def set_default_app(app):
     """Set default app."""
     global default_app
-    default_app = app
+    with _state_lock:
+        default_app = app
 
 
 def _get_current_app():
@@ -155,15 +161,18 @@ current_task = Proxy(get_current_task)
 
 
 def _register_app(app):
-    _apps.add(app)
+    with _state_lock:
+        _apps.add(app)
 
 
 def _deregister_app(app):
-    _apps.discard(app)
+    with _state_lock:
+        _apps.discard(app)
 
 
 def _get_active_apps():
-    return _apps
+    with _state_lock:
+        return set(_apps)
 
 
 def _app_or_default(app=None):

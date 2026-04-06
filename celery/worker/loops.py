@@ -70,7 +70,8 @@ def _trigger_restart(reason: str) -> None:
 async def _enter_draining(consumer, reason: str) -> None:
     """Stop consuming new messages and reject/requeue prefetched tasks."""
     state.is_draining = True
-    active_count = len(tuple(state.active_requests))
+    with state._lock:
+        active_count = len(state.active_requests)
     logger.info(
         "Worker draining: %s. Stopped accepting new tasks, waiting for %d active task(s) to finish.",
         reason,

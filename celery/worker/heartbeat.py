@@ -6,6 +6,7 @@ at regular intervals (may not be an actual thread).
 
 from celery.signals import heartbeat_sent
 from celery.utils.sysinfo import load_average
+from celery.worker import state
 
 from .state import SOFTWARE_INFO, active_requests, all_total_count
 
@@ -39,10 +40,12 @@ class Heart:
     def _send(self, event, retry=True):
         if self._send_sent_signal is not None:
             self._send_sent_signal(sender=self)
+        with state._lock:
+            active_count = len(active_requests)
         return self.eventer.send(
             event,
             freq=self.interval,
-            active=len(active_requests),
+            active=active_count,
             processed=all_total_count[0],
             loadavg=load_average(),
             retry=retry,

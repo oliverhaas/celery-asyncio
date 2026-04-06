@@ -1,5 +1,7 @@
 """The ``celery purge`` program, used to delete messages from queues."""
 
+import asyncio
+
 import click
 
 from celery.bin.base import COMMA_SEPARATED_LIST, CeleryCommand, CeleryOption, handle_preload_options
@@ -55,14 +57,18 @@ def purge(ctx, force, queues, exclude_queues, **kwargs):
                 abort=True,
             )
 
-        def _purge(conn, queue):
-            try:
-                return conn.default_channel.queue_purge(queue) or 0
-            except conn.channel_errors:
-                return 0
+        async def _purge_all():
+            async with app.connection_for_write() as conn:
+                channel = await conn.default_channel()
+                total = 0
+                for queue in names:
+                    try:
+                        total += await channel.queue_purge(queue) or 0
+                    except conn.channel_errors:
+                        pass
+                return total
 
-        with app.connection_for_write() as conn:
-            messages = sum(_purge(conn, queue) for queue in names)
+        messages = asyncio.run(_purge_all())
 
         if messages:
             messages_headline = text.pluralize(messages, "message")

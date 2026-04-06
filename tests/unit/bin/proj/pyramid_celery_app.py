@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 from click import Option
 
@@ -20,18 +20,20 @@ app.config_from_object("tests.integration.test_worker_config")
 
 
 class PurgeMock:
-    def queue_purge(self, queue):
+    async def queue_purge(self, queue):
         return 0
 
 
 class ConnMock:
-    default_channel = PurgeMock()
     channel_errors = KeyError
+
+    async def default_channel(self):
+        return PurgeMock()
 
 
 mock = Mock()
-mock.__enter__ = Mock(return_value=ConnMock())
-mock.__exit__ = Mock(return_value=False)
+mock.__aenter__ = AsyncMock(return_value=ConnMock())
+mock.__aexit__ = AsyncMock(return_value=False)
 
 app.connection_for_write = MagicMock(return_value=mock)
 

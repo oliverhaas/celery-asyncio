@@ -517,6 +517,9 @@ def build_tracer(
     pop_request = request_stack.pop
     push_task = _task_stack.push
     pop_task = _task_stack.pop
+    # Intentionally cached at build time for performance: this runs per-task
+    # in the hot path.  If the log level changes at runtime the cached value
+    # will be stale, but the trade-off is acceptable.
     _does_info = logger.isEnabledFor(logging.INFO)
     resultrepr_maxsize = task.resultrepr_maxsize
 
@@ -819,6 +822,9 @@ def build_async_tracer(
     pop_request = request_stack.pop
     push_task = _task_stack.push
     pop_task = _task_stack.pop
+    # Intentionally cached at build time for performance: this runs per-task
+    # in the hot path.  If the log level changes at runtime the cached value
+    # will be stale, but the trade-off is acceptable.
     _does_info = logger.isEnabledFor(logging.INFO)
     resultrepr_maxsize = task.resultrepr_maxsize
 

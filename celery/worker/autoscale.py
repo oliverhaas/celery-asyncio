@@ -40,21 +40,13 @@ class WorkerComponent(bootsteps.StartStopStep):
         w.autoscaler = None
 
     def create(self, w):
-        scaler = w.autoscaler = self.instantiate(
+        w.autoscaler = self.instantiate(
             w.autoscaler_cls,
             w.pool,
             w.max_concurrency,
             w.min_concurrency,
             worker=w,
-            mutex=DummyLock() if w.use_eventloop else None,
-        )
-        return scaler if not w.use_eventloop else None
-
-    def register_with_event_loop(self, w, hub):
-        w.consumer.on_task_message.add(w.autoscaler.maybe_scale)
-        hub.call_repeatedly(
-            w.autoscaler.keepalive,
-            w.autoscaler.maybe_scale,
+            mutex=DummyLock(),
         )
 
     def info(self, w):

@@ -257,7 +257,7 @@ class JsonObject(ParamType):
 class ISO8601DateTime(ParamType):
     """ISO 8601 Date Time argument."""
 
-    name = "iso-86091"
+    name = "iso-8601"
 
     def convert(self, value, param, ctx):
         try:
@@ -269,7 +269,7 @@ class ISO8601DateTime(ParamType):
 class ISO8601DateTimeOrFloat(ParamType):
     """ISO 8601 Date Time or float argument."""
 
-    name = "iso-86091 or float"
+    name = "iso-8601 or float"
 
     def convert(self, value, param, ctx):
         try:

@@ -33,7 +33,6 @@ class Trap:
         # in Python 3.8 and above.
         if name == "_is_coroutine" or name == "__func__":
             return
-        print(name)
         raise RuntimeError("Test depends on current_app")
 
 
