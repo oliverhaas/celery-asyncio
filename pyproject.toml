@@ -119,9 +119,6 @@ include = ["celery", "LICENSE", "README.md"]
 # Python module. This override prevents uv from pulling in upstream celery.
 override-dependencies = ["celery ; python_version < '0'"]
 
-[tool.uv.sources]
-kombu-asyncio = { path = "../kombu", editable = true }
-
 [tool.ruff]
 line-length = 120
 target-version = "py314"
