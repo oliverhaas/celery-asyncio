@@ -53,12 +53,10 @@ class ApplyResult:
             wait([self.f], timeout)
 
     def cancel(self) -> None:
-        """Cancel the underlying task/future."""
         if self.f is not None:
             self.f.cancel()
 
     def terminate(self, signal=None) -> None:
-        """Terminate the underlying task/future (alias for cancel)."""
         self.cancel()
 
 
@@ -83,7 +81,6 @@ class LoopWorker:
         self._tasks: set[asyncio.Task] = set()
 
     def start(self) -> None:
-        """Start the loop worker thread and wait until the loop is running."""
         self._thread = threading.Thread(
             target=self._run_loop,
             name=f"celery-loop-worker-{self._index}",
@@ -93,7 +90,6 @@ class LoopWorker:
         self._ready.wait()
 
     def _run_loop(self) -> None:
-        """Thread target: create and run an event loop forever."""
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         self._semaphore = asyncio.Semaphore(self._concurrency)
@@ -115,13 +111,11 @@ class LoopWorker:
         self._loop.call_soon_threadsafe(self._schedule_task, coro_factory, args)
 
     def _schedule_task(self, coro_factory: Callable, args: tuple) -> None:
-        """Create and schedule the task on this loop (called from loop thread)."""
         task = self._loop.create_task(self._run_with_semaphore(coro_factory, args))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
     async def _run_with_semaphore(self, coro_factory: Callable, args: tuple) -> None:
-        """Acquire semaphore, run the coroutine, then release."""
         async with self._semaphore:
             try:
                 await coro_factory(*args)
@@ -130,7 +124,6 @@ class LoopWorker:
                     self._active_count -= 1
 
     def cancel_all(self) -> None:
-        """Cancel all running async tasks on this loop (must be called from loop thread)."""
         for task in list(self._tasks):
             task.cancel()
 
@@ -149,7 +142,7 @@ class LoopWorker:
             self._thread.join(timeout=10)
             if self._thread.is_alive():
                 logger.warning(
-                    "Loop worker %s did not stop within 10s — thread may be leaked (%d tasks were active)",
+                    "Loop worker %s did not stop within 10s, thread may be leaked (%d tasks were active)",
                     self._index,
                     self._active_count,
                 )
@@ -206,19 +199,14 @@ class TaskPool(BasePool):
             w.stop()
         self._loop_workers.clear()
         if self._executor:
-            # wait=True ensures all submitted sync tasks finish before
-            # the worker process exits, preventing resource leaks.
-            # cancel_futures=True cancels queued-but-not-started tasks.
             self._executor.shutdown(wait=True, cancel_futures=True)
             self._executor = None
 
     def restart(self) -> None:
-        """Restart the pool: stop all workers and start fresh."""
         self.on_stop()
         self.on_start()
 
     def _is_async_task(self, args: tuple) -> bool:
-        """Check if the task referenced by args[0] is an async coroutine."""
         if self.app and args:
             task_name = args[0]
             try:
@@ -229,7 +217,6 @@ class TaskPool(BasePool):
         return False
 
     def _pick_loop_worker(self) -> LoopWorker:
-        """Pick the loop worker with the fewest active tasks."""
         return min(self._loop_workers, key=lambda w: w._active_count)
 
     def on_apply(
@@ -340,7 +327,7 @@ class TaskPool(BasePool):
                 timeout_callback=timeout_callback,
             )
 
-            # Hard timeout returns _HARD_TIMEOUT sentinel —
+            # Hard timeout returns _HARD_TIMEOUT sentinel.
             # on_timeout already handled reporting.
             if tracer_result is _HARD_TIMEOUT:
                 return
@@ -421,7 +408,7 @@ class TaskPool(BasePool):
             except asyncio.TimeoutError:
                 if timeout_callback:
                     timeout_callback(False, timeout)
-                # Don't raise — on_timeout already handled task_ready + mark_as_failure.
+                # Don't raise, on_timeout already handled task_ready + mark_as_failure.
                 return _HARD_TIMEOUT
         else:
             return await _run_with_soft_timeout()
@@ -438,7 +425,6 @@ class TaskPool(BasePool):
         timeout: float | None = None,
         **options: Any,
     ) -> ApplyResult:
-        """Run a sync task in the thread pool."""
         app = self.app
 
         # Shared state so the soft timeout timer can find the thread.
@@ -538,7 +524,6 @@ class TaskPool(BasePool):
         accept_callback: Callable | None,
         soft_state: dict | None = None,
     ) -> Any:
-        """Execute apply_target with the correct app context."""
         app.set_current()
         if soft_state is not None:
             soft_state["thread_id"] = threading.get_ident()

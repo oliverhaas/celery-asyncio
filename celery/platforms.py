@@ -274,7 +274,7 @@ def get_fdmax(default=1024):
             _soft, fdmax = resource.getrlimit(resource.RLIMIT_NOFILE)
         except ValueError, resource.error:
             fdmax = None
-    if fdmax is None or fdmax == resource.RLIM_INFINITY if resource else False:
+    if fdmax is None or (resource and fdmax == resource.RLIM_INFINITY):
         return default
     return fdmax
 

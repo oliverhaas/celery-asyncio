@@ -64,14 +64,14 @@ thread pool. Both can coexist in the same worker.
 Most configuration keys are the same. Key differences:
 
 ```python
-# Worker pool — only 'asyncio' is supported
+# Worker pool -- only 'asyncio' is supported
 # (prefork, eventlet, gevent are removed)
 worker_pool = 'asyncio'          # default, no need to set
 
-# Broker URL — valkey:// scheme now supported
+# Broker URL -- valkey:// scheme now supported
 broker_url = 'valkey://localhost:6379/0'  # or redis:// still works
 
-# Result backend — same
+# Result backend -- same
 result_backend = 'valkey://localhost:6379/1'  # or redis://
 ```
 
@@ -91,11 +91,11 @@ The CLI is the same:
 # Before
 celery -A myapp worker --loglevel=info
 
-# After — identical
+# After -- identical
 celery -A myapp worker --loglevel=info
 ```
 
-The `-P` flag only accepts `asyncio` (or omit it — it's the default).
+The `-P` flag only accepts `asyncio` (or omit it -- it's the default).
 
 ## Canvas primitives
 
@@ -148,17 +148,17 @@ celery -A myapp flower
 
 ## What's removed
 
-- **prefork pool** — replaced by asyncio + thread pool
-- **eventlet/gevent** — native `async def` replaces green threads
-- **billiard** — no longer needed (no forking)
-- **vine** — promises replaced by asyncio futures
-- **SQS, Zookeeper, Consul** transports — not yet ported
-- **Database, Memcached, S3** result backends — not yet ported
+- prefork pool, replaced by asyncio + thread pool
+- eventlet/gevent, native `async def` replaces green threads
+- billiard, no longer needed (no forking)
+- vine, promises replaced by asyncio futures
+- SQS, Zookeeper, Consul transports, not yet ported
+- Database, Memcached, S3 result backends, not yet ported
 
 ## What's new
 
-- **Native async tasks** — `async def` tasks run on the event loop
-- **Valkey support** — first-class `valkey://` URL scheme
-- **AMQP via aio-pika** — native asyncio RabbitMQ support
-- **Python 3.14 only** — leverages latest language features
-- **Free-threading ready** — designed for Python 3.14t
+- Native async tasks: `async def` tasks run on the event loop
+- Valkey support: first-class `valkey://` URL scheme
+- AMQP via aio-pika: native asyncio RabbitMQ support
+- Python 3.14 only, uses latest language features
+- Free-threading ready, designed for Python 3.14t

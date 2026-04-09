@@ -39,7 +39,7 @@ celery-asyncio example
 1) Basic task: add(2, 3)
    result = 5
 
-2) Async task: slow_add(10, 20) — runs on the event loop
+2) Async task: slow_add(10, 20) - runs on the event loop
    result = 30
 
 3) Delayed task: add(10, 20) with countdown=3s
@@ -77,9 +77,9 @@ PYTHONPATH=. uv run python -m celery -A celeryapp flower
 
 Open http://localhost:5555 in your browser while running tasks. You should see:
 
-- **Workers tab** — the worker and its status
-- **Tasks tab** — each task as it's sent, received, and completed
-- **Monitor tab** — live graphs of task throughput and latency
+- **Workers tab** - the worker and its status
+- **Tasks tab** - each task as it's sent, received, and completed
+- **Monitor tab** - live graphs of task throughput and latency
 
 ## Cleanup
 

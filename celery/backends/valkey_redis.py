@@ -113,7 +113,7 @@ class ResultConsumer(BaseResultConsumer):
     """Minimal result consumer stub.
 
     Polling is done directly in AsyncBackendMixin.wait_for_pending()
-    and iter_native() — no PUBSUB subscriptions needed.
+    and iter_native() -- no PUBSUB subscriptions needed.
     """
 
     def start(self, initial_task_id, **kwargs):
@@ -384,7 +384,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         return retry_policy
 
     def on_task_call(self, producer, task_id):
-        pass  # Polling-based — no early subscription needed
+        pass  # Polling-based, no early subscription needed
 
     def get(self, key):
         return self.client.get(key)
@@ -601,7 +601,7 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                             header_result.join_native if header_result.supports_native_join else header_result.join
                         )
 
-                        # join() is sync — offload to thread to avoid blocking the loop.
+                        # join() is sync, offload to thread to avoid blocking the loop.
                         def _join_in_thread():
                             with allow_join_result():
                                 return join_func(timeout=app.conf.result_chord_join_timeout, propagate=True)
@@ -936,7 +936,7 @@ class SentinelBackend(RedisBackend):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Resolve sentinel module — check class attribute first (tests), then library
+        # Resolve sentinel module: check class attribute first (tests), then library
         if self.sentinel is None:
             self.sentinel = getattr(self.redis, "sentinel", None)
         if self.sentinel is None:

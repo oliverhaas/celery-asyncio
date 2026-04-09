@@ -42,7 +42,7 @@ def main():
     print(f"   result = {wait_for_result(result)}")
 
     # --- Async task ---
-    print("\n2) Async task: slow_add(10, 20) — runs on the event loop")
+    print("\n2) Async task: slow_add(10, 20) - runs on the event loop")
     result = slow_add.delay(10, 20)
     print(f"   result = {wait_for_result(result)}")
 
@@ -75,7 +75,7 @@ def main():
         print(f"   result = {wait_for_result(result)}")
     except RuntimeError:
         # With 50% fail rate and max_retries=3, there's a ~6% chance
-        # all 4 attempts fail — that's expected, retries still worked.
+        # all 4 attempts fail - that's expected, retries still worked.
         print("   exhausted all retries (expected sometimes with 50% fail rate)")
 
     print("\n" + "=" * 60)

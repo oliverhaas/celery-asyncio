@@ -18,14 +18,14 @@ def multiply(x, y):
 
 @app.task
 async def slow_add(x, y):
-    """Async task — runs natively on the asyncio event loop."""
+    """Async task - runs natively on the asyncio event loop."""
     await asyncio.sleep(1)
     return x + y
 
 
 @app.task
 async def fast_async(x, y):
-    """Lightweight async task — sleeps briefly, ideal for concurrency testing."""
+    """Lightweight async task - sleeps briefly, ideal for concurrency testing."""
     await asyncio.sleep(0.01)
     return x + y
 

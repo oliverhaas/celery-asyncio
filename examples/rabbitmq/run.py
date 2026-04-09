@@ -42,7 +42,7 @@ def main():
     print(f"   result = {wait_for_result(result)}")
 
     # --- Async task ---
-    print("\n2) Async task: slow_add(10, 20) — runs on the event loop")
+    print("\n2) Async task: slow_add(10, 20) - runs on the event loop")
     result = slow_add.delay(10, 20)
     print(f"   result = {wait_for_result(result)}")
 

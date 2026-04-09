@@ -1109,7 +1109,6 @@ class Celery:
             name (str): Name of task to call (e.g., `"tasks.add"`).
             result_cls (AsyncResult): Specify custom result class.
         """
-        # Prepare message (no I/O)
         message, options, task_id, ignore_result, producer, result_cls, add_to_parent = self._prepare_task_message(
             name,
             args=args,
@@ -1146,7 +1145,6 @@ class Celery:
         # Send message (I/O)
         self._send_task_message(producer, name, message, task_id, ignore_result, **options)
 
-        # Build result (no I/O)
         result = (result_cls or self.AsyncResult)(task_id)
         result.ignored = ignore_result
 
@@ -1198,7 +1196,6 @@ class Celery:
 
         Arguments and return value are the same as :meth:`send_task`.
         """
-        # Prepare message (no I/O) - runs synchronously
         message, options, task_id, ignore_result, producer, result_cls, add_to_parent = self._prepare_task_message(
             name,
             args=args,
@@ -1235,7 +1232,6 @@ class Celery:
         # Send message (I/O) - native async
         await self._asend_task_message(name, message, task_id, ignore_result, connection=connection, **options)
 
-        # Build result (no I/O) - runs synchronously
         result = (result_cls or self.AsyncResult)(task_id)
         result.ignored = ignore_result
 

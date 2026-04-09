@@ -95,7 +95,7 @@ class promise:
         """Execute the promise."""
         fun = self._get_fun()
         if fun is None:
-            # No function — act as a simple "event" marker.
+            # No function, act as a simple "event" marker.
             self._value = args[0] if args else None
             self._ready = True
             for callback, error_handler in self._callbacks:

@@ -186,7 +186,7 @@ async def asynloop(
         try:
             # Block until at least one message arrives (or timeout).
             await connection.drain_events(timeout=drain_timeout)
-            # Got one — now drain remaining available messages non-blocking
+            # Got one, now drain remaining available messages non-blocking
             # to fill the concurrency pipeline.
             batch = 0
             while blueprint.state == 1:

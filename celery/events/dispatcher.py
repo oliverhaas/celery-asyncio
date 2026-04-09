@@ -182,7 +182,7 @@ class EventDispatcher:
                 except RuntimeError:
                     running_loop = None
                 if running_loop is self._event_loop:
-                    # Already on the main consumer loop — schedule directly.
+                    # Already on the main consumer loop, schedule directly.
                     task = running_loop.create_task(coro)
                     task.add_done_callback(self._on_publish_done)
                 else:

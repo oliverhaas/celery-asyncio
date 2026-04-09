@@ -405,7 +405,6 @@ class AsyncResult(ResultBase):
 
         Arguments and return value are the same as :meth:`get`.
         """
-        # Prepare (no I/O)
         should_wait, _on_interval, cached_result = self._prepare_get(
             timeout=timeout,
             propagate=propagate,

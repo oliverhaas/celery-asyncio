@@ -719,7 +719,6 @@ class Task:
 
         Arguments and return value are the same as :meth:`apply_async`.
         """
-        # Prepare (no I/O) - runs synchronously
         args, kwargs, shadow, options, app = self._prepare_apply_async(
             args=args, kwargs=kwargs, shadow=shadow, **options
         )

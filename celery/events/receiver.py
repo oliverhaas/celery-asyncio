@@ -116,7 +116,7 @@ class EventReceiver(ConsumerMixin):
         asyncio.run(self.acapture(limit=limit, timeout=timeout, wakeup=wakeup))
 
     async def acapture(self, limit=None, timeout=None, wakeup=True):
-        """Async capture — consumes events using native asyncio."""
+        """Async capture - consumes events using native asyncio."""
         async for _ in self.consume(limit=limit, timeout=timeout, wakeup=wakeup):
             pass
 

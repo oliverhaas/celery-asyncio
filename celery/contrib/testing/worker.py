@@ -133,7 +133,7 @@ def _start_worker_thread(
         **kwargs,
     )
 
-    # worker.start() is async — run it inside its own event loop on a thread
+    # worker.start() is async, run it inside its own event loop on a thread
     t = threading.Thread(target=asyncio.run, args=(w.start(),), daemon=True)
     t.start()
     w.ensure_started()
