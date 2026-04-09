@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.3">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
@@ -1318,14 +1318,14 @@ and concurrency model are completely different from upstream Celery.</p>
 thread pool. Both can coexist in the same worker.</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
 <p>Most configuration keys are the same. Key differences:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Worker pool — only &#39;asyncio&#39; is supported</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Worker pool -- only &#39;asyncio&#39; is supported</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="c1"># (prefork, eventlet, gevent are removed)</span>
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">worker_pool</span> <span class="o">=</span> <span class="s1">&#39;asyncio&#39;</span>          <span class="c1"># default, no need to set</span>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># Broker URL — valkey:// scheme now supported</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># Broker URL -- valkey:// scheme now supported</span>
 </span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">broker_url</span> <span class="o">=</span> <span class="s1">&#39;valkey://localhost:6379/0&#39;</span>  <span class="c1"># or redis:// still works</span>
 </span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="c1"># Result backend — same</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="c1"># Result backend -- same</span>
 </span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">result_backend</span> <span class="o">=</span> <span class="s1">&#39;valkey://localhost:6379/1&#39;</span>  <span class="c1"># or redis://</span>
 </span></code></pre></div>
 <h3 id="removed-settings">Removed settings<a class="headerlink" href="#removed-settings" title="Permanent link">&para;</a></h3>
@@ -1340,10 +1340,10 @@ thread pool. Both can coexist in the same worker.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Before</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>celery<span class="w"> </span>-A<span class="w"> </span>myapp<span class="w"> </span>worker<span class="w"> </span>--loglevel<span class="o">=</span>info
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># After — identical</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># After -- identical</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>celery<span class="w"> </span>-A<span class="w"> </span>myapp<span class="w"> </span>worker<span class="w"> </span>--loglevel<span class="o">=</span>info
 </span></code></pre></div>
-<p>The <code>-P</code> flag only accepts <code>asyncio</code> (or omit it — it's the default).</p>
+<p>The <code>-P</code> flag only accepts <code>asyncio</code> (or omit it -- it's the default).</p>
 <h2 id="canvas-primitives">Canvas primitives<a class="headerlink" href="#canvas-primitives" title="Permanent link">&para;</a></h2>
 <p><code>chain</code>, <code>group</code>, <code>chord</code>, <code>chunks</code> work the same way:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">celery</span><span class="w"> </span><span class="kn">import</span> <span class="n">chain</span><span class="p">,</span> <span class="n">group</span><span class="p">,</span> <span class="n">chord</span>
@@ -1375,20 +1375,20 @@ upstream <code>celery</code> from PyPI:</p>
 </span></code></pre></div>
 <h2 id="whats-removed">What's removed<a class="headerlink" href="#whats-removed" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>prefork pool</strong> — replaced by asyncio + thread pool</li>
-<li><strong>eventlet/gevent</strong> — native <code>async def</code> replaces green threads</li>
-<li><strong>billiard</strong> — no longer needed (no forking)</li>
-<li><strong>vine</strong> — promises replaced by asyncio futures</li>
-<li><strong>SQS, Zookeeper, Consul</strong> transports — not yet ported</li>
-<li><strong>Database, Memcached, S3</strong> result backends — not yet ported</li>
+<li>prefork pool, replaced by asyncio + thread pool</li>
+<li>eventlet/gevent, native <code>async def</code> replaces green threads</li>
+<li>billiard, no longer needed (no forking)</li>
+<li>vine, promises replaced by asyncio futures</li>
+<li>SQS, Zookeeper, Consul transports, not yet ported</li>
+<li>Database, Memcached, S3 result backends, not yet ported</li>
 </ul>
 <h2 id="whats-new">What's new<a class="headerlink" href="#whats-new" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Native async tasks</strong> — <code>async def</code> tasks run on the event loop</li>
-<li><strong>Valkey support</strong> — first-class <code>valkey://</code> URL scheme</li>
-<li><strong>AMQP via aio-pika</strong> — native asyncio RabbitMQ support</li>
-<li><strong>Python 3.14 only</strong> — leverages latest language features</li>
-<li><strong>Free-threading ready</strong> — designed for Python 3.14t</li>
+<li>Native async tasks: <code>async def</code> tasks run on the event loop</li>
+<li>Valkey support: first-class <code>valkey://</code> URL scheme</li>
+<li>AMQP via aio-pika: native asyncio RabbitMQ support</li>
+<li>Python 3.14 only, uses latest language features</li>
+<li>Free-threading ready, designed for Python 3.14t</li>
 </ul>
 
 
