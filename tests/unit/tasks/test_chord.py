@@ -5,7 +5,7 @@ import pytest
 
 from celery import canvas, group, result, uuid
 from celery.canvas import Signature
-from celery.exceptions import ChordError, Retry
+from celery.exceptions import Retry
 from celery.result import AsyncResult, EagerResult, GroupResult
 
 

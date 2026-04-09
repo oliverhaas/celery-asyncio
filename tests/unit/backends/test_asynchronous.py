@@ -1,4 +1,3 @@
-import time
 from unittest.mock import Mock, patch
 
 import pytest
@@ -59,8 +58,7 @@ class test_AsyncBackendMixin:
     @pytest.fixture
     def backend(self):
         """Create a mock backend with AsyncBackendMixin methods."""
-        backend = Mock(spec=["get_task_meta", "_ensure_not_eager",
-                             "get_key_for_task", "mget", "_mget_to_results"])
+        backend = Mock(spec=["get_task_meta", "_ensure_not_eager", "get_key_for_task", "mget", "_mget_to_results"])
         # Bind mixin methods to the mock
         backend._poll_interval = AsyncBackendMixin._poll_interval
         backend.wait_for_pending = AsyncBackendMixin.wait_for_pending.__get__(backend)

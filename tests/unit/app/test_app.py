@@ -1205,7 +1205,6 @@ class test_App:
     def test_bugreport(self):
         assert self.app.bugreport()
 
-
     def test_select_queues(self):
         self.app.amqp = Mock(name="amqp")
         self.app.select_queues({"foo", "bar"})
@@ -1309,6 +1308,7 @@ class test_App:
         except TypeError as e:
             pytest.fail(f"raise unexcepted error {e}")
 
+
 class test_defaults:
     def test_strtobool(self):
         for s in ("false", "no", "0"):
@@ -1334,7 +1334,6 @@ class test_pyimplementation:
     def test_platform_python_implementation(self):
         with conftest.platform_pyimp(lambda: "Xython"):
             assert pyimplementation() == "Xython"
-
 
 
 class test_shared_task:

@@ -56,7 +56,7 @@ class Pidbox:
     async def start(self, c):
         # Use the default channel so pidbox messages are delivered
         # by the same drain_events loop as task messages.
-        self.node.channel = await c.connection.default_channel()
+        self.node.channel = c.connection.default_channel
         self.consumer = await self.node.listen(callback=self.on_message)
         self.consumer.on_decode_error = c.on_decode_error
 

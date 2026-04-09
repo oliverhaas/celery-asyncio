@@ -26,9 +26,7 @@ class PurgeMock:
 
 class ConnMock:
     channel_errors = KeyError
-
-    async def default_channel(self):
-        return PurgeMock()
+    default_channel = PurgeMock()
 
 
 mock = Mock()

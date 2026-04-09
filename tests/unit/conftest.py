@@ -397,7 +397,6 @@ def platform_pyimp(value=None):
     yield from replace_module_value(platform, "python_implementation", value)
 
 
-
 def _restore_logging():
     outs = sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__
     root = logging.getLogger()

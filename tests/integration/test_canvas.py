@@ -1,9 +1,8 @@
 import collections
-import re
 import tempfile
 import uuid
 from datetime import UTC, datetime, timedelta
-from time import monotonic, sleep
+from time import sleep
 
 import pytest
 import pytest_subtests  # noqa

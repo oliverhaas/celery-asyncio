@@ -1,10 +1,9 @@
 import gc
 import logging
+import multiprocessing
 import os
 import pprint
 import uuid
-
-import multiprocessing
 
 import pytest
 from kombu import Queue
