@@ -2,6 +2,8 @@
 # https://github.com/celery/celery
 """Worker Event Dispatcher Bootstep - async implementation."""
 
+import asyncio
+
 from celery import bootsteps
 
 from .connection import Connection
@@ -44,10 +46,11 @@ class Events(bootsteps.StartStopStep):
             # remember changes from remote control commands:
             self.groups = dispatcher.groups
 
-            # close custom connection
+            # close custom connection (async in kombu-asyncio)
             if dispatcher.connection:
                 try:
-                    dispatcher.connection.close()
+                    loop = asyncio.get_event_loop()
+                    loop.create_task(dispatcher.connection.close())
                 except Exception:
                     pass
             try:

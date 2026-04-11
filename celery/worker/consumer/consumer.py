@@ -447,7 +447,8 @@ class Consumer:
             dump_body(message, message.body),
             exc_info=1,
         )
-        message.ack()
+        loop = asyncio.get_event_loop()
+        loop.create_task(message.ack())
 
     def on_close(self):
         # Clear internal queues to get rid of old messages.
@@ -564,7 +565,8 @@ class Consumer:
 
     def on_unknown_message(self, body, message):
         warn(UNKNOWN_FORMAT, self._message_report(body, message))
-        message.reject_log_error(logger, self.connection_errors)
+        loop = asyncio.get_event_loop()
+        loop.create_task(message.reject_log_error(logger, self.connection_errors))
         signals.task_rejected.send(sender=self, message=message, exc=None)
 
     def on_unknown_task(self, body, message, exc):
@@ -584,7 +586,8 @@ class Consumer:
             reply_to=message.properties.get("reply_to"),
             errbacks=None,
         )
-        message.reject_log_error(logger, self.connection_errors)
+        loop = asyncio.get_event_loop()
+        loop.create_task(message.reject_log_error(logger, self.connection_errors))
         self.app.backend.mark_as_failure(
             id_,
             NotRegistered(name),
@@ -606,7 +609,8 @@ class Consumer:
 
     def on_invalid_task(self, body, message, exc):
         error(INVALID_TASK_ERROR, exc, dump_body(message, body), exc_info=True)
-        message.reject_log_error(logger, self.connection_errors)
+        loop = asyncio.get_event_loop()
+        loop.create_task(message.reject_log_error(logger, self.connection_errors))
         signals.task_rejected.send(sender=self, message=message, exc=exc)
 
     def update_strategies(self):

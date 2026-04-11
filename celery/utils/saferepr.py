@@ -102,7 +102,7 @@ def _repr_empty_set(s):
 def _safetext(val):
     if isinstance(val, bytes):
         try:
-            val.encode("utf-8")
+            val.decode("utf-8")
         except UnicodeDecodeError:
             # is bytes with unrepresentable characters, attempt
             # to convert back to unicode

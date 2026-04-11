@@ -1095,7 +1095,7 @@ class _chain(Signature):
             tuple: (args, kwargs, app, merged_options) ready for run().
         """
         args = args or ()
-        kwargs = kwargs or []
+        kwargs = kwargs or {}
         app = self.app
         merged_options = dict(self.options, **options) if options else self.options
         return args, kwargs, app, merged_options
@@ -1149,7 +1149,7 @@ class _chain(Signature):
                    (None, None, None, None) if nothing to execute.
         """
         args = args or ()
-        kwargs = kwargs or []
+        kwargs = kwargs or {}
         app = app or self.app
         use_link = self._use_link
         if use_link is None and app.conf.task_protocol == 1:

@@ -2,6 +2,7 @@
 # https://github.com/celery/celery
 """Worker remote control command implementations."""
 
+import asyncio
 import io
 import tempfile
 from collections import UserDict, defaultdict, namedtuple
@@ -610,9 +611,12 @@ def shutdown(state, msg="Got shutdown from remote", **kwargs):
 )
 def add_consumer(state, queue, exchange=None, exchange_type=None, routing_key=None, **options):
     """Tell worker(s) to consume from task queue by name."""
-    state.consumer.call_soon(
-        state.consumer.add_task_queue, queue, exchange, exchange_type or "direct", routing_key, **options
-    )
+    result = state.consumer.add_task_queue(queue, exchange, exchange_type or "direct", routing_key, **options)
+    if asyncio.iscoroutine(result):
+        try:
+            asyncio.get_running_loop().create_task(result)
+        except RuntimeError:
+            asyncio.run(result)
     return ok(f"add consumer {queue}")
 
 
@@ -622,10 +626,12 @@ def add_consumer(state, queue, exchange=None, exchange_type=None, routing_key=No
 )
 def cancel_consumer(state, queue, **_):
     """Tell worker(s) to stop consuming from task queue by name."""
-    state.consumer.call_soon(
-        state.consumer.cancel_task_queue,
-        queue,
-    )
+    result = state.consumer.cancel_task_queue(queue)
+    if asyncio.iscoroutine(result):
+        try:
+            asyncio.get_running_loop().create_task(result)
+        except RuntimeError:
+            asyncio.run(result)
     return ok(f"no longer consuming from {queue}")
 
 

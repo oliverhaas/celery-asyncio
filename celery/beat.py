@@ -605,7 +605,8 @@ class PersistentScheduler(Scheduler):
 
     def close(self):
         self.sync()
-        self._store.close()
+        if self._store is not None:
+            self._store.close()
 
     @property
     def info(self):

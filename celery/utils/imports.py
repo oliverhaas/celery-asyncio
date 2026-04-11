@@ -40,6 +40,8 @@ def qualname(obj):
     if not hasattr(obj, "__name__") and hasattr(obj, "__class__"):
         obj = obj.__class__
     q = getattr(obj, "__qualname__", None)
+    if q is None:
+        return f"{obj.__module__}.{type(obj).__name__}"
     if "." not in q:
         q = f"{obj.__module__}.{q}"
     return q

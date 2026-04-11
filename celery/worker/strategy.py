@@ -210,6 +210,7 @@ def default(
                     exc_info=True,
                 )
                 req.reject(requeue=False)
+                return None
         if rate_limits_enabled:
             bucket = get_bucket(task.name)
 

@@ -85,7 +85,7 @@ class Autoscale(ParamType):
         try:
             return tuple(sorted(map(int, value), reverse=True))
         except ValueError:
-            self.fail(f"Expected two comma separated integers.Got {value.join(',')} instead.")
+            self.fail(f"Expected two comma separated integers. Got {','.join(value)} instead.")
 
 
 CELERY_BEAT = CeleryBeat()

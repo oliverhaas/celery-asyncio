@@ -2,6 +2,7 @@
 # https://github.com/celery/celery
 """Implementation for the app.events shortcuts."""
 
+import asyncio
 from contextlib import contextmanager
 
 from kombu.utils.objects import cached_property
@@ -38,4 +39,4 @@ class Events:
                 d.producer = prod
                 yield d
         finally:
-            conn.close()
+            asyncio.run(conn.close())

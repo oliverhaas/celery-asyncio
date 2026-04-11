@@ -12,7 +12,7 @@ def add_autoretry_behaviour(task, **options):
     """Wrap task's `run` method with auto-retry functionality."""
     autoretry_for = tuple(options.get("autoretry_for", getattr(task, "autoretry_for", ())))
     dont_autoretry_for = tuple(options.get("dont_autoretry_for", getattr(task, "dont_autoretry_for", ())))
-    retry_kwargs = options.get("retry_kwargs", getattr(task, "retry_kwargs", {}))
+    retry_kwargs = dict(options.get("retry_kwargs", getattr(task, "retry_kwargs", {})))
     retry_backoff = float(options.get("retry_backoff", getattr(task, "retry_backoff", False)))
     retry_backoff_max = int(options.get("retry_backoff_max", getattr(task, "retry_backoff_max", 600)))
     retry_jitter = options.get("retry_jitter", getattr(task, "retry_jitter", True))

@@ -28,8 +28,10 @@ def default_socket_timeout(timeout):
     """Context temporarily setting the default socket timeout."""
     prev = socket.getdefaulttimeout()
     socket.setdefaulttimeout(timeout)
-    yield
-    socket.setdefaulttimeout(prev)
+    try:
+        yield
+    finally:
+        socket.setdefaulttimeout(prev)
 
 
 class bgThread(threading.Thread):

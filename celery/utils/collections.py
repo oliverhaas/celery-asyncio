@@ -218,7 +218,7 @@ class ChainMap(MutableMapping):
 
     def get(self, key, default=None):
         try:
-            return self[self._key(key)]
+            return self[key]
         except KeyError:
             return default
 
@@ -671,10 +671,10 @@ class BufferMap(OrderedDict, Evictable):
     def __init__(self, maxsize, iterable=None, bufmaxsize=1000):
         super().__init__()
         self.maxsize = maxsize
-        self.bufmaxsize = 1000
+        self.bufmaxsize = bufmaxsize
         if iterable:
             self.update(iterable)
-        self.total = sum(len(buf) for buf in self.items())
+        self.total = sum(len(buf) for buf in self.values())
 
     def put(self, key, item):
         self._get_or_create_buffer(key).put(item)
