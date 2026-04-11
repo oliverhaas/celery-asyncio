@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Worker Consumer Blueprint - async implementation.
 
 This module contains the components responsible for consuming messages

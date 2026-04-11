@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Task results/state and results for groups of tasks."""
 
 import datetime

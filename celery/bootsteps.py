@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """A directed acyclic graph of reusable components.
 
 All lifecycle methods (start, stop, close, terminate) are async.

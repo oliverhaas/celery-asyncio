@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Utilities related to importing modules and symbols by name."""
 
 import os

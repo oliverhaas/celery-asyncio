@@ -1,3 +1,5 @@
+# Partially from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Worker-level Bootsteps.
 
 Simplified for asyncio - no Hub, no prefork/eventlet/gevent pools.

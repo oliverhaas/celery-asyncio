@@ -1,3 +1,5 @@
+# Partially from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Pool implementation abstract factory, and alias definitions.
 
 celery-asyncio uses asyncio with threads for concurrency.

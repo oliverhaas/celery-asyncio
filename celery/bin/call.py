@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """The ``celery call`` program used to send tasks from the command-line."""
 
 import click

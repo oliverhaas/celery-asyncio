@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """The ``celery purge`` program, used to delete messages from queues."""
 
 import asyncio

@@ -46,9 +46,9 @@ Full documentation at [oliverhaas.github.io/celery-asyncio](https://oliverhaas.g
 - kombu-asyncio 6.0+
 - Valkey 8+ or Redis 7+ or RabbitMQ 4+
 
-## Acknowledgments
+## Attribution
 
-This project builds on the ideas and design of [Celery](https://github.com/celery/celery) and [Kombu](https://github.com/celery/kombu) by Ask Solem and the Celery contributors.
+This project is an asyncio rewrite of [Celery](https://github.com/celery/celery) by Ask Solem, Asif Saif Uddin & contributors. Much of the utility layer (`celery/utils/`, `celery/loaders/`, `celery/bin/`), scheduling (`celery/schedules.py`, `celery/beat.py`), data structures (`celery/canvas.py`, `celery/result.py`, `celery/states.py`), and app framework (`celery/app/`) are carried over from the original with targeted modifications. The worker event loop (`celery/worker/loops.py`), asyncio pool (`celery/concurrency/aio.py`), promise system (`celery/utils/promises.py`), and timer/hub (`celery/utils/scheduling.py`) were written from scratch. Files containing substantial original Celery code are marked with a header comment.
 
 ## License
 

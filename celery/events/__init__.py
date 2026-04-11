@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Monitoring Event Receiver+Dispatcher.
 
 Events is a stream of messages sent for certain actions occurring

@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """In-memory cache result backend."""
 
 from kombu.utils.encoding import ensure_bytes

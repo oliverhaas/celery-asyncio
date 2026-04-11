@@ -1,3 +1,5 @@
+# Partially from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """System information utilities."""
 
 import os

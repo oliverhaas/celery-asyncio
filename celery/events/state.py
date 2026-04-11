@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """In-memory representation of cluster state.
 
 This module implements a data-structure used to keep

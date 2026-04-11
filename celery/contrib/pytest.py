@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Fixtures and testing utilities for :pypi:`pytest <pytest>`."""
 
 import os

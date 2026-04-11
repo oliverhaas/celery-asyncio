@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Worker Remote Control Bootstep - async implementation.
 
 ``Control`` -> :mod:`celery.worker.pidbox` -> :mod:`kombu.pidbox`.

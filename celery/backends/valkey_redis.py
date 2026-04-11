@@ -1,3 +1,5 @@
+# Partially from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Valkey/Redis result store backend.
 
 Supports both valkey-py and redis-py client libraries. The URL scheme selects

@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Parse ISO8601 dates.
 
 Originally taken from :pypi:`pyiso8601`

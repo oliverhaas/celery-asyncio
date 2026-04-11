@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Implementation for the app.events shortcuts."""
 
 from contextlib import contextmanager

@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """WorkController - async worker instance using native asyncio.
 
 The worker consists of several components, all managed by async bootsteps

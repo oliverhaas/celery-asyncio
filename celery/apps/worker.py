@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Worker command-line program.
 
 This module is the 'program-version' of :mod:`celery.worker`.

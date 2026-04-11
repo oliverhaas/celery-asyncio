@@ -1,3 +1,5 @@
+# Partially from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Worker Task Consumer Bootstep - async implementation."""
 
 from kombu.common import QoS

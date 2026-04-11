@@ -1,3 +1,5 @@
+# Originally from Celery by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/celery
 """Celery Signals.
 
 This module defines the signals (Observer pattern) sent by
