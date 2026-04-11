@@ -93,7 +93,7 @@ dev = [
   "pytest-xdist==3.8.0",
   "pytest-flakefinder==1.1.0",
   "redis==7.4.0",
-  "ruff==0.15.9",
+  "ruff==0.15.10",
   "valkey==6.1.1",
   "ty==0.0.29",
 ]
