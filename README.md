@@ -21,7 +21,7 @@ This package exists as a standalone library for compatibility with packages that
 | `conn.drain_events()` | `await conn.drain_events()` |
 | `producer.publish(...)` | `await producer.publish(...)` |
 | `message.ack()` | `await message.ack()` |
-| Sync + async API | Async only |
+| Sync API | Async only |
 
 ## Requirements
 
