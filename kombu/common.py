@@ -304,17 +304,15 @@ async def collect_replies(
 
 
 @asynccontextmanager
-async def ignore_errors(_conn: Connection):
-    """Async context manager to ignore connection errors.
+async def ignore_errors(conn: Connection):
+    """Async context manager to ignore connection/channel errors.
 
     Args:
         conn: Connection whose errors to ignore.
     """
     try:
         yield
-    except Exception:
-        # In pure asyncio mode, we just catch all exceptions
-        # since we don't have the connection_errors/channel_errors tuples
+    except conn.connection_errors + conn.channel_errors:
         pass
 
 

@@ -6,8 +6,6 @@ All Redis operations are mocked — no Redis server required.
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from kombu.entity import Exchange, Queue
 from kombu.transport.valkey_redis import (
     BINDING_SEP,
@@ -23,9 +21,6 @@ from kombu.transport.valkey_redis import (
     _queue_score,
     _topic_match,
 )
-
-pytestmark = pytest.mark.asyncio(loop_scope="function")
-
 
 # ---------------------------------------------------------------------------
 # Mock helpers

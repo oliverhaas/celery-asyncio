@@ -1,6 +1,5 @@
 """Exceptions."""
 
-from socket import timeout as TimeoutError
 from types import TracebackType
 from typing import TypeVar
 
@@ -22,7 +21,6 @@ __all__ = (
     "ResourceError",
     "SerializationError",
     "SerializerNotInstalled",
-    "TimeoutError",
     "VersionMismatch",
     "reraise",
 )

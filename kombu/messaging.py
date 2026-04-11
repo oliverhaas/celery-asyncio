@@ -386,7 +386,8 @@ class Consumer:
             raise StopAsyncIteration
 
         try:
-            await self._connection.drain_events(timeout=self._iter_timeout)
+            drainer = self._connection or self._channel
+            await drainer.drain_events(timeout=self._iter_timeout)
         except TimeoutError:
             pass
 
@@ -417,7 +418,8 @@ class Consumer:
                     break
 
             try:
-                await self._connection.drain_events(timeout=1.0)
+                drainer = self._connection or self._channel
+                await drainer.drain_events(timeout=1.0)
                 count += 1
                 yield
             except TimeoutError:

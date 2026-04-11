@@ -47,7 +47,7 @@ class FairCycle:
                 self.pos = 0
                 if not self.resources:
                     raise self.predicate() from None
-        return None
+        return None  # unreachable — satisfies RET503
 
     def get(self, callback, **kwargs):
         """Get from next resource."""
@@ -59,7 +59,7 @@ class FairCycle:
                 # reraise when retries exhausted.
                 if tried >= len(self.resources) - 1:
                     raise
-        return None
+        return None  # unreachable — satisfies RET503
 
     def close(self):
         """Close cycle."""

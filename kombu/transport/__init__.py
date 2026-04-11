@@ -2,13 +2,10 @@
 
 Currently supported transports:
 - valkey/redis: Valkey/Redis using valkey.asyncio or redis.asyncio
+- amqp: AMQP 0.9.1 via aio-pika
 - memory: In-memory transport using asyncio.Queue
-- filesystem: File-system based transport using aiofiles
+- filesystem: File-system based transport using asyncio.to_thread
 """
-
-from .filesystem import Transport as FilesystemTransport
-from .memory import Transport as MemoryTransport
-from .valkey_redis import Transport as RedisTransport
 
 TRANSPORT_ALIASES = {
     "valkey": "kombu.transport.valkey_redis:Transport",
@@ -19,9 +16,4 @@ TRANSPORT_ALIASES = {
     "filesystem": "kombu.transport.filesystem:Transport",
 }
 
-__all__ = (
-    "TRANSPORT_ALIASES",
-    "FilesystemTransport",
-    "MemoryTransport",
-    "RedisTransport",
-)
+__all__ = ("TRANSPORT_ALIASES",)

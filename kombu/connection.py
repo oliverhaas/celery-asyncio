@@ -27,23 +27,12 @@ if TYPE_CHECKING:
     from .simple import SimpleQueue
     from .transport.base import Channel
 
-__all__ = ("Connection", "maybe_channel")
+__all__ = ("Connection",)
 
 logger = get_logger(__name__)
 
 # Transport registry - uses Any to avoid circular imports
 TRANSPORT_REGISTRY: dict[str, type[BaseTransport]] = {}
-
-
-def maybe_channel(channel: Any) -> Any:
-    """Get the channel from a Connection or Channel object.
-
-    If given a Connection, returns it unchanged (for lazy channel binding).
-    If given a Channel, returns it as-is.
-    """
-    if isinstance(channel, Connection):
-        return channel
-    return channel
 
 
 def _get_transport_class(scheme: str) -> type[BaseTransport]:
@@ -127,6 +116,7 @@ class Connection:
 
         Returns self for chaining.
         """
+        self._closed = False
         if self._transport is None:
             transport_class = _get_transport_class(self._scheme)
             self._transport = transport_class(

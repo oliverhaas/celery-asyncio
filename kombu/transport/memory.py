@@ -350,17 +350,23 @@ class Channel(BaseChannel):
                     pass
 
             if done:
-                # Get the first completed result
+                delivered = False
+                # Put back results from extra completed tasks, deliver only the first
                 for i, task in enumerate(wait_tasks):
                     if task in done:
                         data = task.result()
                         if i < len(consumer_list):
-                            queue, callback, no_ack = consumer_list[i]
-                            message = self._create_message(queue, data, no_ack)
-                            await self._deliver_message(callback, message)
-                            return True
-
-            return False
+                            if not delivered:
+                                queue, callback, no_ack = consumer_list[i]
+                                message = self._create_message(queue, data, no_ack)
+                                await self._deliver_message(callback, message)
+                                delivered = True
+                            else:
+                                # Put the message back — it was consumed from the asyncio.Queue
+                                # but we can only deliver one per drain_events call
+                                q_name = consumer_list[i][0]
+                                await self._get_queue(q_name).put(data)
+                return delivered
         except Exception:
             # Cancel all tasks on error
             for task in wait_tasks:

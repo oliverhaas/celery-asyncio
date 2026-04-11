@@ -20,7 +20,7 @@ def emergency_dump_state(state, open_file=open, dump=None, stderr=None):
     fd, persist = mkstemp()
     os.close(fd)
     print(f"EMERGENCY DUMP STATE TO FILE -> {persist} <-", file=stderr)
-    fh = open_file(persist, "w")
+    fh = open_file(persist, "wb")
     try:
         try:
             dump(state, fh, protocol=0)

@@ -2,7 +2,7 @@
 
 Asyncio-native rewrite of [Kombu](https://github.com/celery/kombu), the well-established messaging library behind [Celery](https://github.com/celery/celery). This is the messaging layer for [celery-asyncio](https://github.com/oliverhaas/celery-asyncio).
 
-This project is **exploratory**. It is not affiliated with or endorsed by the Celery project. If you're looking for the official production-ready messaging library, use the original [Kombu](https://github.com/celery/kombu) with our without [Celery](https://github.com/celery/celery).
+This project is **exploratory**. It is not affiliated with or endorsed by the Celery project. If you're looking for the official production-ready messaging library, use the original [Kombu](https://github.com/celery/kombu) with or without [Celery](https://github.com/celery/celery).
 
 This package exists as a standalone library for compatibility with packages that import from `kombu` directly (e.g. Celery Flower). Long-term it will probably be merged into celery-asyncio.
 

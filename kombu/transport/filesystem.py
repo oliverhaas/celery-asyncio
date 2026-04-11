@@ -151,7 +151,7 @@ class Channel(BaseChannel):
                 if filepath.exists():
                     # Move back to data_folder_in for reprocessing
                     dest = self._data_folder_in / filepath.name
-                    shutil.move(str(filepath), str(dest))
+                    await asyncio.to_thread(shutil.move, str(filepath), str(dest))
             except Exception:
                 logger.warning(
                     "Failed to requeue message %s to %s",
@@ -421,7 +421,7 @@ class Channel(BaseChannel):
         queue_pattern = f".{queue}.msg"
 
         try:
-            files = sorted(entry.name for entry in self._data_folder_in.iterdir())
+            files = await asyncio.to_thread(lambda: sorted(entry.name for entry in self._data_folder_in.iterdir()))
         except FileNotFoundError:
             return None
 
@@ -441,7 +441,7 @@ class Channel(BaseChannel):
 
             try:
                 # Move file to prevent other workers from processing it
-                shutil.move(str(src_path), str(dest_path))
+                await asyncio.to_thread(shutil.move, str(src_path), str(dest_path))
             except OSError:
                 # File may be locked or already moved
                 continue
