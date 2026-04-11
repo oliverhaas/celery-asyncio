@@ -1,3 +1,5 @@
+# Originally from Kombu by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/kombu
 """Import related utilities."""
 
 import importlib

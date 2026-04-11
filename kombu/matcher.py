@@ -1,3 +1,5 @@
+# Originally from Kombu by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/kombu
 """Pattern matching registry."""
 
 from collections.abc import Callable

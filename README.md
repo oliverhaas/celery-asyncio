@@ -29,6 +29,10 @@ This package exists as a standalone library for compatibility with packages that
 - valkey-py 6.1+ or redis-py 7.1+ (Valkey/Redis transport)
 - aio-pika 9+ (AMQP transport, optional)
 
+## Attribution
+
+This project is an asyncio rewrite of [Kombu](https://github.com/celery/kombu) by Ask Solem & contributors. The utility modules (`kombu/utils/`, `kombu/clocks.py`, `kombu/compression.py`, `kombu/log.py`, `kombu/matcher.py`, `kombu/serialization.py`, `kombu/exceptions.py`) are largely carried over from the original with minor modernization. The transport layer and core messaging/connection modules were written from scratch for asyncio. Files containing substantial original Kombu code are marked with a header comment.
+
 ## License
 
 BSD-3-Clause (same as Kombu)

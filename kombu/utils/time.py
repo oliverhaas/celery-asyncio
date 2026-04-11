@@ -1,3 +1,5 @@
+# Originally from Kombu by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/kombu
 """Time Utilities."""
 
 __all__ = ("maybe_s_to_ms",)

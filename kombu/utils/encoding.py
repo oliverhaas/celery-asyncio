@@ -1,3 +1,5 @@
+# Originally from Kombu by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/kombu
 """Text encoding utilities.
 
 Utilities to encode text, and to safely emit text from running
