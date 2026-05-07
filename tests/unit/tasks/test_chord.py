@@ -375,6 +375,35 @@ class test_add_to_chord:
         )
 
 
+class test_apply_tasks_ordering(ChordCase):
+    """Verify set_chord_size is written before any header task is dispatched.
+
+    A producer crash between dispatch and set_chord_size would otherwise leave
+    early completers with chord_size_bytes=None and the chord stalled.
+    """
+
+    def test_set_chord_size_called_before_first_apply_async(self):
+        from celery import chord
+
+        body = self.add.signature((0, 0))
+        header = [self.add.signature((i, i)) for i in range(5)]
+        chord_sig = chord(header, body)
+
+        call_order = []
+        with (
+            patch.object(self.app.backend, "set_chord_size") as mock_set_size,
+            patch("celery.canvas.Signature.apply_async") as mock_apply,
+        ):
+            mock_set_size.side_effect = lambda *a, **kw: call_order.append("set_chord_size")
+            mock_apply.side_effect = lambda *a, **kw: call_order.append("apply_async")
+            chord_sig.apply_async()
+
+        # set_chord_size must come first; apply_async called once per header member.
+        assert call_order[0] == "set_chord_size"
+        assert call_order.count("set_chord_size") == 1
+        assert call_order.count("apply_async") == len(header)
+
+
 @pytest.mark.skip(reason="Canvas sync path uses producer_or_acquire; needs async refactor")
 class test_Chord_task(ChordCase):
     @patch("celery.Celery.backend", new=PropertyMock(name="backend"))

@@ -434,9 +434,9 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         self.client.incr(self.get_key_for_group(group_id, ".t"), 1)
 
     def _unpack_chord_result(
-        self, tup, decode, EXCEPTION_STATES=states.EXCEPTION_STATES, PROPAGATE_STATES=states.PROPAGATE_STATES
+        self, decoded, EXCEPTION_STATES=states.EXCEPTION_STATES, PROPAGATE_STATES=states.PROPAGATE_STATES
     ):
-        _, tid, state, retval = decode(tup)
+        _, tid, state, retval, _group_index = decoded
         if state in EXCEPTION_STATES:
             retval = self.exception_to_python(retval)
         if state in PROPAGATE_STATES:
@@ -462,37 +462,30 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                 header_result.save(backend=self)
 
     @cached_property
-    def _chord_zset(self):
-        return self._transport_options.get("result_chord_ordered", True)
-
-    @cached_property
     def _transport_options(self):
         return self.app.conf.get("result_backend_transport_options", {})
 
     def on_chord_part_return(self, request, state, result, propagate=None, **kwargs):
+        # The chord-member counter uses a Redis hash keyed by tid so that a
+        # redelivered task (which always carries the same tid) overwrites its
+        # own field instead of double-counting. This makes the counter
+        # idempotent regardless of whether the task's encoded result bytes
+        # happen to be deterministic across runs.
         app = self.app
         tid, gid, group_index = request.id, request.group, request.group_index
         if not gid or not tid:
             return None
         if group_index is None:
-            group_index = "+inf"
+            group_index = -1
 
         client = self.client
         jkey = self.get_key_for_group(gid, ".j")
         tkey = self.get_key_for_group(gid, ".t")
         skey = self.get_key_for_group(gid, ".s")
         result = self.encode_result(result, state)
-        encoded = self.encode([1, tid, state, result])
+        encoded = self.encode([1, tid, state, result, group_index])
         with client.pipeline() as pipe:
-            pipeline = (
-                (
-                    pipe.zadd(jkey, {encoded: group_index}).zcount(jkey, "-inf", "+inf")
-                    if self._chord_zset
-                    else pipe.rpush(jkey, encoded).llen(jkey)
-                )
-                .get(tkey)
-                .get(skey)
-            )
+            pipeline = pipe.hset(jkey, tid, encoded).hlen(jkey).get(tkey).get(skey)
             if self.expires:
                 pipeline = pipeline.expire(jkey, self.expires).expire(tkey, self.expires).expire(skey, self.expires)
 
@@ -522,17 +515,11 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
                         with allow_join_result():
                             resl = join_func(timeout=app.conf.result_chord_join_timeout, propagate=True)
                     else:
-                        # Otherwise simply extract and decode the results we
-                        # stashed along the way, which should be faster for large
-                        # numbers of simple results in the chord header.
-                        decode, unpack = self.decode, self._unpack_chord_result
-                        with client.pipeline() as pipe:
-                            if self._chord_zset:
-                                pipeline = pipe.zrange(jkey, 0, -1)
-                            else:
-                                pipeline = pipe.lrange(jkey, 0, total)
-                            (resl,) = pipeline.execute()
-                        resl = [unpack(tup, decode) for tup in resl]
+                        # Otherwise extract and decode the results we stashed
+                        # along the way and order them by group_index.
+                        decoded = [self.decode(v) for v in client.hvals(jkey)]
+                        decoded.sort(key=lambda d: d[4])
+                        resl = [self._unpack_chord_result(d) for d in decoded]
                     try:
                         callback.delay(resl)
                     except Exception as exc:
@@ -561,23 +548,18 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
         if not gid or not tid:
             return None
         if group_index is None:
-            group_index = "+inf"
+            group_index = -1
 
         client = self.async_client
         jkey = self.get_key_for_group(gid, ".j")
         tkey = self.get_key_for_group(gid, ".t")
         skey = self.get_key_for_group(gid, ".s")
         result = self.encode_result(result, state)
-        encoded = self.encode([1, tid, state, result])
+        encoded = self.encode([1, tid, state, result, group_index])
 
-        # Atomic pipeline: store result + get counts
         async with client.pipeline() as pipe:
-            if self._chord_zset:
-                pipe.zadd(jkey, {encoded: group_index})
-                pipe.zcount(jkey, "-inf", "+inf")
-            else:
-                pipe.rpush(jkey, encoded)
-                pipe.llen(jkey)
+            pipe.hset(jkey, tid, encoded)
+            pipe.hlen(jkey)
             pipe.get(tkey)
             pipe.get(skey)
             if self.expires:
@@ -610,15 +592,11 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
                         resl = await sync_to_async(_join_in_thread, thread_sensitive=False)()
                     else:
-                        # Common fast path: extract results directly from Redis.
-                        decode, unpack = self.decode, self._unpack_chord_result
-                        async with client.pipeline() as pipe:
-                            if self._chord_zset:
-                                pipe.zrange(jkey, 0, -1)
-                            else:
-                                pipe.lrange(jkey, 0, total)
-                            (resl,) = await pipe.execute()
-                        resl = [unpack(tup, decode) for tup in resl]
+                        # Common fast path: read all values and order by group_index.
+                        raw_values = await client.hvals(jkey)
+                        decoded = [self.decode(v) for v in raw_values]
+                        decoded.sort(key=lambda d: d[4])
+                        resl = [self._unpack_chord_result(d) for d in decoded]
                     try:
                         await callback.adelay(resl)
                     except Exception as exc:
