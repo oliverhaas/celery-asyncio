@@ -2373,14 +2373,13 @@ class _chord(Signature):
             12
 
     Note:
-        Chord member tasks should run with ``acks_late=True``. The
-        result-backend counter that triggers the chord body is updated
-        *after* the task body executes; with the default ``acks_late=False``
-        the broker has already acked the message before the counter write,
-        so a worker crash mid-task silently drops that member from the
-        chord and stalls the body forever. With ``acks_late=True`` the
-        broker redelivers, the counter dedupes by task id, and the chord
-        completes.
+        Chord member tasks should typically run with ``acks_late=True``.
+        The chord body fires only when every header member has reported in
+        via the result backend, so any member lost to a worker crash drops
+        the body to at-most-once (zero firings). With N members the body's
+        success probability is roughly ``P_member ^ N``. ``acks_late=True``
+        lifts each member back to at-least-once via broker redelivery (the
+        counter dedupes by task id), restoring at-least-once for the body.
     """
 
     @classmethod
