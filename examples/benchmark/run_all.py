@@ -49,26 +49,34 @@ class Run:
 
 
 def matrix() -> list[Run]:
+    """Configurations to run.
+
+    4 worker threads pinned to 4 cores (taskset 0,1,2,3) so free-threading
+    has room to actually use the cores in parallel.
+
+    celery-asyncio: 4 loop workers x 25 concurrency = 100 in-flight async slots.
+    For the sync variant we route through 4 sync threads instead.
+    For the mixed variant we split: 2 loop x 50 + 2 sync = 100 + 2 slots.
+    Classic celery: prefork-4 (4 procs) or threads-4 (4 GIL-bound threads).
+    """
     runs: list[Run] = []
 
-    # celery-asyncio on 3.14 standard
     for venv in (".venv-async-314", ".venv-async-314t"):
-        suffix = venv.split("-async-")[1]  # 314 or 314t
-        runs.append(Run(f"aio-async-c50-{suffix}", venv, "asyncio", None, 2, 50, 2, "async"))
-        runs.append(Run(f"aio-sync-{suffix}", venv, "asyncio", None, 2, 50, 2, "sync"))
-        runs.append(Run(f"aio-mixed-{suffix}", venv, "asyncio", None, 2, 50, 2, "mixed"))
+        suffix = venv.split("-async-")[1]
+        # async variant: 4 event loops (each on its own thread)
+        runs.append(Run(f"aio-async-l4c25-{suffix}", venv, "asyncio", None, 4, 25, 1, "async"))
+        # sync variant: 4 sync worker threads
+        runs.append(Run(f"aio-sync-s4-{suffix}", venv, "asyncio", None, 1, 1, 4, "sync"))
+        # mixed: 2 loops + 2 sync (4 worker threads total)
+        runs.append(Run(f"aio-mixed-l2c50-s2-{suffix}", venv, "asyncio", None, 2, 50, 2, "mixed"))
 
-    # classic celery on 3.14
-    for venv in (".venv-classic-314",):
-        suffix = "314"
-        runs.append(Run(f"classic-prefork2-{suffix}", venv, "prefork", 2, None, None, None, "sync"))
-        runs.append(Run(f"classic-threads8-{suffix}", venv, "threads", 8, None, None, None, "sync"))
-
-    # classic celery on 3.14t (free-threaded), if the venv exists
-    for venv in (".venv-classic-314t",):
-        suffix = "314t"
-        runs.append(Run(f"classic-prefork2-{suffix}", venv, "prefork", 2, None, None, None, "sync"))
-        runs.append(Run(f"classic-threads8-{suffix}", venv, "threads", 8, None, None, None, "sync"))
+    for venv in (".venv-classic-314", ".venv-classic-314t"):
+        suffix = venv.split("-classic-")[1]
+        # solo: 1 prefork proc -- baseline showing single-worker scaling and
+        # memory floor comparable to the aio pool.
+        runs.append(Run(f"classic-prefork1-{suffix}", venv, "prefork", 1, None, None, None, "sync"))
+        runs.append(Run(f"classic-prefork4-{suffix}", venv, "prefork", 4, None, None, None, "sync"))
+        runs.append(Run(f"classic-threads4-{suffix}", venv, "threads", 4, None, None, None, "sync"))
 
     return runs
 

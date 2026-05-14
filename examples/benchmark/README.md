@@ -1,8 +1,8 @@
 # Benchmark: celery-asyncio vs classic celery
 
 Apples-to-apples comparison of celery-asyncio against upstream Celery on a
-deterministic, mixed CPU/I/O/memory workload. Worker is pinned to two CPUs
-via `taskset -c 0,1` so every config sees a "2-CPU server".
+deterministic, mixed CPU/I/O/memory workload. Worker is pinned to four CPUs
+via `taskset -c 0,1,2,3` so every config sees a "4-CPU server".
 
 ## Task profile
 
@@ -25,14 +25,15 @@ The exact same workload manifest is fed to every config.
 
 ## Configurations
 
-celery-asyncio (Python 3.14 and 3.14t):
-- `aio-async`  -- async-def task, 2 loop workers x 50 concurrency, 2 sync workers
-- `aio-sync`   -- sync-def task, same pool (routed to sync threads)
-- `aio-mixed`  -- alternating sync/async, same pool
+celery-asyncio (Python 3.14 and 3.14t), 4 worker threads each:
+- `aio-async-l4c25`     -- async-def task, 4 loop workers x 25 concurrency, 1 sync worker
+- `aio-sync-s4`         -- sync-def task, 4 sync worker threads
+- `aio-mixed-l2c50-s2`  -- alternating async+sync, 2 loop x 50 + 2 sync (4 worker threads total)
 
-Classic celery (Python 3.14, and 3.14t best-effort):
-- `classic-prefork2`  -- `--pool prefork --concurrency 2`
-- `classic-threads8`  -- `--pool threads --concurrency 8`
+Classic celery (Python 3.14 and 3.14t best-effort):
+- `classic-prefork1`  -- `--pool prefork --concurrency 1` (single worker; scaling baseline)
+- `classic-prefork4`  -- `--pool prefork --concurrency 4` (4 worker processes)
+- `classic-threads4`  -- `--pool threads --concurrency 4` (4 GIL-bound threads)
 
 ## Quick start
 

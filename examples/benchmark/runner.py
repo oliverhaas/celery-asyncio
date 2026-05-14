@@ -164,7 +164,11 @@ def main() -> None:
     ap.add_argument("--loop-concurrency", type=int, default=None)
     ap.add_argument("--sync-workers", type=int, default=None)
     ap.add_argument("--variant", choices=("sync", "async", "mixed"), default="sync")
-    ap.add_argument("--taskset", default="0,1", help='cores to pin worker to (passed as taskset -c); "" to disable')
+    ap.add_argument(
+        "--taskset",
+        default="0,1,2,3",
+        help='cores to pin worker to (passed as taskset -c); "" to disable',
+    )
     ap.add_argument("--sample-interval", type=float, default=0.5)
     ap.add_argument("--ready-timeout", type=float, default=30.0)
     ap.add_argument("--run-timeout", type=float, default=900.0)
@@ -194,12 +198,17 @@ def main() -> None:
 
     cmd = build_worker_cmd(args, queue=args.queue, log_path=log_path)
     print(f"[runner] starting worker: {' '.join(cmd)}", flush=True)
+    # New session so we can kill the whole process group on exit, including
+    # taskset wrapper + the worker's child loop threads. Without this, if the
+    # runner is killed mid-flight the worker can survive and silently keep
+    # consuming tasks from later benchmark runs.
     worker = subprocess.Popen(
         cmd,
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=str(Path(__file__).parent),
+        start_new_session=True,
     )
 
     try:
@@ -316,11 +325,19 @@ def main() -> None:
         )
 
     finally:
-        worker.send_signal(signal.SIGTERM)
+        # Signal the whole process group so taskset + the worker + any
+        # subprocesses go down together.
+        try:
+            os.killpg(worker.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            worker.send_signal(signal.SIGTERM)
         try:
             worker.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            worker.kill()
+            try:
+                os.killpg(worker.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                worker.kill()
             worker.wait(timeout=5)
 
 

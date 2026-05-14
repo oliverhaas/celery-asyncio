@@ -9,7 +9,10 @@ HEADERS = ("config", "variant", "py", "tasks", "wall", "tps", "peak_rss", "mean_
 
 def _row(r: dict) -> tuple:
     s = r.get("summary", {})
-    py = "3.14t" if "freethreaded" in r.get("executable", "") else "3.14"
+    config = r["config"]
+    # Recorded executable doesn't always mention freethreaded; rely on the
+    # config suffix that run_all.py writes.
+    py = "3.14t" if config.endswith("-314t") else "3.14"
     return (
         r["config"],
         r["variant"],
