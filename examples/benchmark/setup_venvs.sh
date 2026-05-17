@@ -37,10 +37,10 @@ make_async_venv() {
     uv venv -p "$pyver" "$name"
     # Install the local celery-asyncio package + runner deps.
     uv pip install --python "$name/bin/python" -e "$REPO_ROOT" "${COMMON_DEPS[@]}"
-    # Override the published kombu-asyncio with the local checkout: the
-    # 6.0.0a3 release on PyPI has a broken default_channel call that crashes
-    # workers on startup.
-    local local_kombu="$REPO_ROOT/../kombu"
+    # Override the published kombu-asyncio with the local checkout so the
+    # bench picks up unreleased fixes (e.g. the long-lived consume tasks
+    # that eliminate the strand bug this bench originally surfaced).
+    local local_kombu="$REPO_ROOT/../kombu-asyncio"
     if [[ -f "$local_kombu/pyproject.toml" ]]; then
         uv pip install --python "$name/bin/python" -e "$local_kombu"
     fi

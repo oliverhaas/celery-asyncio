@@ -91,13 +91,14 @@ def flush_broker() -> None:
     )
 
 
-def run_one(r: Run, workload: Path, tasks: int) -> tuple[bool, Path]:
+def run_one(r: Run, workload: Path, tasks: int, profile: str) -> tuple[bool, Path]:
     venv = Venv.from_dir(r.venv)
+    profile_slug = profile.replace("-", "_")
     if not venv.celery_bin.exists():
         print(f"[skip] {r.label}: {venv.celery_bin} missing")
-        return False, ROOT / "results" / f"{r.label}.json"
+        return False, ROOT / "results" / f"{r.label}-{profile_slug}.json"
 
-    out = ROOT / "results" / f"{r.label}.json"
+    out = ROOT / "results" / f"{r.label}-{profile_slug}.json"
     cmd = [
         str(venv.python),
         str(ROOT / "runner.py"),
@@ -136,16 +137,33 @@ def main() -> None:
     ap.add_argument("--tasks", type=int, default=10000)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--only", nargs="*", help="run only configs whose label matches one of these substrings")
+    ap.add_argument(
+        "--profile",
+        choices=("mixed", "cpu-only", "io-only"),
+        default="mixed",
+        help="workload profile: 'mixed' (default), 'cpu-only' (showcase GIL impact on threads), 'io-only' (showcase asyncio concurrency)",
+    )
+    ap.add_argument("--cpu-iters", type=int, default=None, help="override cpu_iters for cpu-only profile (default 20000 ≈ 5 ms)")
+    ap.add_argument("--io-seconds", type=float, default=None, help="override io_seconds for io-only profile (default 0.1 s)")
     args = ap.parse_args()
 
     # Generate workload (one for the entire matrix).
-    workload = ROOT / "results" / f"workload-{args.tasks}-s{args.seed}.json"
+    profile_slug = args.profile.replace("-", "_")
+    workload = ROOT / "results" / f"workload-{profile_slug}-{args.tasks}-s{args.seed}.json"
     workload.parent.mkdir(parents=True, exist_ok=True)
     if not workload.exists():
-        subprocess.check_call(
-            [sys.executable, str(ROOT / "workload.py"), "--count", str(args.tasks),
-             "--seed", str(args.seed), "--out", str(workload)],
-        )
+        cmd = [
+            sys.executable, str(ROOT / "workload.py"),
+            "--count", str(args.tasks),
+            "--seed", str(args.seed),
+            "--profile", args.profile,
+            "--out", str(workload),
+        ]
+        if args.cpu_iters is not None:
+            cmd += ["--cpu-iters", str(args.cpu_iters)]
+        if args.io_seconds is not None:
+            cmd += ["--io-seconds", str(args.io_seconds)]
+        subprocess.check_call(cmd)
 
     runs = matrix()
     if args.only:
@@ -155,22 +173,25 @@ def main() -> None:
     results: list[dict] = []
     for r in runs:
         flush_broker()
-        ok, out = run_one(r, workload, args.tasks)
+        ok, out = run_one(r, workload, args.tasks, args.profile)
         if ok and out.exists():
             results.append(json.loads(out.read_text()))
 
     # Print summary table.
-    print("\n" + "=" * 100)
-    print("SUMMARY")
-    print("=" * 100)
-    print(f"{'config':<32} {'variant':<8} {'time':>8} {'tps':>8} {'peak_rss':>10} {'mean_cpu':>10}")
-    print("-" * 100)
+    print("\n" + "=" * 110)
+    print(f"SUMMARY ({args.profile} profile, {args.tasks} tasks)")
+    print("=" * 110)
+    print(
+        f"{'config':<32} {'variant':<8} {'time':>8} {'tps':>8} {'peak_rss':>10} {'mean_cpu':>10} {'stranded':>10}"
+    )
+    print("-" * 110)
     for r in sorted(results, key=lambda x: x["complete_seconds"]):
         s = r["summary"]
         print(
             f"{r['config']:<32} {r['variant']:<8} "
             f"{r['complete_seconds']:>7.1f}s {r['throughput_tps']:>8.1f} "
-            f"{s['peak_rss_mb']:>8.1f}M {s['mean_cpu_pct']:>9.1f}%",
+            f"{s['peak_rss_mb']:>8.1f}M {s['mean_cpu_pct']:>9.1f}% "
+            f"{r['n_stranded']:>10}",
         )
 
 
