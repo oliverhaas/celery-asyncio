@@ -35,6 +35,7 @@ Transport Options
 * ``stream_maxlen``: Maximum stream length for fanout streams (default: 10000)
 * ``fanout_prefix``: Prefix for fanout stream keys (default: '/{db}.')
 * ``max_restore_count``: Max times a message can be restored before being dropped (None = no limit)
+* ``block_timeout``: Server-side BZMPOP/XREAD BLOCK duration per consumer iteration in seconds (default: 10)
 * ``credential_provider``: A CredentialProvider instance or dotted import path
 * ``socket_timeout``: Socket timeout in seconds
 * ``socket_connect_timeout``: Socket connection timeout in seconds
@@ -97,6 +98,23 @@ DEFAULT_REQUEUE_BATCH_LIMIT = 1000
 DEFAULT_MESSAGE_TTL = -1
 MIN_QUEUE_EXPIRES = 10_000
 DEFAULT_MAX_RESTORE_COUNT: int | None = None
+
+# Default server-side block duration for BZMPOP/XREAD inside a single consumer
+# iteration. Overridable via the `block_timeout` transport option.
+DEFAULT_BLOCK_TIMEOUT = 10.0
+
+# Additional headroom layered on top of the configured `block_timeout` for the
+# asyncio.wait safety net. We trust Redis to honour BLOCK and return within
+# block_timeout; the safety net only fires if the client connection or server
+# has hung beyond block_timeout + this headroom.
+CONSUMER_WAIT_HEADROOM = 30.0
+
+# Additional headroom layered on top of `block_timeout` for close()'s graceful
+# drain. The iteration should complete within block_timeout; we give it a small
+# extra window before cancelling as a last resort. Cancellation during close
+# may strand a message, but visibility-timeout restore recovers them on the
+# next worker startup.
+CLOSE_DRAIN_HEADROOM = 2.0
 
 DEFAULT_EXCHANGE = ""
 DEFAULT_FANOUT_PREFIX = "/{db}."
@@ -234,6 +252,27 @@ class Channel:
 
         # FAST/SLOW consume mode
         self._consume_fast_mode: bool = True
+
+        # Server-side block duration for BZMPOP/XREAD inside a single consumer
+        # iteration.
+        self._block_timeout: float = opts.get("block_timeout", DEFAULT_BLOCK_TIMEOUT)
+
+        # Long-lived consumer iteration tasks; created lazily by drain_events.
+        # Each task runs a single FAST→SLOW (or XREAD) cycle bounded by
+        # `_block_timeout`, then exits. drain_events restarts them. They are
+        # never cancelled in the hot path; close() sets _closing and awaits
+        # them to drain naturally.
+        # `_started_at` and `_stall_warned` provide per-task stall detection:
+        # when one iteration hangs while the other keeps delivering, the
+        # hung-task warning still fires (asyncio.wait's FIRST_COMPLETED
+        # would otherwise mask it).
+        self._consume_iter_task: asyncio.Task | None = None
+        self._consume_iter_started_at: float = 0.0
+        self._consume_iter_stall_warned: bool = False
+        self._xread_iter_task: asyncio.Task | None = None
+        self._xread_iter_started_at: float = 0.0
+        self._xread_iter_stall_warned: bool = False
+        self._closing: bool = False
 
         # Periodic task handles
         self._enqueue_task: asyncio.Task | None = None
@@ -676,65 +715,129 @@ class Channel:
     # ---- drain_events (FAST/SLOW consume) ----------------------------------
 
     async def drain_events(self, timeout: float | None = None) -> bool:
-        if not self._consumers:
+        """Wait for a single message to be delivered to one of this channel's
+        consumers.
+
+        Consumer iterations are long-lived and bounded by Redis-side
+        `block_timeout` — never cancelled mid-flight. They complete on their
+        own; the asyncio.wait safety net at `block_timeout + CONSUMER_WAIT_HEADROOM`
+        only fires if the client connection or server has hung. The caller's
+        `timeout` parameter only affects the timeout=0 non-blocking fast path.
+        """
+        if self._closing or not self._consumers:
             await asyncio.sleep(0.1)
             return False
 
-        # Separate regular and fanout queues
-        regular_queues: list[str] = []
-        for q, _cb, _no_ack in self._consumers.values():
-            if q not in self.active_fanout_queues and q not in regular_queues:
-                regular_queues.append(q)
-
         effective_timeout = timeout if timeout is not None else 1.0
 
-        # Non-blocking fast path: only try FAST consume (Lua script),
-        # skip blocking BZMPOP/XREAD/asyncio.wait overhead.
+        # Non-blocking fast path: only try FAST consume.
         if effective_timeout == 0:
+            regular_queues = self._regular_queues()
             if regular_queues:
                 return await self._fast_consume(regular_queues)
             return False
 
-        tasks: list[asyncio.Task] = []
-
-        if regular_queues:
-            tasks.append(
-                asyncio.ensure_future(
-                    self._consume_regular(regular_queues, effective_timeout),
-                ),
-            )
-        if self.active_fanout_queues:
-            tasks.append(
-                asyncio.ensure_future(
-                    self._xread_wait(effective_timeout),
-                ),
-            )
-
+        self._ensure_consumer_tasks()
+        tasks = [t for t in (self._consume_iter_task, self._xread_iter_task) if t is not None]
         if not tasks:
             await asyncio.sleep(0.1)
             return False
 
-        done, pending = await asyncio.wait(
+        safety_timeout = self._block_timeout + CONSUMER_WAIT_HEADROOM
+        done, _pending = await asyncio.wait(
             tasks,
             return_when=asyncio.FIRST_COMPLETED,
-            timeout=effective_timeout,
+            timeout=safety_timeout,
         )
 
-        # Cancel losers
-        for task in pending:
-            task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):  # fmt: skip
-                pass
+        # Per-task stall warning. asyncio.wait with FIRST_COMPLETED returns
+        # as soon as ANY task completes, so a single hung iteration alongside
+        # a healthy one would otherwise be silent. We deliberately don't
+        # cancel: a cancel mid-FAST-script or post-BZMPOP would strand the
+        # message that's about to be delivered. The iteration is left pending;
+        # if Redis recovers it completes naturally and the next drain_events
+        # call picks it up.
+        self._warn_stalled_iterations()
 
+        if not done:
+            return False
+
+        delivered = False
         for task in done:
             try:
                 if task.result():
-                    return True
-            except Exception:
-                pass
-        return False
+                    delivered = True
+            except Exception as exc:
+                logger.debug("consumer iteration error: %s", exc)
+            if task is self._consume_iter_task:
+                self._consume_iter_task = None
+            elif task is self._xread_iter_task:
+                self._xread_iter_task = None
+        return delivered
+
+    def _regular_queues(self) -> list[str]:
+        return list(
+            dict.fromkeys(q for q, _cb, _no_ack in self._consumers.values() if q not in self.active_fanout_queues),
+        )
+
+    def _ensure_consumer_tasks(self) -> None:
+        if self._closing:
+            return
+        loop = asyncio.get_running_loop()
+        regular_queues = self._regular_queues()
+        if regular_queues and (self._consume_iter_task is None or self._consume_iter_task.done()):
+            self._consume_iter_task = asyncio.create_task(
+                self._safe_consume_iter(regular_queues),
+            )
+            self._consume_iter_started_at = loop.time()
+            self._consume_iter_stall_warned = False
+        if self.active_fanout_queues and (self._xread_iter_task is None or self._xread_iter_task.done()):
+            self._xread_iter_task = asyncio.create_task(
+                self._safe_xread_iter(),
+            )
+            self._xread_iter_started_at = loop.time()
+            self._xread_iter_stall_warned = False
+
+    def _warn_stalled_iterations(self) -> None:
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        threshold = self._block_timeout + CONSUMER_WAIT_HEADROOM
+        for kind, task_attr, started_attr, warned_attr in (
+            ("consume_regular", "_consume_iter_task", "_consume_iter_started_at", "_consume_iter_stall_warned"),
+            ("xread_wait", "_xread_iter_task", "_xread_iter_started_at", "_xread_iter_stall_warned"),
+        ):
+            task = getattr(self, task_attr)
+            if (
+                task is not None
+                and not task.done()
+                and not getattr(self, warned_attr)
+                and now - getattr(self, started_attr) > threshold
+            ):
+                logger.warning(
+                    "%s iteration has been pending for %.1fs (> %.1fs); Redis "
+                    "BLOCK reply may be stalled. Iteration left running.",
+                    kind,
+                    now - getattr(self, started_attr),
+                    threshold,
+                )
+                setattr(self, warned_attr, True)
+
+    async def _safe_consume_iter(self, queues: list[str]) -> bool:
+        try:
+            return await self._consume_regular(queues, self._block_timeout)
+        except Exception as exc:
+            logger.debug("consume iteration error: %s", exc)
+            # Back off so drain_events doesn't tight-loop on a persistent fault.
+            await asyncio.sleep(min(self._block_timeout, 0.1))
+            return False
+
+    async def _safe_xread_iter(self) -> bool:
+        try:
+            return await self._xread_wait(self._block_timeout)
+        except Exception as exc:
+            logger.debug("xread iteration error: %s", exc)
+            await asyncio.sleep(min(self._block_timeout, 0.1))
+            return False
 
     async def _consume_regular(self, queues: list[str], timeout: float) -> bool:
         """Consume from regular queues using FAST/SLOW mode.
@@ -810,6 +913,9 @@ class Channel:
             )
         except Exception as exc:
             logger.debug("BZMPOP error: %s", exc)
+            # Defensive: prevent drain_events from tight-looping on connection
+            # errors. Successful BZMPOP timeouts already wait `timeout` seconds.
+            await asyncio.sleep(min(timeout, 0.1))
             return False
 
         if not result:
@@ -905,6 +1011,9 @@ class Channel:
             )
         except Exception as exc:
             logger.debug("XREAD error: %s", exc)
+            # Defensive: prevent drain_events from tight-looping on connection
+            # errors. Successful XREAD timeouts already wait `block` ms.
+            await asyncio.sleep(min(timeout, 0.1))
             return False
 
         if not result:
@@ -1276,6 +1385,44 @@ class Channel:
         if self._closed:
             return
         self._closed = True
+        self._closing = True
+
+        # Let consumer iterations finish naturally — bounded by
+        # `block_timeout`. They are never cancelled in the hot path, so any
+        # in-flight FAST script / BZMPOP finalisation runs to completion and
+        # the message is delivered rather than stranded in messages_index.
+        # If an iteration is hung (Redis unresponsive), we cancel it after
+        # `block_timeout + CLOSE_DRAIN_HEADROOM` as a last resort: stranding
+        # at shutdown is acceptable since visibility-timeout restore recovers
+        # those messages on the next worker startup.
+        consumer_tasks = [t for t in (self._consume_iter_task, self._xread_iter_task) if t is not None and not t.done()]
+        if consumer_tasks:
+            drain_timeout = self._block_timeout + CLOSE_DRAIN_HEADROOM
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*consumer_tasks, return_exceptions=True),
+                    timeout=drain_timeout,
+                )
+            except TimeoutError:
+                logger.warning(
+                    "consumer iterations did not drain within %.1fs at close "
+                    "(block_timeout=%.1fs + headroom=%.1fs); cancelling — "
+                    "in-flight messages may be stranded until visibility-"
+                    "timeout restore",
+                    drain_timeout,
+                    self._block_timeout,
+                    CLOSE_DRAIN_HEADROOM,
+                )
+                for task in consumer_tasks:
+                    if not task.done():
+                        task.cancel()
+                for task in consumer_tasks:
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):  # fmt: skip
+                        pass
+        self._consume_iter_task = None
+        self._xread_iter_task = None
 
         # Cancel periodic tasks
         for task in (self._enqueue_task, self._heartbeat_task, self._expires_task):
