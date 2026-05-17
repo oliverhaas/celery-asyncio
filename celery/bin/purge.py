@@ -61,7 +61,7 @@ def purge(ctx, force, queues, exclude_queues, **kwargs):
 
         async def _purge_all():
             async with app.connection_for_write() as conn:
-                channel = conn.default_channel
+                channel = await conn.default_channel()
                 total = 0
                 for queue in names:
                     try:
