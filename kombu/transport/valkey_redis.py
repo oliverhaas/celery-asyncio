@@ -897,8 +897,35 @@ class Channel:
             headers["x-restore-count"] = restore_count
 
         message = self._create_message(queue_name, payload, delivery_tag)
-        await self._deliver_to_consumer(queue_name, message)
+        try:
+            await self._deliver_to_consumer(queue_name, message)
+        except BaseException:
+            # The Lua script already popped this tag from the queue ZSET.
+            # If delivery is cancelled (e.g. close() running out of headroom)
+            # or otherwise fails, restore the tag so the next consume cycle
+            # picks it up rather than waiting ~6 min for the visibility-
+            # timeout restore.
+            self._delivered.pop(delivery_tag, None)
+            await self._restore_to_queue(queue_name, delivery_tag)
+            raise
         return True
+
+    async def _restore_to_queue(
+        self,
+        queue: str,
+        delivery_tag: str,
+        score: float | None = None,
+    ) -> None:
+        """Put a popped tag back on the queue ZSET. Best-effort recovery."""
+        queue_key = self._queue_key(queue)
+        if score is None:
+            score = _queue_score(DEFAULT_PRIORITY, time())
+        try:
+            await self.client.zadd(queue_key, {delivery_tag: score})
+        except Exception:
+            # If even the restore fails, the visibility-timeout restore will
+            # eventually re-enqueue. Don't mask the original cancellation.
+            logger.debug("Restore-to-queue failed for tag %s", delivery_tag, exc_info=True)
 
     async def _slow_consume(self, queues: list[str], timeout: float) -> bool:
         """SLOW mode: blocking BZMPOP with pipeline index refresh + HMGET."""
@@ -926,18 +953,25 @@ class Channel:
         queue_key = self._unprefixed(queue_key)
         queue = queue_key.removeprefix(QUEUE_KEY_PREFIX)
 
-        delivery_tag_raw, _score = members[0]
+        delivery_tag_raw, score_raw = members[0]
         delivery_tag = delivery_tag_raw.decode() if isinstance(delivery_tag_raw, bytes) else delivery_tag_raw
+        original_score = float(score_raw)
 
-        # Pipeline: refresh index + fetch payload and restore_count
+        # BZMPOP popped this tag server-side. From here on we either deliver
+        # it or push it back, even on cancellation, so the message isn't
+        # stuck in messages_index for the visibility-timeout window.
         message_key = self._message_key(delivery_tag)
         index_key = self._messages_index_key(queue)
         new_queue_at = time() + self._visibility_timeout + DEFAULT_REQUEUE_CHECK_INTERVAL
 
-        async with self.client.pipeline(transaction=False) as pipe:
-            await pipe.zadd(index_key, {delivery_tag: new_queue_at}, xx=True)
-            await pipe.hmget(message_key, "payload", "restore_count")
-            results = await pipe.execute()
+        try:
+            async with self.client.pipeline(transaction=False) as pipe:
+                await pipe.zadd(index_key, {delivery_tag: new_queue_at}, xx=True)
+                await pipe.hmget(message_key, "payload", "restore_count")
+                results = await pipe.execute()
+        except BaseException:
+            await self._restore_to_queue(queue, delivery_tag, original_score)
+            raise
 
         payload_json = results[1][0]
         if not payload_json:
@@ -952,7 +986,12 @@ class Channel:
             headers["x-restore-count"] = restore_count
 
         message = self._create_message(queue, payload, delivery_tag)
-        await self._deliver_to_consumer(queue, message)
+        try:
+            await self._deliver_to_consumer(queue, message)
+        except BaseException:
+            self._delivered.pop(delivery_tag, None)
+            await self._restore_to_queue(queue, delivery_tag, original_score)
+            raise
         return True
 
     def _parse_consume_result(self, result: list) -> tuple[str, str, str, int]:

@@ -6,6 +6,8 @@ All Redis operations are mocked — no Redis server required.
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from kombu.entity import Exchange, Queue
 from kombu.transport.valkey_redis import (
     BINDING_SEP,
@@ -2261,6 +2263,117 @@ class TestFastConsumeErrors:
         assert args[3] == MESSAGES_INDEX_PREFIX
         assert args[4] == "q1"
         assert args[5] == "q2"
+
+
+# ---------------------------------------------------------------------------
+# Restore-on-cancel after server-side pop
+# ---------------------------------------------------------------------------
+
+
+class TestRestoreOnCancel:
+    """After BZMPOP/Lua already popped server-side, a cancel before delivery
+    must push the tag back onto the queue ZSET so the next consume cycle
+    re-picks it up. Belt-and-suspenders behind persistent consume tasks:
+    persistent tasks prevent the hot-path cancel, this guards the cold paths
+    (close() hard-cancel, signal during iteration, etc.).
+    """
+
+    @staticmethod
+    def _pipe_ctx(pipe):
+        class PipeCtx:
+            async def __aenter__(self):
+                return pipe
+
+            async def __aexit__(self, *a):
+                pass
+
+        return PipeCtx()
+
+    async def test_slow_consume_restores_on_pipeline_cancel(self):
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("q1", MagicMock(), True)
+        ch.client.bzmpop = AsyncMock(
+            return_value=(b"queue:q1", [(b"tag-1", 1234.5)]),
+        )
+
+        mock_pipe = AsyncMock()
+        mock_pipe.zadd = AsyncMock()
+        mock_pipe.hmget = AsyncMock()
+        mock_pipe.execute = AsyncMock(side_effect=asyncio.CancelledError())
+        ch.client.pipeline = MagicMock(return_value=self._pipe_ctx(mock_pipe))
+        ch.client.zadd = AsyncMock()
+
+        with pytest.raises(asyncio.CancelledError):
+            await ch._slow_consume(["q1"], timeout=1.0)
+
+        # Restored back onto the queue ZSET with the original score.
+        ch.client.zadd.assert_awaited_once()
+        args, _ = ch.client.zadd.call_args
+        assert args[0] == ch._queue_key("q1")
+        assert args[1] == {"tag-1": 1234.5}
+
+    async def test_slow_consume_restores_on_deliver_cancel(self):
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("q1", MagicMock(), True)
+        ch.client.bzmpop = AsyncMock(
+            return_value=(b"queue:q1", [(b"tag-2", 2222.0)]),
+        )
+
+        mock_pipe = AsyncMock()
+        mock_pipe.zadd = AsyncMock()
+        mock_pipe.hmget = AsyncMock()
+        mock_pipe.execute = AsyncMock(
+            return_value=[
+                None,
+                [b'{"body": "x", "properties": {}, "headers": {}}', b"0"],
+            ],
+        )
+        ch.client.pipeline = MagicMock(return_value=self._pipe_ctx(mock_pipe))
+        ch.client.zadd = AsyncMock()
+        ch._deliver_to_consumer = AsyncMock(side_effect=asyncio.CancelledError())
+
+        with pytest.raises(asyncio.CancelledError):
+            await ch._slow_consume(["q1"], timeout=1.0)
+
+        ch.client.zadd.assert_awaited_once()
+        args, _ = ch.client.zadd.call_args
+        assert args[1] == {"tag-2": 2222.0}
+        # _delivered must not retain a tag we just put back on the queue.
+        assert "tag-2" not in ch._delivered
+
+    async def test_fast_consume_restores_on_deliver_cancel(self):
+        ch = _make_channel()
+        ch._consume_fast_mode = True
+        ch._consumers["tag1"] = ("q1", MagicMock(), True)
+        ch._consume_script = AsyncMock(
+            return_value=[
+                b"q1",
+                b"tag-fast",
+                b'{"body": "x", "properties": {}, "headers": {}}',
+                b"0",
+            ],
+        )
+        ch.client.zadd = AsyncMock()
+        ch._deliver_to_consumer = AsyncMock(side_effect=asyncio.CancelledError())
+
+        with pytest.raises(asyncio.CancelledError):
+            await ch._fast_consume(["q1"])
+
+        ch.client.zadd.assert_awaited_once()
+        args, _ = ch.client.zadd.call_args
+        assert args[0] == ch._queue_key("q1")
+        assert "tag-fast" in args[1]
+        assert "tag-fast" not in ch._delivered
+
+    async def test_restore_to_queue_swallows_redis_failure(self):
+        # Best-effort: if the restore itself fails, visibility-timeout handles
+        # eventual recovery. The original exception must still propagate.
+        ch = _make_channel()
+        ch.client.zadd = AsyncMock(side_effect=ConnectionError("down"))
+
+        # Should not raise.
+        await ch._restore_to_queue("q1", "tag-x", score=42.0)
+        ch.client.zadd.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
