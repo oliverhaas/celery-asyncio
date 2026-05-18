@@ -46,6 +46,7 @@ class Run:
     loop_concurrency: int | None
     sync_workers: int | None
     variant: str
+    env: dict[str, str] | None = None
 
 
 def matrix() -> list[Run]:
@@ -69,6 +70,19 @@ def matrix() -> list[Run]:
         runs.append(Run(f"aio-sync-s4-{suffix}", venv, "asyncio", None, 1, 1, 4, "sync"))
         # mixed: 2 loops + 2 sync (4 worker threads total)
         runs.append(Run(f"aio-mixed-l2c50-s2-{suffix}", venv, "asyncio", None, 2, 50, 2, "mixed"))
+
+        # Same three layouts again under uvloop (libuv event loop). Same venv,
+        # same kwargs — only the event-loop implementation differs.
+        uvloop_env = {"BENCH_UVLOOP": "1"}
+        runs.append(
+            Run(f"aio-async-l4c25-uvloop-{suffix}", venv, "asyncio", None, 4, 25, 1, "async", uvloop_env)
+        )
+        runs.append(
+            Run(f"aio-sync-s4-uvloop-{suffix}", venv, "asyncio", None, 1, 1, 4, "sync", uvloop_env)
+        )
+        runs.append(
+            Run(f"aio-mixed-l2c50-s2-uvloop-{suffix}", venv, "asyncio", None, 2, 50, 2, "mixed", uvloop_env)
+        )
 
     for venv in (".venv-classic-314", ".venv-classic-314t"):
         suffix = venv.split("-classic-")[1]
@@ -122,6 +136,8 @@ def run_one(r: Run, workload: Path, tasks: int, profile: str) -> tuple[bool, Pat
 
     env = os.environ.copy()
     env["BENCH_TASKS"] = str(tasks)
+    if r.env:
+        env.update(r.env)
 
     print(f"\n[run_all] === {r.label} ===")
     print(f"[run_all] {' '.join(cmd)}")
@@ -185,13 +201,13 @@ def main() -> None:
         f"{'config':<32} {'variant':<8} {'time':>8} {'tps':>8} {'peak_rss':>10} {'mean_cpu':>10} {'stranded':>10}"
     )
     print("-" * 110)
-    for r in sorted(results, key=lambda x: x["complete_seconds"]):
-        s = r["summary"]
+    for res in sorted(results, key=lambda x: x["complete_seconds"]):
+        s = res["summary"]
         print(
-            f"{r['config']:<32} {r['variant']:<8} "
-            f"{r['complete_seconds']:>7.1f}s {r['throughput_tps']:>8.1f} "
+            f"{res['config']:<32} {res['variant']:<8} "
+            f"{res['complete_seconds']:>7.1f}s {res['throughput_tps']:>8.1f} "
             f"{s['peak_rss_mb']:>8.1f}M {s['mean_cpu_pct']:>9.1f}% "
-            f"{r['n_stranded']:>10}",
+            f"{res['n_stranded']:>10}",
         )
 
 

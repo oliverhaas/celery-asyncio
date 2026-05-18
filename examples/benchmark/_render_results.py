@@ -24,8 +24,11 @@ PROFILES = ("mixed", "cpu-only", "io-only")
 # Stable canonical order — TPS will determine sort within tables.
 CANONICAL_CONFIGS = [
     "aio-async-l4c25-314", "aio-async-l4c25-314t",
+    "aio-async-l4c25-uvloop-314", "aio-async-l4c25-uvloop-314t",
     "aio-sync-s4-314", "aio-sync-s4-314t",
+    "aio-sync-s4-uvloop-314", "aio-sync-s4-uvloop-314t",
     "aio-mixed-l2c50-s2-314", "aio-mixed-l2c50-s2-314t",
+    "aio-mixed-l2c50-s2-uvloop-314", "aio-mixed-l2c50-s2-uvloop-314t",
     "classic-prefork1-314", "classic-prefork1-314t",
     "classic-prefork4-314", "classic-prefork4-314t",
     "classic-threads4-314", "classic-threads4-314t",
@@ -155,7 +158,7 @@ def cost_table(profile: str) -> str:
 
 
 def all_costs() -> dict[str, list[dict]]:
-    out = {}
+    out: dict[str, list[dict]] = {}
     for profile in PROFILES:
         out[profile] = []
         for r in load_profile(profile):

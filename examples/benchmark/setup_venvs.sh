@@ -36,7 +36,9 @@ make_async_venv() {
     echo "[setup] creating $name with python $pyver"
     uv venv -p "$pyver" "$name"
     # Install the local celery-asyncio package + runner deps.
-    uv pip install --python "$name/bin/python" -e "$REPO_ROOT" "${COMMON_DEPS[@]}"
+    # uvloop is installed in both async venvs so benchmarks can toggle it
+    # via BENCH_UVLOOP=1.
+    uv pip install --python "$name/bin/python" -e "$REPO_ROOT" "${COMMON_DEPS[@]}" uvloop
     # Override the published kombu-asyncio with the local checkout so the
     # bench picks up unreleased fixes (e.g. the long-lived consume tasks
     # that eliminate the strand bug this bench originally surfaced).
