@@ -56,27 +56,48 @@ def wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
 def sample_loop(proc: psutil.Process, samples: list[dict], stop: threading.Event, interval: float) -> None:
     """Sample CPU% and RSS of `proc` plus all its descendants every `interval` seconds.
 
-    cpu_percent uses interval=None (non-blocking, returns delta since the last call),
-    so the loop itself controls cadence.
+    cpu_percent(interval=None) computes the delta against the *previous* call
+    on the same psutil.Process object. We therefore cache Process objects by
+    PID across iterations — recreating them each cycle (as the old code did)
+    meant every fresh child object had no prior baseline, so cpu_percent
+    returned 0 on its first call and the prefork pool's children were
+    severely undercounted.
+
+    New children discovered mid-run are primed on first sight (their first
+    cpu_percent reading is dropped) so subsequent samples include them
+    correctly. Dead PIDs are evicted from the cache.
     """
-    # Prime cpu_percent baselines.
-    procs = [proc]
+    cache: dict[int, psutil.Process] = {proc.pid: proc}
+    # Prime the parent so its first sample reads a real value.
     try:
-        procs.extend(proc.children(recursive=True))
+        proc.cpu_percent(interval=None)
     except psutil.NoSuchProcess:
         return
-    for p in procs:
+
+    def refresh() -> list[psutil.Process]:
         try:
-            p.cpu_percent(interval=None)
+            children = proc.children(recursive=True)
         except psutil.NoSuchProcess:
-            pass
+            return []
+        live_pids = {proc.pid} | {c.pid for c in children}
+        # Evict dead.
+        for pid in list(cache):
+            if pid not in live_pids:
+                cache.pop(pid, None)
+        # Add new (and prime them — discard the meaningless first reading).
+        for c in children:
+            if c.pid not in cache:
+                cache[c.pid] = c
+                try:
+                    c.cpu_percent(interval=None)
+                except psutil.NoSuchProcess:
+                    cache.pop(c.pid, None)
+        return list(cache.values())
 
     t0 = time.monotonic()
     while not stop.is_set():
-        try:
-            procs = [proc]
-            procs.extend(proc.children(recursive=True))
-        except psutil.NoSuchProcess:
+        procs = refresh()
+        if not procs:
             return
 
         cpu_total = 0.0
