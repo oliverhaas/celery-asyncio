@@ -96,9 +96,13 @@ def matrix() -> list[Run]:
 
 
 def flush_broker() -> None:
-    """Clear the valkey state between runs so leftover queues/results don't cross-contaminate."""
+    """Clear the valkey/redis state between runs so leftover queues/results don't cross-contaminate.
+
+    Uses redis-cli against the host broker; works whether the broker is in
+    docker-compose or a local redis-server on :6379.
+    """
     subprocess.run(
-        ["docker", "compose", "exec", "-T", "valkey", "valkey-cli", "FLUSHALL"],
+        ["redis-cli", "-h", "localhost", "-p", "6379", "FLUSHALL"],
         cwd=str(ROOT),
         check=False,
         capture_output=True,
