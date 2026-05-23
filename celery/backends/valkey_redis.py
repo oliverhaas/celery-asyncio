@@ -159,6 +159,34 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     #: 512 MB - https://redis.io/topics/data-types
     _MAX_STR_VALUE_SIZE = 536870912
 
+    #: Atomic check-then-SET for ``_astore_result``: if the existing meta
+    #: is in a terminal state (SUCCESS / FAILURE / REVOKED — mirrors
+    #: ``celery.states.READY_STATES``), skip the write and return the
+    #: existing state. Otherwise SET (with optional TTL) and return nil.
+    #:
+    #: One round-trip instead of two. Only used when
+    #: ``self.serializer == "json"`` so the status check can be done in
+    #: Lua via cjson; other serializers fall back to the base GET+SET path.
+    _ASTORE_RESULT_LUA = """\
+local existing = redis.call('GET', KEYS[1])
+if existing then
+    local ok, decoded = pcall(cjson.decode, existing)
+    if ok and type(decoded) == 'table' then
+        local status = decoded.status
+        if status == 'SUCCESS' or status == 'FAILURE' or status == 'REVOKED' then
+            return status
+        end
+    end
+end
+local expires = tonumber(ARGV[2])
+if expires and expires > 0 then
+    redis.call('SETEX', KEYS[1], expires, ARGV[1])
+else
+    redis.call('SET', KEYS[1], ARGV[1])
+end
+return false
+"""
+
     def __init__(
         self,
         host=None,
@@ -709,6 +737,49 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
             await self.async_client.setex(key, self.expires, value)
         else:
             await self.async_client.set(key, value)
+
+    @cached_property
+    def _astore_result_script(self):
+        """Registered Lua script for atomic _astore_result (JSON path)."""
+        return self.async_client.register_script(self._ASTORE_RESULT_LUA)
+
+    async def _astore_result(self, task_id, result, state, traceback=None, request=None, **kwargs):
+        """Atomic check-then-SET via Lua when serializer is JSON.
+
+        One Redis round-trip instead of the two used by the
+        :class:`BaseKeyValueStoreBackend` default (GET + decode + SET). The
+        Lua script also widens the dedup rule: any state in
+        :data:`celery.states.READY_STATES` (SUCCESS / FAILURE / REVOKED)
+        is sticky, since once a task has reached a terminal state any
+        downstream consumer may already have acted on the result.
+
+        For non-JSON serializers we can't peek at the status field inside
+        Lua, so fall back to the base implementation.
+        """
+        if self.serializer != "json":
+            return await super()._astore_result(task_id, result, state, traceback, request=request, **kwargs)
+
+        meta = self._get_result_meta(result=result, state=state, traceback=traceback, request=request)
+        meta["task_id"] = bytes_to_str(task_id)
+        encoded = self.encode(meta)
+        expires = int(self.expires) if self.expires else 0
+        existing = await self._astore_result_script(
+            keys=[self.get_key_for_task(task_id)],
+            args=[encoded, expires],
+        )
+        if existing is not None:
+            # Lua returned the existing terminal state — the write was
+            # dropped. Most commonly a redelivered task (lost ack, broker
+            # restart, network partition) re-executing while the prior
+            # outcome was already recorded.
+            if isinstance(existing, bytes):
+                existing = existing.decode()
+            logger.error(
+                "Dropped duplicate result write for task %s: existing terminal state %s, "
+                "attempted state %s",
+                bytes_to_str(task_id), existing, state,
+            )
+        return result
 
     async def adelete(self, key):
         """Async version of delete."""
