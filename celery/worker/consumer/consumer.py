@@ -614,10 +614,16 @@ class Consumer:
         signals.task_rejected.send(sender=self, message=message, exc=exc)
 
     def update_strategies(self):
+        import inspect
+
+        from celery.app.trace import build_async_tracer
+
         loader = self.app.loader
         for name, task in self.app.tasks.items():
             self.strategies[name] = task.start_strategy(self.app, self)
             task.__trace__ = build_tracer(name, task, loader, self.hostname, app=self.app)
+            if inspect.iscoroutinefunction(task.run):
+                task.__async_trace__ = build_async_tracer(name, task, loader, self.hostname, app=self.app)
 
     def create_task_handler(self):
         strategies = self.strategies

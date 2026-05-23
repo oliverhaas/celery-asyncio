@@ -193,6 +193,7 @@ class Task:
     """
 
     __trace__ = None
+    __async_trace__ = None
     __v2_compat__ = False  # set by old base in celery.task.base
 
     MaxRetriesExceededError = MaxRetriesExceededError

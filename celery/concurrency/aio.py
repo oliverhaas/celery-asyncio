@@ -174,6 +174,7 @@ class TaskPool(BasePool):
         self._active_futures: set[Future] = set()
         self._stuck_thread_count = 0
         self._stuck_lock = Lock()
+        self._accept_content: set | None = None
 
     def on_start(self) -> None:
         # Start N loop worker threads
@@ -288,7 +289,9 @@ class TaskPool(BasePool):
             app = self.app
             embed = None
             if content_type:
-                accept = prepare_accept_content(app.conf.accept_content)
+                accept = self._accept_content
+                if accept is None:
+                    accept = self._accept_content = prepare_accept_content(app.conf.accept_content)
                 task_args, task_kwargs, embed = loads_message(
                     body,
                     content_type,
@@ -310,11 +313,16 @@ class TaskPool(BasePool):
 
             task_obj = app.tasks[task_name]
 
-            tracer = build_async_tracer(
-                task_name,
-                task_obj,
-                app=app,
-            )
+            # The async tracer is built once per task type at consumer startup
+            # (see update_strategies). Fall back to building it lazily for paths
+            # that bypass the consumer (tests, eager use).
+            tracer = task_obj.__async_trace__
+            if tracer is None:
+                tracer = task_obj.__async_trace__ = build_async_tracer(
+                    task_name,
+                    task_obj,
+                    app=app,
+                )
 
             tracer_result = await self._run_tracer_with_timeouts(
                 tracer,
