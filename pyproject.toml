@@ -92,10 +92,10 @@ dev = [
   "pytest-timeout==2.4.0",
   "pytest-xdist==3.8.0",
   "pytest-flakefinder==1.1.0",
-  "redis==8.0.0",
-  "ruff==0.15.18",
+  "redis==8.0.1",
+  "ruff==0.15.20",
   "valkey==6.1.1",
-  "ty==0.0.51",
+  "ty==0.0.55",
 ]
 docs = [
     "mkdocs==1.6.1",
