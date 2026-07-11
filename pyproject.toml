@@ -83,7 +83,7 @@ zstd = ["zstandard>=0.22.0"]
 
 [dependency-groups]
 dev = [
-  "mypy==2.1.0",
+  "mypy==2.2.0",
   "pre-commit==4.6.0",
   "pytest==9.1.1",
   "pytest-asyncio==1.4.0",
@@ -93,9 +93,9 @@ dev = [
   "pytest-xdist==3.8.0",
   "pytest-flakefinder==1.1.0",
   "redis==8.0.1",
-  "ruff==0.15.20",
+  "ruff==0.15.21",
   "valkey==6.1.1",
-  "ty==0.0.56",
+  "ty==0.0.58",
 ]
 docs = [
     "mkdocs==1.6.1",
