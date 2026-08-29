@@ -1,11 +1,13 @@
 """Integration tests for pure asyncio Redis transport."""
 
 import asyncio
+from unittest.mock import patch
 
 import pytest
 
 from kombu import Connection, Exchange, Queue
 from kombu.exceptions import InconsistencyError
+from kombu.utils.json import dumps as json_dumps
 
 pytestmark = pytest.mark.asyncio(loop_scope="function")
 
@@ -385,8 +387,8 @@ class TestDeliveryTracking:
         # The consumer is still working on it when the deadline passes, so the
         # sweep puts a second poppable copy back in the queue.
         await expire_visibility(channel, queue_name, msg.delivery_tag)
-        enqueued, _dropped = await run_sweep(channel, queue_name)
-        assert enqueued == 1
+        stats = await run_sweep(channel, queue_name)
+        assert (stats.enqueued, stats.redelivered) == (1, 1)
         assert await channel.client.zcard(channel._queue_key(queue_name)) == 1
 
         # The ack has to cancel that copy, or a second worker runs the task.
@@ -445,9 +447,9 @@ class TestDeliveryTracking:
         # Nobody consumed it. It is still in the queue, waiting behind a
         # backlog, and its deadline passes. That is not a redelivery.
         await expire_visibility(channel, queue_name, tag)
-        enqueued, _dropped = await run_sweep(channel, queue_name)
+        stats = await run_sweep(channel, queue_name)
 
-        assert enqueued == 0
+        assert (stats.enqueued, stats.redelivered) == (0, 0)
         counter = await channel.client.hget(channel._message_key(tag), "delivery_count")
         assert int(counter or 0) == 0
 
@@ -540,11 +542,59 @@ class TestDeliveryTracking:
 
             msg = await channel.get(queue_name, no_ack=False)
             await expire_visibility(channel, queue_name, msg.delivery_tag)
-            enqueued, dropped = await run_sweep(channel, queue_name)
+            stats = await run_sweep(channel, queue_name)
 
-            assert (enqueued, dropped) == (0, 1)
+            assert (stats.enqueued, stats.dropped) == (0, 1)
             assert await channel.client.exists(channel._message_key(msg.delivery_tag)) == 0
             assert await channel.client.zcard(channel._queue_key(queue_name)) == 0
+
+    async def test_the_sweep_names_the_messages_it_dropped(self):
+        """PORT-PLAN feature 9.
+
+        The drop deletes the hash, so the log line is the message's last trace
+        and has to carry enough of the payload to identify the task.
+        """
+        queue_name = "test_sweep_names_dropped"
+        payload = json_dumps(
+            {
+                "body": {"v": "x"},
+                "content-type": "application/json",
+                "content-encoding": "utf-8",
+                "properties": {},
+                "headers": {"task": "proj.add", "id": "the-id"},
+            }
+        ).encode()
+        async with Connection(REDIS_URL, transport_options={"delivery_limit": 1}) as conn:
+            channel = await conn.channel()
+            await channel.queue_purge(queue_name)
+            await channel.publish(payload, exchange="", routing_key=queue_name)
+
+            msg = await channel.get(queue_name, no_ack=False)
+            await expire_visibility(channel, queue_name, msg.delivery_tag)
+            with patch("kombu.transport.valkey_redis.logger") as mock_logger:
+                stats = await run_sweep(channel, queue_name)
+
+            assert stats.dropped == 1
+            fmt, *rest = mock_logger.error.call_args[0]
+            assert "proj.add (id the-id)" in fmt % tuple(rest)
+
+    async def test_the_sweep_counts_the_index_entries_it_cleaned_up(self):
+        """PORT-PLAN feature 9.
+
+        An index entry whose hash is gone was acked or expired underneath the
+        sweep. Removing it is routine, but a steady stream of them is not.
+        """
+        queue_name = "test_sweep_counts_orphans"
+        async with Connection(REDIS_URL) as conn:
+            channel = await conn.channel()
+            await channel.queue_purge(queue_name)
+            index_key = channel._messages_index_key(queue_name)
+            await channel.client.zadd(index_key, {"a-tag-with-no-hash": 0})
+
+            stats = await run_sweep(channel, queue_name)
+
+            assert stats.orphaned == 1
+            assert await channel.client.zscore(index_key, "a-tag-with-no-hash") is None
 
     async def test_a_reject_loop_stops_at_the_delivery_limit(self):
         """PORT-PLAN fix 6.

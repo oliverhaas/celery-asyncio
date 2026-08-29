@@ -56,7 +56,7 @@ import urllib.parse
 import uuid
 from pathlib import Path
 from time import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from kombu.exceptions import InconsistencyError
 from kombu.log import get_logger
@@ -83,6 +83,16 @@ __all__ = ("Channel", "Transport")
 
 logger = get_logger("kombu.transport.valkey_redis")
 
+
+class SweepStats(NamedTuple):
+    """What one requeue sweep did, summed over the queues it visited."""
+
+    enqueued: int = 0
+    dropped: int = 0
+    redelivered: int = 0
+    orphaned: int = 0
+
+
 # ---------------------------------------------------------------------------
 # Constants (ported from celery-redis-plus constants.py)
 # ---------------------------------------------------------------------------
@@ -107,6 +117,10 @@ MIN_QUEUE_EXPIRES = 10_000
 # Matches RabbitMQ, which has applied a delivery-limit of 20 to quorum queues
 # since 4.0. None disables the limit and lets a poison message redeliver forever.
 DEFAULT_DELIVERY_LIMIT: int | None = 20
+
+# Cap on how many dropped messages a single sweep names per queue in the error
+# log. The drop deletes the hash, so that line is the message's last trace.
+DROPPED_REPORT_LIMIT = 10
 
 # Default server-side block duration for BZMPOP/XREAD inside a single consumer
 # iteration. Overridable via the `block_timeout` transport option.
@@ -1450,59 +1464,110 @@ class Channel:
                 self._periodic_refresh_expires(),
             )
 
-    async def _enqueue_due_messages(self) -> tuple[int, int]:
-        """Run Lua script to enqueue messages whose queue_at has passed.
-
-        Returns (total_enqueued, total_dropped).
-        """
+    async def _enqueue_due_messages(self) -> SweepStats:
+        """Run Lua script to enqueue messages whose queue_at has passed."""
         # Same predicate the consume path uses, and deliberately the same
         # order-preserving dedupe: a set here made the sweep visit queues in
         # hash order, so which backlog got restored first under the batch limit
         # differed between two workers with identical configuration.
         active_queues = self._regular_queues()
         if not active_queues:
-            return 0, 0
+            return SweepStats()
 
         now = time()
         threshold = now + self._requeue_check_interval
-        total_enqueued = 0
-        total_dropped = 0
+        totals = SweepStats()
         script = await self._get_enqueue_script()
 
         # Compute delivery_limit arg (-1 = no limit)
         limit = -1 if self._delivery_limit is None else self._delivery_limit
 
         for queue in active_queues:
-            index_key = self._messages_index_key(queue)
-            result = await script(
-                keys=[index_key],
-                args=[
-                    threshold,
-                    DEFAULT_REQUEUE_BATCH_LIMIT,
-                    self._visibility_timeout,
-                    PRIORITY_SCORE_MULTIPLIER,
-                    MESSAGE_KEY_PREFIX,
-                    self._global_keyprefix,
-                    QUEUE_KEY_PREFIX,
-                    limit,
-                ],
-            )
-            if result:
-                total_enqueued += int(result[0])
-                total_dropped += int(result[1])
+            try:
+                index_key = self._messages_index_key(queue)
+                result = await script(
+                    keys=[index_key],
+                    args=[
+                        threshold,
+                        DEFAULT_REQUEUE_BATCH_LIMIT,
+                        self._visibility_timeout,
+                        PRIORITY_SCORE_MULTIPLIER,
+                        MESSAGE_KEY_PREFIX,
+                        self._global_keyprefix,
+                        QUEUE_KEY_PREFIX,
+                        limit,
+                        DROPPED_REPORT_LIMIT,
+                    ],
+                )
+                if not result:
+                    continue
+                enqueued, dropped, redelivered, orphaned, dropped_payloads = result
+                if dropped:
+                    # The script deleted these hashes, so this line is the only
+                    # remaining trace of the messages.
+                    described = ", ".join(self._describe_message(payload) for payload in dropped_payloads)
+                    if dropped > len(dropped_payloads):
+                        described += ", ..."
+                    logger.error(
+                        "Queue %s: %d message(s) dropped after reaching the delivery limit of %s: %s",
+                        queue,
+                        dropped,
+                        self._delivery_limit,
+                        described,
+                    )
+                if redelivered:
+                    logger.info(
+                        "Queue %s: %d message(s) redelivered after their visibility timeout expired.",
+                        queue,
+                        redelivered,
+                    )
+                if orphaned:
+                    logger.info(
+                        "Queue %s: removed %d orphaned index entries (message already acked or expired).",
+                        queue,
+                        orphaned,
+                    )
+                if enqueued >= DEFAULT_REQUEUE_BATCH_LIMIT:
+                    logger.warning(
+                        "Queue %s hit the enqueue batch limit of %d. There may be more messages waiting.",
+                        queue,
+                        DEFAULT_REQUEUE_BATCH_LIMIT,
+                    )
+                totals = SweepStats(
+                    totals.enqueued + int(enqueued),
+                    totals.dropped + int(dropped),
+                    totals.redelivered + int(redelivered),
+                    totals.orphaned + int(orphaned),
+                )
+            except Exception:
+                # One unreachable or misbehaving queue must not cost the others
+                # their sweep; the next cycle retries it in 60s anyway.
+                logger.warning(
+                    "Failed to enqueue due messages for queue %s, will retry next cycle",
+                    queue,
+                    exc_info=True,
+                )
 
-        if total_enqueued >= DEFAULT_REQUEUE_BATCH_LIMIT:
-            logger.warning(
-                "Enqueue hit batch limit %d. More messages may be waiting.",
-                DEFAULT_REQUEUE_BATCH_LIMIT,
+        return totals
+
+    @staticmethod
+    def _describe_message(payload: bytes | str) -> str:
+        """Name a payload for a log line, its hash being already deleted."""
+        try:
+            message = json_loads(
+                payload.decode("utf-8", "replace") if isinstance(payload, bytes) else payload,
             )
-        if total_dropped > 0:
-            logger.warning(
-                "Dropped %d messages exceeding delivery_limit=%s.",
-                total_dropped,
-                self._delivery_limit,
-            )
-        return total_enqueued, total_dropped
+            headers = message.get("headers") or {}
+            task = headers.get("task")
+            task_id = headers.get("id")
+            if task or task_id:
+                return f"{task or '<unknown task>'} (id {task_id or '?'})"
+            delivery_tag = (message.get("properties") or {}).get("delivery_tag")
+            if delivery_tag:
+                return f"<non-task message {delivery_tag}>"
+        except Exception:
+            logger.debug("Could not decode a dropped message payload for logging.", exc_info=True)
+        return "<undecodable message>"
 
     async def _update_messages_index(self) -> None:
         """Update scores of delivered messages to prevent premature requeue."""

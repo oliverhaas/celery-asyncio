@@ -14,16 +14,19 @@ from kombu.transport.valkey_redis import (
     DEFAULT_DELIVERY_LIMIT,
     DEFAULT_REQUEUE_CHECK_INTERVAL,
     DEFAULT_VISIBILITY_TIMEOUT,
+    DROPPED_REPORT_LIMIT,
     MESSAGE_KEY_PREFIX,
     MESSAGES_INDEX_PREFIX,
     MIN_QUEUE_EXPIRES,
     QUEUE_KEY_PREFIX,
     Channel,
+    SweepStats,
     Transport,
     _parse_db_from_url,
     _queue_score,
     _topic_match,
 )
+from kombu.utils.json import dumps as json_dumps
 
 # ---------------------------------------------------------------------------
 # Mock helpers
@@ -664,22 +667,21 @@ class TestRequeue:
 
 
 class TestEnqueueDueMessages:
-    async def test_enqueue_returns_tuple(self):
+    async def test_enqueue_returns_the_four_counters(self):
         ch = _make_channel()
         ch._consumers["tag1"] = ("q1", MagicMock(), False)
 
-        enqueue_script = AsyncMock(return_value=[5, 2])  # {enqueued, dropped}
+        enqueue_script = AsyncMock(return_value=[5, 2, 3, 1, []])
         ch._enqueue_script = enqueue_script
 
-        enqueued, dropped = await ch._enqueue_due_messages()
-        assert enqueued == 5
-        assert dropped == 2
+        stats = await ch._enqueue_due_messages()
+        assert stats == SweepStats(enqueued=5, dropped=2, redelivered=3, orphaned=1)
 
     async def test_enqueue_passes_delivery_limit(self):
         ch = _make_channel(delivery_limit=10)
         ch._consumers["tag1"] = ("q1", MagicMock(), False)
 
-        enqueue_script = AsyncMock(return_value=[1, 0])
+        enqueue_script = AsyncMock(return_value=[1, 0, 0, 0, []])
         ch._enqueue_script = enqueue_script
 
         await ch._enqueue_due_messages()
@@ -687,11 +689,22 @@ class TestEnqueueDueMessages:
         args = call_args[1]["args"]
         assert args[7] == 10  # delivery_limit
 
+    async def test_enqueue_passes_dropped_report_limit(self):
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("q1", MagicMock(), False)
+
+        enqueue_script = AsyncMock(return_value=[1, 0, 0, 0, []])
+        ch._enqueue_script = enqueue_script
+
+        await ch._enqueue_due_messages()
+        args = enqueue_script.call_args[1]["args"]
+        assert args[8] == DROPPED_REPORT_LIMIT
+
     async def test_enqueue_no_limit(self):
         ch = _make_channel(delivery_limit=None)
         ch._consumers["tag1"] = ("q1", MagicMock(), False)
 
-        enqueue_script = AsyncMock(return_value=[1, 0])
+        enqueue_script = AsyncMock(return_value=[1, 0, 0, 0, []])
         ch._enqueue_script = enqueue_script
 
         await ch._enqueue_due_messages()
@@ -702,9 +715,17 @@ class TestEnqueueDueMessages:
     async def test_enqueue_no_active_queues(self):
         ch = _make_channel()
         # No consumers
-        enqueued, dropped = await ch._enqueue_due_messages()
-        assert enqueued == 0
-        assert dropped == 0
+        assert await ch._enqueue_due_messages() == SweepStats()
+
+    async def test_one_failing_queue_does_not_stop_the_others(self):
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("q1", MagicMock(), False)
+        ch._consumers["tag2"] = ("q2", MagicMock(), False)
+
+        ch._enqueue_script = AsyncMock(side_effect=[RuntimeError("boom"), [4, 0, 0, 0, []]])
+
+        stats = await ch._enqueue_due_messages()
+        assert stats.enqueued == 4
 
 
 # ---------------------------------------------------------------------------
@@ -2461,37 +2482,54 @@ class TestEnqueueBatchLimit:
 
         from kombu.transport.valkey_redis import DEFAULT_REQUEUE_BATCH_LIMIT
 
-        enqueue_script = AsyncMock(return_value=[DEFAULT_REQUEUE_BATCH_LIMIT, 0])
+        enqueue_script = AsyncMock(return_value=[DEFAULT_REQUEUE_BATCH_LIMIT, 0, 0, 0, []])
         ch._enqueue_script = enqueue_script
 
         with patch("kombu.transport.valkey_redis.logger") as mock_logger:
-            enqueued, dropped = await ch._enqueue_due_messages()
-            assert enqueued == DEFAULT_REQUEUE_BATCH_LIMIT
+            stats = await ch._enqueue_due_messages()
+            assert stats.enqueued == DEFAULT_REQUEUE_BATCH_LIMIT
             mock_logger.warning.assert_called()
 
-    async def test_enqueue_dropped_warning(self):
+    async def test_enqueue_dropped_error_names_the_messages(self):
         ch = _make_channel(delivery_limit=3)
         ch._consumers["tag1"] = ("q1", MagicMock(), False)
 
-        enqueue_script = AsyncMock(return_value=[2, 5])
+        payload = json_dumps({"headers": {"task": "proj.add", "id": "abc"}}).encode()
+        enqueue_script = AsyncMock(return_value=[2, 5, 0, 0, [payload]])
         ch._enqueue_script = enqueue_script
 
         with patch("kombu.transport.valkey_redis.logger") as mock_logger:
-            enqueued, dropped = await ch._enqueue_due_messages()
-            assert dropped == 5
-            mock_logger.warning.assert_called()
+            stats = await ch._enqueue_due_messages()
+
+        assert stats.dropped == 5
+        # Five went, one payload came back: the message says so rather than
+        # implying only one was lost.
+        fmt, *rest = mock_logger.error.call_args[0]
+        assert "proj.add (id abc), ..." in fmt % tuple(rest)
+
+    async def test_enqueue_reports_redelivered_and_orphaned(self):
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("q1", MagicMock(), False)
+
+        ch._enqueue_script = AsyncMock(return_value=[0, 0, 3, 2, []])
+
+        with patch("kombu.transport.valkey_redis.logger") as mock_logger:
+            stats = await ch._enqueue_due_messages()
+
+        assert (stats.redelivered, stats.orphaned) == (3, 2)
+        assert mock_logger.info.call_count == 2
 
     async def test_enqueue_multiple_queues(self):
         ch = _make_channel()
         ch._consumers["tag1"] = ("q1", MagicMock(), False)
         ch._consumers["tag2"] = ("q2", MagicMock(), False)
 
-        enqueue_script = AsyncMock(side_effect=[[3, 0], [2, 1]])
+        enqueue_script = AsyncMock(side_effect=[[3, 0, 0, 0, []], [2, 1, 0, 0, []]])
         ch._enqueue_script = enqueue_script
 
-        enqueued, dropped = await ch._enqueue_due_messages()
-        assert enqueued == 5
-        assert dropped == 1
+        stats = await ch._enqueue_due_messages()
+        assert stats.enqueued == 5
+        assert stats.dropped == 1
         assert enqueue_script.call_count == 2
 
     async def test_enqueue_skips_fanout_queues(self):
@@ -2500,7 +2538,7 @@ class TestEnqueueBatchLimit:
         ch._consumers["tag2"] = ("fq1", MagicMock(), False)
         ch.active_fanout_queues.add("fq1")
 
-        enqueue_script = AsyncMock(return_value=[1, 0])
+        enqueue_script = AsyncMock(return_value=[1, 0, 0, 0, []])
         ch._enqueue_script = enqueue_script
 
         await ch._enqueue_due_messages()

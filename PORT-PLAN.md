@@ -30,12 +30,12 @@ Correctness fixes that change no public API go first. Item 5 depends on 3; item 
 | 7 | yes | Direct exchange with no bindings loses the message | silent drop | raises to publishers |
 
 Features, deferred until the seven land: 8 to 12. Item 8 turned out to be mostly present
-already; what is left of it, plus 9 and 10, are the open items.
+already; what is left of it, plus 10, are the open items.
 
 | # | Done | Feature |
 |---|---|---|
 | 8 | partly | `queue_expires`: per-queue TTL is in, fanout streams and binding keys are not |
-| 9 | no | Sweep reporting |
+| 9 | yes | Sweep reporting |
 | 10 | no | Fanout binding cleanup |
 | 11 | n/a | Closed after investigation, nothing to port |
 | 12 | n/a | Closed after investigation, nothing to port |
@@ -200,9 +200,13 @@ that reconnects after the stream expired silently loses its offset.
 
 ### 9. Sweep reporting
 
-`enqueue_due_messages` returns `{enqueued, dropped}` (valkey_redis.py:1308). celery-redis-plus
-returns a five-element `SweepStats`: enqueued, dropped, redelivered, orphaned, and the payloads
-of dropped messages, since the `DEL` is their last trace and they are worth logging.
+**Ported.** `_enqueue_due_messages` used to return `{enqueued, dropped}` and log two lines about
+the totals. It now returns a `SweepStats` of enqueued, dropped, redelivered and orphaned, and the
+Lua script hands back the payloads of up to `DROPPED_REPORT_LIMIT` dropped messages so the error
+log can name the tasks: the `DEL` is their last trace, and "5 messages dropped" on its own does
+not say which. Every line is per queue now rather than per sweep, so a queue with a poison
+message is identifiable. A queue whose script call raises is logged and skipped instead of
+costing the remaining queues their sweep.
 
 ### 10. Fanout binding cleanup
 
