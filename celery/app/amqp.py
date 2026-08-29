@@ -124,6 +124,11 @@ class Queues(dict):
         queues = queues or {}
         for name, q in queues.items():
             self.add(q) if isinstance(q, Queue) else self.add_compat(name, **q)
+        # What to consume from when no -Q was given. A snapshot, not `self`:
+        # `__missing__` adds every queue a task is merely *routed* to, and
+        # returning `self` meant the worker picked those up as things to
+        # consume the next time it read the routing table (upstream 066e96e01).
+        self._default_consume_from = {**self}
 
     def __getitem__(self, name):
         try:
@@ -206,6 +211,8 @@ class Queues(dict):
         q = self.add(queue, **kwargs)
         if self._consume_from is not None:
             self._consume_from[q.name] = q
+        else:
+            self._default_consume_from[q.name] = q
         return q
 
     def select(self, include):
@@ -215,7 +222,14 @@ class Queues(dict):
             include (Sequence[str], str): Names of queues to consume from.
         """
         if include:
-            self._consume_from = {name: self[name] for name in maybe_list(include)}
+            self._consume_from = {}
+            for name in maybe_list(include):
+                q = self[name]
+                # Key by the real name, not by whatever `include` said. An
+                # alias key does not match the `q.name` key `select_add` uses,
+                # so after a reconnect the same queue landed in here twice and
+                # got consumed twice (upstream 2e150f833).
+                self._consume_from[q.name] = q
 
     def deselect(self, exclude):
         """Deselect queues so that they won't be consumed from.
@@ -227,11 +241,14 @@ class Queues(dict):
         if exclude:
             exclude = maybe_list(exclude)
             if self._consume_from is None:
-                # using all queues
-                return self.select(k for k in self if k not in exclude)
-            # using selection
+                # Narrow the defaults in place. Calling select() here instead
+                # froze the whole routing table into an explicit selection,
+                # routing-only queues included (upstream ece686299).
+                consume_from = self._default_consume_from
+            else:
+                consume_from = self._consume_from
             for queue in exclude:
-                self._consume_from.pop(queue, None)
+                consume_from.pop(queue, None)
 
     def new_missing(self, name):
         queue_arguments = None
@@ -253,7 +270,7 @@ class Queues(dict):
     def consume_from(self):
         if self._consume_from is not None:
             return self._consume_from
-        return self
+        return self._default_consume_from
 
 
 class AMQP:
@@ -584,10 +601,14 @@ class AMQP:
         return s
 
     def _create_task_sender(self):
+        # `amqp.default_queue` is looked up per send, not captured here:
+        # reading it creates the default queue, which a setup that routes
+        # every task explicitly never wants and may not even have configured
+        # (upstream 1a4768959).
+        amqp = self
         default_retry = self.app.conf.task_publish_retry
         default_policy = self.app.conf.task_publish_retry_policy
         default_delivery_mode = self.app.conf.task_default_delivery_mode
-        default_queue = self.default_queue
         queues = self.queues
         send_before_publish = signals.before_task_publish.send
         before_receivers = signals.before_task_publish.receivers
@@ -630,7 +651,7 @@ class AMQP:
 
             qname = queue
             if queue is None and exchange is None:
-                queue = default_queue
+                queue = amqp.default_queue
             if queue is not None:
                 if isinstance(queue, str):
                     qname, queue = queue, queues[queue]
@@ -715,8 +736,8 @@ class AMQP:
         This creates a coroutine function that uses kombu-asyncio's native
         async Producer.publish() instead of wrapping sync calls.
         """
+        amqp = self
         default_delivery_mode = self.app.conf.task_default_delivery_mode
-        default_queue = self.default_queue
         queues = self.queues
         send_before_publish = signals.before_task_publish.send
         before_receivers = signals.before_task_publish.receivers
@@ -760,7 +781,7 @@ class AMQP:
 
             qname = queue
             if queue is None and exchange is None:
-                queue = default_queue
+                queue = amqp.default_queue
             if queue is not None:
                 if isinstance(queue, str):
                     qname, queue = queue, queues[queue]

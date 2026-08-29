@@ -44,6 +44,35 @@ class test_Queues:
         q.deselect("bar")
         assert sorted(q._consume_from.keys()) == ["foo"]
 
+    def test_select_keys_by_the_real_name_not_the_alias(self):
+        # An alias key does not match the q.name key select_add writes, so the
+        # queue ended up in consume_from twice and was consumed twice.
+        q = Queues()
+        q.add(Queue("real-name", alias="short"))
+        q.select(["short"])
+        q.select_add(Queue("real-name", alias="short"))
+        assert sorted(q.consume_from) == ["real-name"]
+
+    def test_routing_only_queues_are_not_consumed_from(self):
+        # __missing__ adds every queue a task is merely routed to. Those must
+        # not turn into things the worker consumes on its next reconnect.
+        q = Queues(queues=[Queue("declared")])
+        assert q["routed-to"]
+        assert sorted(q.consume_from) == ["declared"]
+
+    def test_select_add_without_a_selection_reaches_consumers(self):
+        q = Queues(queues=[Queue("declared")])
+        q.select_add(Queue("worker-direct"))
+        assert sorted(q.consume_from) == ["declared", "worker-direct"]
+
+    def test_deselect_without_a_selection_keeps_routing_only_queues_out(self):
+        # deselect() used to promote the whole routing table to an explicit
+        # selection, which pulled the routing-only queue in with it.
+        q = Queues(queues=[Queue("a"), Queue("b")])
+        assert q["routed-to"]
+        q.deselect(["b"])
+        assert sorted(q.consume_from) == ["a"]
+
     def test_add_default_exchange(self):
         ex = Exchange("fff", "fanout")
         q = Queues(default_exchange=ex)
@@ -301,6 +330,26 @@ class test_AMQP(test_AMQP_Base):
         event = evd.publish.call_args[0][1]
         assert event["routing_key"] == "xyb"
         assert event["exchange"] == "xyz"
+
+    def test_send_task_message__no_default_queue(self):
+        # Reading amqp.default_queue creates it. Capturing it when the sender
+        # was built therefore raised KeyError for a setup that routes every
+        # task explicitly and has missing-queue creation turned off.
+        conf = self.app.conf
+        conf.task_create_missing_queues = False
+        conf.task_queues = {Queue("my_queue")}
+
+        prod = Mock(name="producer")
+        self.app.amqp.send_task_message(
+            prod,
+            "foo",
+            self.simple_message_no_sent_event,
+            queue="my_queue",
+            retry=False,
+        )
+        kwargs = prod.publish.call_args[1]
+        assert kwargs["routing_key"] == "my_queue"
+        assert kwargs["exchange"] == ""
 
     def test_send_task_message__with_delivery_mode(self):
         prod = Mock(name="producer")
