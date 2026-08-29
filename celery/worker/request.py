@@ -700,6 +700,31 @@ class Request:
         elif isinstance(exc, MemoryError):
             raise MemoryError(f"Process got: {exc}")
         elif isinstance(exc, Reject):
+            if not exc.requeue:
+                # Nobody will run this task again, so a PENDING result is one
+                # nothing will ever resolve. Record the terminal failure the
+                # way any other unrecoverable error would (upstream e2b276e60).
+                self.task.backend.mark_as_failure(
+                    self.id,
+                    exc,
+                    request=self._context,
+                    store_result=self.store_errors,
+                )
+                signals.task_failure.send(
+                    sender=self.task,
+                    task_id=self.id,
+                    exception=exc,
+                    args=self.args,
+                    kwargs=self.kwargs,
+                    traceback=exc_info.traceback,
+                    einfo=exc_info,
+                )
+                if send_failed_event:
+                    self.send_event(
+                        "task-failed",
+                        exception=safe_repr(get_pickled_exception(exc_info.exception)),
+                        traceback=exc_info.traceback,
+                    )
             return self.reject(requeue=exc.requeue)
         elif isinstance(exc, Ignore):
             return self.acknowledge()

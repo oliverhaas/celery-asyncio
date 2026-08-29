@@ -330,6 +330,52 @@ class test_Request(RequestCase):
             False,
         )
 
+    def test_on_failure_Reject_without_requeue_records_a_failure(self):
+        # A task that rejects without requeueing will never run again, so
+        # leaving the result PENDING strands anyone waiting on it.
+        try:
+            raise Reject("no thanks")
+        except Reject:
+            einfo = ExceptionInfo(internal=True)
+
+        req = self.get_request(self.add.s(2, 2))
+        req.task.backend = Mock()
+        req.send_event = Mock(name="send_event")
+
+        with self.assert_signal_called(
+            task_failure,
+            sender=req.task,
+            task_id=req.id,
+            args=req.args,
+            kwargs=req.kwargs,
+            exception=ANY,
+            traceback=ANY,
+            einfo=einfo,
+        ):
+            req.on_failure(einfo)
+
+        req.task.backend.mark_as_failure.assert_called_once_with(
+            req.id, einfo.exception, request=req._context, store_result=True
+        )
+        # reject() sends task-rejected afterwards, so check the first event.
+        assert req.send_event.call_args_list[0][0][0] == "task-failed"
+        req.on_reject.assert_called_with(req_logger, req.connection_errors, False)
+
+    def test_on_failure_Reject_with_requeue_records_nothing(self):
+        # The broker will hand the message to someone else, so a result here
+        # would be overwritten by the redelivery anyway.
+        try:
+            raise Reject("later", requeue=True)
+        except Reject:
+            einfo = ExceptionInfo(internal=True)
+
+        req = self.get_request(self.add.s(2, 2))
+        req.task.backend = Mock()
+
+        req.on_failure(einfo)
+
+        req.task.backend.mark_as_failure.assert_not_called()
+
     def test_on_failure_Reject_rejects_with_requeue(self):
         einfo = None
         try:

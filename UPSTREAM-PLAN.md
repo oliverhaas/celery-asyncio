@@ -69,6 +69,7 @@ Then drop anything touching only the subsystems listed above.
 | `03c79ac14` Guard the event control commands against a `None` dispatcher | `34c397bb8` | Adapted: applied to `enable_events` and `disable_events` too, not just `heartbeat`. |
 | `63c191022` Do not fail a task on timeout during cold shutdown | `36e095705` | Adapted. `on_cold_shutdown` sets `state.should_terminate` itself, since the signal handler only sets it after the callback returns. Upstream's `task_consumer.cancel()` is skipped: it is a coroutine here and the handler is sync. |
 | `713576800` Run the failure callbacks on a hard timeout, not just `mark_as_failure` | `36e095705` | Verbatim. Lands on the same `on_timeout` branch as `63c191022`. |
+| `40c234919` Split `acks_on_failure` and `acks_on_timeout` | `14c1371fb` | Verbatim, minus the docs half: this fork has no `configuration.rst`. |
 
 ### Found along the way
 
@@ -155,7 +156,7 @@ when no loop is running
 
 `e2b276e60` mark a rejected task failed when it is not requeued · `1fe2a08d0` expose `time_limit` and
 `soft_time_limit` on `task.request` · `b8f85213f` let a request's `ignore_result` beat the task
-definition · `40c234919` split `acks_on_failure` and `acks_on_timeout` · `865922abd` dispatch the
+definition · `865922abd` dispatch the
 chain and callbacks on the dedup fast path (the fork uses `build_async_tracer`, so this needs
 looking at before it is believed) · `3f2cf57d3` a clear error when the worker registry is empty
 
