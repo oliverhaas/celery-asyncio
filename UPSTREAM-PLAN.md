@@ -73,6 +73,7 @@ Then drop anything touching only the subsystems listed above.
 | `e2b276e60` Mark a rejected task failed when it is not requeued | `5cd912678` | Verbatim. |
 | `b8f85213f` Let a request's `ignore_result` beat the task definition | `8e61fa099` | Adapted: applied to `build_async_tracer` and `ahandle_error_state` as well, which upstream does not have. |
 | `1fe2a08d0` Expose `time_limit` and `soft_time_limit` on `task.request` | `fc3cfc464` | Adapted: `Context.update()` detects a written `timelimit` by comparing the stored object's identity, since every input form `dict.update` accepts replaces it. |
+| `865922abd` Dispatch the chain and callbacks on the dedup fast path | `a43f31759` | Adapted: an awaiting `_adispatch_callbacks_and_chain` twin for `build_async_tracer`, which upstream does not have. The `Reject` passthrough was added to both tracers and to `trace_task`. |
 
 ### Found along the way
 
@@ -135,7 +136,12 @@ leak, reverted and re-landed upstream · `6b1fad369` deprecated `get_connection`
 `reserved_requests`/`request.eventer` pairing here ·
 `b313b6412` skip prefetch reduction under per-consumer QoS: `Tasks.start` installs a no-op
 `set_prefetch_count` and computes no `qos_global`, so there is no per-consumer vs global
-distinction to act on. Revisit if prefetch/QoS is ever implemented
+distinction to act on. Revisit if prefetch/QoS is ever implemented ·
+`3f2cf57d3` a clear error when `fast_trace_task`'s registry is empty. The bare `ValueError` it
+replaces needs a process where `setup_worker_optimizations()` never ran, which upstream hits with
+the spawn prefork pool. Here `apps/worker.py` calls it in the same process the aio pool runs in,
+so `_localized` and `use_fast_trace_task` are always set together. Upstream's message names
+`--pool=solo` and `--pool=threads`, neither of which exists in this fork
 
 **Docs, release prep, test fixtures**
 `d96df921e`, `658230391`, `066092edc`, `a3f51e4c3`, `99b0a8977`, `bcc1798a8`,
@@ -159,13 +165,6 @@ survive the restart. Needs async handling, since
 the sync `store_result` would do blocking Redis I/O on the event loop inside the pidbox handler.
 Use `app.backend.amark_as_revoked` scheduled on the running loop, falling back to the sync path
 when no loop is running
-
-### Request, task and trace
-
-`865922abd` dispatch the chain and callbacks on the dedup fast path (the fork uses
-`build_async_tracer`, so this needs looking at before it is believed) · `3f2cf57d3` a clear error
-when the worker registry is empty (likely not applicable: upstream's message is about the spawn
-prefork pool on Windows, which this fork does not have)
 
 ### Canvas and results
 
