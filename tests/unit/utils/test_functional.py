@@ -1,8 +1,6 @@
 import collections
 
 import pytest
-
-pytest.importorskip("pytest_subtests")
 from kombu.utils.functional import lazy
 
 from celery.utils.functional import (

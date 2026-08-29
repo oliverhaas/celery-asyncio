@@ -5,8 +5,6 @@ from unittest.mock import ANY, MagicMock, Mock, call, patch, sentinel
 
 import pytest
 
-pytest.importorskip("pytest_subtests")
-
 from celery._state import _task_stack
 from celery.canvas import (
     Signature,
