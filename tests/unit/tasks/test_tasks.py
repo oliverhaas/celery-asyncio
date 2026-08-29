@@ -564,6 +564,61 @@ class test_task_retries(TasksCase):
         assert e.value.task_args == args
         assert e.value.task_kwargs == kwargs
 
+    def test_autoretry_retries_an_async_task(self):
+        # Calling a coroutine function only builds the coroutine, so wrapping
+        # the call in try/except used to catch nothing and autoretry_for was
+        # silently ignored on every async task.
+        @self.app.task(bind=True, shared=False, autoretry_for=(ZeroDivisionError,), max_retries=3)
+        async def task(self_, x, y):
+            self_.iterations += 1
+            return x / y
+
+        task.iterations = 0
+
+        task.apply((1, 0))
+
+        assert task.iterations == 4
+
+    def test_autoretry_does_not_retry_an_async_task_for_other_exceptions(self):
+        @self.app.task(
+            bind=True,
+            shared=False,
+            autoretry_for=(ArithmeticError,),
+            dont_autoretry_for=(ZeroDivisionError,),
+            max_retries=3,
+        )
+        async def task(self_, x, y):
+            self_.iterations += 1
+            return x / y
+
+        task.iterations = 0
+
+        task.apply((1, 0))
+
+        assert task.iterations == 1
+
+    def test_autoretry_backoff_does_not_leak_between_attempts(self):
+        # retry_kwargs is closed over and shared by every call to the task, so
+        # writing the countdown into it let one attempt's backoff leak into the
+        # next task that never asked for one.
+        @self.app.task(
+            bind=True,
+            shared=False,
+            autoretry_for=(ZeroDivisionError,),
+            retry_kwargs={"max_retries": 3},
+            retry_backoff=True,
+            retry_jitter=False,
+        )
+        def task(self_, x, y):
+            self_.iterations += 1
+            return x / y
+
+        task.iterations = 0
+
+        task.apply((1, 0))
+
+        assert "countdown" not in task.retry_kwargs
+
     def test_autoretry_no_kwargs(self):
         self.autoretry_task_no_kwargs.max_retries = 3
         self.autoretry_task_no_kwargs.iterations = 0

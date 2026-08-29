@@ -2,6 +2,7 @@
 # https://github.com/celery/celery
 """Tasks auto-retry functionality."""
 
+import inspect
 from functools import wraps
 
 from celery.exceptions import Ignore, Retry
@@ -17,35 +18,63 @@ def add_autoretry_behaviour(task, **options):
     retry_backoff_max = int(options.get("retry_backoff_max", getattr(task, "retry_backoff_max", 600)))
     retry_jitter = options.get("retry_jitter", getattr(task, "retry_jitter", True))
 
-    if autoretry_for and not hasattr(task, "_orig_run"):
+    def raise_retry(exc):
+        """Turn a caught exception into the Retry to raise in its place."""
+        # A copy per attempt: `retry_kwargs` is closed over and therefore shared
+        # by every call to this task, so writing the countdown into it lets one
+        # attempt's backoff leak into a concurrent one (upstream 583fa06af).
+        # With an asyncio pool that is the normal case, not a rare race.
+        attempt_kwargs = retry_kwargs.copy()
+        if retry_backoff:
+            attempt_kwargs["countdown"] = get_exponential_backoff_interval(
+                factor=int(max(1.0, retry_backoff)),
+                retries=task.request.retries,
+                maximum=retry_backoff_max,
+                full_jitter=retry_jitter,
+            )
+        # Override max_retries
+        if hasattr(task, "override_max_retries"):
+            attempt_kwargs["max_retries"] = getattr(task, "override_max_retries", task.max_retries)
+        ret = task.retry(exc=exc, **attempt_kwargs)
+        # Stop propagation
+        if hasattr(task, "override_max_retries"):
+            delattr(task, "override_max_retries")
+        raise ret
 
-        @wraps(task.run)
-        def run(*args, **kwargs):
-            try:
-                return task._orig_run(*args, **kwargs)
-            except Ignore:
-                # If Ignore signal occurs task shouldn't be retried,
-                # even if it suits autoretry_for list
-                raise
-            except Retry:
-                raise
-            except dont_autoretry_for:
-                raise
-            except autoretry_for as exc:
-                if retry_backoff:
-                    retry_kwargs["countdown"] = get_exponential_backoff_interval(
-                        factor=int(max(1.0, retry_backoff)),
-                        retries=task.request.retries,
-                        maximum=retry_backoff_max,
-                        full_jitter=retry_jitter,
-                    )
-                # Override max_retries
-                if hasattr(task, "override_max_retries"):
-                    retry_kwargs["max_retries"] = getattr(task, "override_max_retries", task.max_retries)
-                ret = task.retry(exc=exc, **retry_kwargs)
-                # Stop propagation
-                if hasattr(task, "override_max_retries"):
-                    delattr(task, "override_max_retries")
-                raise ret
+    if autoretry_for and not hasattr(task, "_orig_run"):
+        if inspect.iscoroutinefunction(task.run):
+            # Calling a coroutine function only builds the coroutine; nothing in
+            # it runs until it is awaited. Wrapping the call alone in try/except
+            # therefore caught nothing at all, so `autoretry_for` was silently
+            # ignored on exactly the tasks this fork exists for.
+            @wraps(task.run)
+            async def run(*args, **kwargs):
+                try:
+                    return await task._orig_run(*args, **kwargs)
+                except Ignore:
+                    # If Ignore signal occurs task shouldn't be retried,
+                    # even if it suits autoretry_for list
+                    raise
+                except Retry:
+                    raise
+                except dont_autoretry_for:
+                    raise
+                except autoretry_for as exc:
+                    raise_retry(exc)
+
+        else:
+
+            @wraps(task.run)
+            def run(*args, **kwargs):
+                try:
+                    return task._orig_run(*args, **kwargs)
+                except Ignore:
+                    raise
+                except Retry:
+                    raise
+                except dont_autoretry_for:
+                    raise
+                except autoretry_for as exc:
+                    raise_retry(exc)
 
         task._orig_run, task.run = task.run, run
