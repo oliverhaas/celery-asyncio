@@ -345,7 +345,7 @@ def during_soft_shutdown(worker: Worker):
     install_worker_term_hard_handler(worker, sig="SIGQUIT", callback=on_hard_shutdown)
 
     # Cancel all unacked requests and allow the worker to terminate naturally
-    worker.consumer.cancel_all_unacked_requests()
+    worker.consumer.cancel_active_requests()
 
     # We get here if the worker was in the middle of the soft (cold) shutdown process,
     # and the matching signal was received. This can typically happen when the worker is
@@ -376,9 +376,17 @@ def on_cold_shutdown(worker: Worker):
     if REMAP_SIGTERM == "SIGQUIT":
         install_worker_term_hard_handler(worker, sig="SIGTERM", callback=during_soft_shutdown)
 
+    # Before anything is cancelled, so the hard-timeout handler knows the
+    # terminations below are deliberate and does not record them as task
+    # failures (upstream 63c191022). The signal handler sets this too, but only
+    # after this callback returns.
+    from celery.worker import state
+
+    state.should_terminate = True
+
     # Cancel all unacked requests and allow the worker to terminate naturally
     if hasattr(worker, "consumer") and worker.consumer:
-        worker.consumer.cancel_all_unacked_requests()
+        worker.consumer.cancel_active_requests()
 
     # Stop the pool to allow successful tasks to call on_success()
     if hasattr(worker, "consumer") and worker.consumer and worker.consumer.pool:

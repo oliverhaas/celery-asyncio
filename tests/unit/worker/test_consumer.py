@@ -20,7 +20,7 @@ from celery.worker.consumer.gossip import Gossip
 from celery.worker.consumer.heart import Heart
 from celery.worker.consumer.mingle import Mingle
 from celery.worker.consumer.tasks import Tasks
-from celery.worker.state import active_requests
+from celery.worker.state import active_requests, successful_requests
 
 
 class ConsumerTestCase:
@@ -441,7 +441,7 @@ class test_Consumer(ConsumerTestCase):
             c.on_connection_error_after_connected(Mock())
 
     @pytest.mark.usefixtures("depends_on_current_app")
-    def test_cancel_all_unacked_requests(self):
+    def test_cancel_active_requests(self):
         c = self.get_consumer()
 
         mock_request_acks_late_not_acknowledged = Mock(id="1")
@@ -457,13 +457,33 @@ class test_Consumer(ConsumerTestCase):
         active_requests.add(mock_request_acks_late_acknowledged)
         active_requests.add(mock_request_acks_early)
 
-        c.cancel_all_unacked_requests()
+        c.cancel_active_requests()
 
-        mock_request_acks_late_not_acknowledged.cancel.assert_called_once_with(c.pool)
+        # The broker redelivers an acks_late task, so no RETRY announcement.
+        mock_request_acks_late_not_acknowledged.cancel.assert_called_once_with(c.pool, emit_retry=False)
         mock_request_acks_late_acknowledged.cancel.assert_not_called()
-        mock_request_acks_early.cancel.assert_called_once_with(c.pool)
+        mock_request_acks_early.cancel.assert_called_once_with(c.pool, emit_retry=True)
 
         active_requests.clear()
+
+    @pytest.mark.usefixtures("depends_on_current_app")
+    def test_cancel_active_requests_leaves_successful_tasks_alone(self):
+        # A task that finished during the soft shutdown but has not been acked
+        # yet: cancelling it would announce RETRY over its own result.
+        c = self.get_consumer()
+
+        request = Mock(id="successful-task")
+        request.task.acks_late = True
+        request.acknowledged = False
+        active_requests.add(request)
+        successful_requests.add("successful-task")
+
+        try:
+            c.cancel_active_requests()
+            request.cancel.assert_not_called()
+        finally:
+            active_requests.clear()
+            successful_requests.clear()
 
     @pytest.mark.parametrize("broker_connection_retry", [True, False])
     @pytest.mark.parametrize("broker_connection_retry_on_startup", [None, False])

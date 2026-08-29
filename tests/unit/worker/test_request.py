@@ -4,7 +4,7 @@ import signal
 import socket
 from datetime import UTC, datetime, timedelta
 from time import monotonic, time
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 
 import pytest
 from kombu.utils.encoding import from_utf8, safe_repr, safe_str
@@ -576,6 +576,29 @@ class test_Request(RequestCase):
         pool.terminate_job.assert_not_called()
         assert job._terminate_on_ack is None
 
+    def test_cancel__without_emit_retry(self):
+        # The broker redelivers an acks_late task by itself, so announcing
+        # RETRY here only races the redelivery's own state write.
+        pool = Mock()
+        job = self.get_request(self.mytask.s(1, f="x"))
+        job.task.backend = Mock(name="backend")
+        job.task.on_retry = Mock(name="on_retry")
+        job.time_start = monotonic()
+        job.worker_pid = 314
+
+        handler = Mock(name="task_retry_handler")
+        task_retry.connect(handler)
+        try:
+            job.cancel(pool, signal="TERM", emit_retry=False)
+        finally:
+            task_retry.disconnect(handler)
+
+        job.task.backend.mark_as_retry.assert_not_called()
+        job.task.on_retry.assert_not_called()
+        handler.assert_not_called()
+        # Still cancelled, and still announced as such.
+        assert job._already_cancelled
+
     def test_revoked_expires_expired(self):
         job = self.get_request(self.mytask.s(1, f="x").set(expires=datetime.now(UTC) - timedelta(days=1)))
         with self.assert_signal_called(
@@ -917,6 +940,59 @@ class test_Request(RequestCase):
         job.task.acks_on_failure_or_timeout = True
         job.on_timeout(soft=False, timeout=1335)
         job.acknowledge.assert_not_called()
+
+    def test_on_hard_timeout_during_cold_shutdown(self, patching):
+        # A cold shutdown terminates running tasks on purpose and the broker
+        # redelivers them, so a FAILURE here reports something that never
+        # happened.
+        from celery.worker import state as worker_state
+
+        error = patching("celery.worker.request.error")
+
+        job = self.xRequest()
+        job.acknowledge = Mock(name="ack")
+        job.task.acks_late = True
+        job.task.acks_on_failure_or_timeout = True
+
+        worker_state.should_terminate = True
+        try:
+            job.on_timeout(soft=False, timeout=1337)
+        finally:
+            worker_state.should_terminate = None
+
+        error.assert_not_called()
+        assert self.mytask.backend.get_state(job.id) == states.PENDING
+        # The message still has to be acked, or it sits unacked on the broker.
+        job.acknowledge.assert_called_with()
+
+    def test_on_hard_timeout_runs_the_failure_hooks(self, patching):
+        # Only the backend used to be updated, so errbacks, on_failure and the
+        # task_failure signal never fired for a task killed by the time limit.
+        patching("celery.worker.request.error")
+
+        job = self.xRequest()
+        job.acknowledge = Mock(name="ack")
+        job.send_event = Mock(name="send_event")
+        job.task.on_failure = Mock(name="on_failure")
+
+        with self.assert_signal_called(
+            task_failure,
+            sender=job.task,
+            task_id=job.id,
+            args=job.args,
+            kwargs=job.kwargs,
+            exception=ANY,
+            traceback=ANY,
+            einfo=ANY,
+        ):
+            job.on_timeout(soft=False, timeout=1337)
+
+        exc, task_id, args, kwargs, einfo = job.task.on_failure.call_args[0]
+        assert isinstance(exc, TimeLimitExceeded)
+        assert task_id == job.id
+        assert einfo.type is TimeLimitExceeded
+
+        assert job.send_event.call_args[0][0] == "task-failed"
 
     def test_on_soft_timeout(self, patching):
         warn = patching("celery.worker.request.warn")

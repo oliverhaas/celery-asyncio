@@ -14,11 +14,12 @@ from weakref import ref
 from kombu.utils.encoding import safe_repr, safe_str
 from kombu.utils.objects import cached_property
 
-from celery import current_app, signals
+from celery import current_app, signals, states
 from celery.app.task import Context
-from celery.app.trace import fast_trace_task, trace_task, trace_task_ret
+from celery.app.trace import fast_trace_task, task_has_custom, trace_task, trace_task_ret, traceback_clear
 from celery.concurrency.base import BasePool
 from celery.exceptions import (
+    ExceptionInfo,
     ExceptionWithTraceback,
     Ignore,
     InvalidTaskError,
@@ -467,30 +468,38 @@ class Request:
             if obj is not None:
                 obj.terminate(signal)
 
-    def cancel(self, pool, signal=None):
+    def cancel(self, pool, signal=None, emit_retry=True):
         signal = _signals.signum(signal or TERM_SIGNAME)
         if self.time_start:
             try:
                 pool.terminate_job(self.worker_pid, signal)
             except NotImplementedError:
                 pass
-            self._announce_cancelled()
+            self._announce_cancelled(emit_retry=emit_retry)
 
         if self._apply_result is not None:
             obj = self._apply_result()  # is a weakref
             if obj is not None:
                 obj.terminate(signal)
 
-    def _announce_cancelled(self):
+    def _announce_cancelled(self, emit_retry=True):
         task_ready(self)
         self.send_event("task-cancelled")
-        reason = "cancelled by Celery"
-        exc = Retry(message=reason)
-        self.task.backend.mark_as_retry(self.id, exc, request=self._context)
 
-        self.task.on_retry(exc, self.id, self.args, self.kwargs, None)
+        # An acks_late task the broker will redeliver anyway: announcing RETRY
+        # here just overwrites the state the redelivery is about to set
+        # (upstream 63c191022).
+        if emit_retry:
+            reason = "cancelled by Celery"
+            exc = Retry(message=reason)
+            self.task.backend.mark_as_retry(self.id, exc, request=self._context)
+
+            self.task.on_retry(exc, self.id, self.args, self.kwargs, None)
+
         self._already_cancelled = True
-        send_retry(self.task, request=self._context, einfo=None)
+
+        if emit_retry:
+            send_retry(self.task, request=self._context, einfo=None)
 
     def _announce_revoked(self, reason, terminated, signum, expired):
         task_ready(self)
@@ -575,15 +584,62 @@ class Request:
             warn("Soft time limit (%ss) exceeded for %s[%s]", timeout, self.name, self.id)
         else:
             task_ready(self)
-            error("Hard time limit (%ss) exceeded for %s[%s]", timeout, self.name, self.id)
-            exc = TimeLimitExceeded(timeout)
+            # A cold shutdown terminates running tasks on purpose and the
+            # broker will redeliver them, so recording TimeLimitExceeded here
+            # would report a failure that did not happen (upstream 63c191022).
+            if not state.should_terminate:
+                error("Hard time limit (%ss) exceeded for %s[%s]", timeout, self.name, self.id)
+                exc = TimeLimitExceeded(timeout)
 
-            self.task.backend.mark_as_failure(
-                self.id,
-                exc,
-                request=self._context,
-                store_result=self.store_errors,
-            )
+                self.task.backend.mark_as_failure(
+                    self.id,
+                    exc,
+                    request=self._context,
+                    store_result=self.store_errors,
+                )
+
+                # A hard timeout is a task failure, so run what a task failure
+                # runs: on_failure, after_return, the task_failure signal and
+                # the task-failed event. Only the backend was being updated,
+                # so errbacks never fired for a timed-out task (upstream
+                # 713576800).
+                einfo = None
+                try:
+                    try:
+                        raise exc
+                    except TimeLimitExceeded:
+                        einfo = ExceptionInfo()
+
+                    self.task.on_failure(exc, self.id, self.args, self.kwargs, einfo)
+
+                    if task_has_custom(self.task, "after_return"):
+                        self.task.after_return(states.FAILURE, exc, self.id, self.args, self.kwargs, None)
+
+                    signals.task_failure.send(
+                        sender=self.task,
+                        task_id=self.id,
+                        exception=exc,
+                        args=self.args,
+                        kwargs=self.kwargs,
+                        traceback=exc.__traceback__,
+                        einfo=einfo,
+                    )
+
+                    self.send_event(
+                        "task-failed",
+                        exception=safe_repr(get_pickled_exception(einfo.exception)),
+                        traceback=einfo.traceback,
+                    )
+                    # Drop the frame locals the synthetic traceback holds on
+                    # to, the same way trace.py does after a real failure.
+                    traceback_clear(exc)
+                finally:
+                    # Break the exc -> traceback -> frame cycle: this frame's
+                    # `exc` local points at exc and exc.__traceback__ points
+                    # back at this frame, which keeps the Request alive.
+                    if einfo is not None:
+                        del einfo
+                    exc.__traceback__ = None
 
             if self.task.acks_late and self.task.acks_on_failure_or_timeout:
                 self.acknowledge()
@@ -665,6 +721,13 @@ class Request:
                 # supporting the behaviour where a task failed and
                 # need to be removed from prefetched local queue
                 self.reject(requeue=False)
+
+        # A cold shutdown terminates running tasks on purpose. Storing a
+        # failure and emitting task-failed for that would report an error the
+        # task never hit (upstream 63c191022).
+        if state.should_terminate:
+            return_ok = True
+            send_failed_event = False
 
         # This is a special case where the process would not have had time
         # to write the result.

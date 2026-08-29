@@ -36,7 +36,14 @@ from celery.utils.objects import Bunch
 from celery.utils.text import truncate
 from celery.utils.time import humanize_seconds, rate
 from celery.worker import loops, state
-from celery.worker.state import active_requests, maybe_shutdown, requests, reserved_requests, task_reserved
+from celery.worker.state import (
+    active_requests,
+    maybe_shutdown,
+    requests,
+    reserved_requests,
+    successful_requests,
+    task_reserved,
+)
 
 __all__ = ("Consumer", "Evloop", "dump_body")
 
@@ -705,14 +712,21 @@ class Consumer:
         """``repr(self)``."""
         return f"<Consumer: {self.hostname} ({self.blueprint.human_state()})>"
 
-    def cancel_all_unacked_requests(self):
-        """Cancel all active requests that have not been acknowledged."""
+    def cancel_active_requests(self):
+        """Cancel active requests during shutdown.
+
+        Cancels every active request that either does not require a late
+        acknowledgment or, if it does, has not been acknowledged yet.
+
+        A task that already succeeded is left alone even when unacknowledged:
+        cancelling it would announce a RETRY over its result.
+        """
 
         def should_cancel(request):
             if not request.task.acks_late:
                 return True
             if not request.acknowledged:
-                return True
+                return request.id not in successful_requests
             return False
 
         with state._lock:
@@ -720,7 +734,9 @@ class Consumer:
 
         if requests_to_cancel:
             for request in requests_to_cancel:
-                request.cancel(self.pool)
+                # The broker redelivers an acks_late task by itself, so the
+                # RETRY announcement would only race the redelivery.
+                request.cancel(self.pool, emit_retry=not request.task.acks_late)
 
 
 class Evloop(bootsteps.StartStopStep):
