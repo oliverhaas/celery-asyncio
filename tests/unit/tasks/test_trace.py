@@ -27,7 +27,7 @@ from celery.app.trace import (
 )
 from celery.backends.base import BaseBackend
 from celery.backends.cache import CacheBackend
-from celery.exceptions import BackendGetMetaError, ExceptionInfo, Ignore, Reject, Retry
+from celery.exceptions import BackendGetMetaError, ExceptionInfo, Ignore, InvalidTaskError, Reject, Retry
 from celery.states import PENDING
 from celery.worker.state import successful_requests
 
@@ -844,6 +844,31 @@ class test_trace(TraceCase):
         assert task_id not in successful_requests
 
     @pytest.mark.asyncio
+    async def test_async_dedup_skips_dispatch_when_the_result_has_children(self):
+        add, task_id = self._redelivered_after_success()
+        meta = {"status": states.SUCCESS, "result": 2, "children": [self.add.s(10)]}
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            aapply_async = signature.return_value.aapply_async = AsyncMock()
+            with patch("celery.result.AsyncResult._get_task_meta", return_value=meta):
+                await atrace(
+                    self.app, add, (1, 1), task_id=task_id, request=self._redelivery(task_id, chain=[self.add.s(10)])
+                )
+
+        aapply_async.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_async_dedup_dispatch_memory_error_is_not_turned_into_a_reject(self):
+        add, task_id = self._redelivered_after_success()
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            signature.return_value.aapply_async = AsyncMock(side_effect=MemoryError())
+            with pytest.raises(MemoryError):
+                await atrace(
+                    self.app, add, (1, 1), task_id=task_id, request=self._redelivery(task_id, chain=[self.add.s(10)])
+                )
+
+    @pytest.mark.asyncio
     async def test_async_chain_dispatch_does_not_mutate_the_request_chain(self):
         @self.app.task(shared=False)
         def add(x, y):
@@ -868,6 +893,283 @@ class test_trace(TraceCase):
             assert signature.return_value.aapply_async.call_args[1]["chain"] == chain[:-1]
 
         assert len(chain) == 2
+
+
+@pytest.mark.asyncio
+class test_async_trace(TraceCase):
+    """The aio pool runs build_async_tracer, not build_tracer.
+
+    Every branch below has a sync twin in ``test_trace``; the two tracers are
+    separate code paths, so a fix applied to one silently misses the other.
+    """
+
+    def teardown_method(self):
+        successful_requests.clear()
+        self.app.conf.worker_deduplicate_successful_tasks = False
+
+    def atrace(self, *args, **kwargs):
+        return atrace(self.app, *args, **kwargs)
+
+    async def test_trace_successful(self):
+        retval, info = await self.atrace(self.add, (2, 2), {})
+        assert info is None
+        assert retval == 4
+
+    async def test_trace_before_start(self):
+        @self.app.task(shared=False, before_start=Mock())
+        def add_with_before_start(x, y):
+            return x + y
+
+        await self.atrace(add_with_before_start, (2, 2), {})
+        add_with_before_start.before_start.assert_called()
+
+    async def test_trace_on_success(self):
+        @self.app.task(shared=False, on_success=Mock())
+        def add_with_success(x, y):
+            return x + y
+
+        await self.atrace(add_with_success, (2, 2), {})
+        add_with_success.on_success.assert_called()
+
+    async def test_trace_after_return(self):
+        @self.app.task(shared=False, after_return=Mock())
+        def add_with_after_return(x, y):
+            return x + y
+
+        await self.atrace(add_with_after_return, (2, 2), {})
+        add_with_after_return.after_return.assert_called()
+
+    async def test_kwargs_that_are_not_a_mapping(self):
+        with pytest.raises(InvalidTaskError):
+            await self.atrace(self.add, (2, 2), ["not", "a", "mapping"])
+
+    async def test_with_prerun_receivers(self):
+        on_prerun = Mock()
+        signals.task_prerun.connect(on_prerun)
+        try:
+            await self.atrace(self.add, (2, 2), {})
+            on_prerun.assert_called()
+        finally:
+            signals.task_prerun.receivers[:] = []
+
+    async def test_with_postrun_receivers(self):
+        on_postrun = Mock()
+        signals.task_postrun.connect(on_postrun)
+        try:
+            await self.atrace(self.add, (2, 2), {})
+            on_postrun.assert_called()
+        finally:
+            signals.task_postrun.receivers[:] = []
+
+    async def test_with_success_receivers(self):
+        on_success = Mock()
+        signals.task_success.connect(on_success)
+        try:
+            await self.atrace(self.add, (2, 2), {})
+            on_success.assert_called()
+        finally:
+            signals.task_success.receivers[:] = []
+
+    async def test_track_started_stores_the_started_state(self):
+        self.add.track_started = True
+        self.add.ignore_result = False
+        self.add.backend = Mock(name="backend")
+        self.add.backend.astore_result = AsyncMock()
+        self.add.backend.amark_as_done = AsyncMock()
+
+        await self.atrace(self.add, (2, 2), {}, eager=False)
+
+        args, _ = self.add.backend.astore_result.call_args
+        assert args[2] == states.STARTED
+
+    async def test_when_backend_cleanup_raises(self):
+        @self.app.task(shared=False)
+        def add(x, y):
+            return x + y
+
+        add.backend = Mock(name="backend")
+        add.backend.amark_as_done = AsyncMock()
+        add.backend.process_cleanup.side_effect = KeyError()
+
+        await self.atrace(add, (2, 2), {}, eager=False)
+
+        add.backend.process_cleanup.assert_called_with()
+        add.backend.process_cleanup.side_effect = MemoryError()
+        with pytest.raises(MemoryError):
+            await self.atrace(add, (2, 2), {}, eager=False)
+
+    @patch("celery.app.trace.traceback_clear")
+    async def test_when_Ignore(self, mock_traceback_clear):
+        @self.app.task(shared=False)
+        def ignored():
+            raise Ignore()
+
+        _, info = await self.atrace(ignored, (), {})
+        assert info.state == states.IGNORED
+        mock_traceback_clear.assert_called()
+
+    @patch("celery.app.trace.traceback_clear")
+    async def test_when_Reject(self, mock_traceback_clear):
+        @self.app.task(shared=False)
+        def rejecting():
+            raise Reject()
+
+        _, info = await self.atrace(rejecting, (), {})
+        assert info.state == states.REJECTED
+        mock_traceback_clear.assert_called()
+
+    @patch("celery.app.trace.traceback_clear")
+    async def test_trace_Retry(self, mock_traceback_clear):
+        exc = Retry("foo", "bar")
+        _, info = await self.atrace(self.raises, (exc,), {})
+        assert info.state == states.RETRY
+        assert info.retval is exc
+        mock_traceback_clear.assert_called()
+
+    @patch("celery.app.trace.traceback_clear")
+    async def test_trace_exception(self, mock_traceback_clear):
+        exc = KeyError("foo")
+        _, info = await self.atrace(self.raises, (exc,), {})
+        assert info.state == states.FAILURE
+        assert info.retval is exc
+        mock_traceback_clear.assert_called()
+
+    async def test_trace_exception_propagate(self):
+        with pytest.raises(KeyError):
+            await self.atrace(self.raises, (KeyError("foo"),), {}, propagate=True)
+
+    async def test_trace_SystemExit(self):
+        with pytest.raises(SystemExit):
+            await self.atrace(self.raises, (SystemExit(),), {})
+
+    @patch("celery.canvas.maybe_signature")
+    async def test_callbacks__scalar(self, maybe_signature):
+        sig = Mock(name="sig")
+        sig.aapply_async = AsyncMock()
+        maybe_signature.return_value = sig
+
+        await self.atrace(self.add, (2, 2), {}, request={"callbacks": [sig], "root_id": "root"})
+
+        sig.aapply_async.assert_awaited_with((4,), parent_id="id-1", root_id="root", priority=None)
+
+    @patch("celery.canvas.maybe_signature")
+    async def test_chain_proto2(self, maybe_signature):
+        sig, sig2 = Mock(name="sig"), Mock(name="sig2")
+        sig.aapply_async = AsyncMock()
+        maybe_signature.return_value = sig
+
+        await self.atrace(self.add, (2, 2), {}, request={"chain": [sig2, sig], "root_id": "root"})
+
+        sig.aapply_async.assert_awaited_with((4,), parent_id="id-1", root_id="root", chain=[sig2], priority=None)
+
+    @patch("celery.canvas.maybe_signature")
+    async def test_chain_inherit_parent_priority(self, maybe_signature):
+        self.app.conf.task_inherit_parent_priority = True
+        sig, sig2 = Mock(name="sig"), Mock(name="sig2")
+        sig.aapply_async = AsyncMock()
+        maybe_signature.return_value = sig
+        request = {"chain": [sig2, sig], "root_id": "root", "delivery_info": {"priority": 42}}
+
+        await self.atrace(self.add, (2, 2), {}, request=request)
+
+        sig.aapply_async.assert_awaited_with((4,), parent_id="id-1", root_id="root", chain=[sig2], priority=42)
+
+    @patch("celery.canvas.maybe_signature")
+    async def test_callbacks__EncodeError(self, maybe_signature):
+        sig = Mock(name="sig")
+        sig.aapply_async = AsyncMock(side_effect=EncodeError())
+        maybe_signature.return_value = sig
+
+        _, einfo = await self.atrace(self.add, (2, 2), {}, request={"callbacks": [sig], "root_id": "root"})
+
+        assert einfo.state == states.FAILURE
+
+    @patch("celery.canvas.maybe_signature")
+    @patch("celery.app.trace.group.aapply_async")
+    async def test_callbacks__sigs(self, group_, maybe_signature):
+        """A group among the callbacks is applied on its own, so the trail is stored once."""
+        sig1, sig2 = Mock(name="sig1"), Mock(name="sig2")
+        sig3 = group([Mock(name="g1"), Mock(name="g2")], app=self.app)
+        sig3.aapply_async = AsyncMock(name="gapply")
+        maybe_signature.side_effect = lambda s, *args, **kwargs: s
+        request = {"callbacks": [sig1, sig3, sig2], "root_id": "root"}
+
+        await self.atrace(self.add, (2, 2), {}, request=request)
+
+        group_.assert_awaited_with((4,), parent_id="id-1", root_id="root", priority=None)
+        sig3.aapply_async.assert_awaited_with((4,), parent_id="id-1", root_id="root", priority=None)
+
+    @patch("celery.canvas.maybe_signature")
+    async def test_callbacks__only_groups(self, maybe_signature):
+        sig1 = group([Mock(name="g1"), Mock(name="g2")], app=self.app)
+        sig2 = group([Mock(name="g3"), Mock(name="g4")], app=self.app)
+        sig1.aapply_async = AsyncMock(name="gapply1")
+        sig2.aapply_async = AsyncMock(name="gapply2")
+        maybe_signature.side_effect = lambda s, *args, **kwargs: s
+
+        await self.atrace(self.add, (2, 2), {}, request={"callbacks": [sig1, sig2], "root_id": "root"})
+
+        sig1.aapply_async.assert_awaited_with((4,), parent_id="id-1", root_id="root", priority=None)
+        sig2.aapply_async.assert_awaited_with((4,), parent_id="id-1", root_id="root", priority=None)
+
+    @patch("celery.app.trace.signals.task_internal_error.send")
+    async def test_error_outside_the_body_is_reported_as_internal(self, send):
+        """The body never ran, so there is no einfo: report it and fail the task."""
+        # The real backend, not a Mock: report_internal_error runs the exception
+        # through prepare_exception, and a Mock return value is not an exception.
+        self.add.backend.amark_as_done = AsyncMock(side_effect=RuntimeError("backend down"))
+        self.add.backend.amark_as_failure = AsyncMock()
+
+        _, info = await self.atrace(self.add, (2, 2), {}, eager=False)
+
+        assert send.call_count
+        assert info.state == states.FAILURE
+
+    async def test_an_internal_error_propagates_when_eager(self):
+        self.add.backend = Mock(name="backend")
+        self.add.backend.amark_as_done = AsyncMock(side_effect=RuntimeError("backend down"))
+        self.add.ignore_result = False
+        self.add.store_eager_result = True
+
+        with pytest.raises(RuntimeError):
+            await self.atrace(self.add, (2, 2), {})
+
+    async def test_dedup_returns_early_for_a_request_already_known_successful(self):
+        self.app.conf.worker_deduplicate_successful_tasks = True
+        self.add.backend = Mock(name="backend", persistent=True)
+        self.add.backend.amark_as_done = AsyncMock()
+        self.add.acks_late = True
+        successful_requests.add("id-1")
+
+        retval, _ = await self.atrace(
+            self.add,
+            (2, 2),
+            {},
+            eager=False,
+            request={"id": "id-1", "delivery_info": {"redelivered": True}},
+        )
+
+        assert retval is None
+        self.add.backend.amark_as_done.assert_not_called()
+
+    async def test_dedup_runs_the_task_when_the_result_is_not_stored(self):
+        """BackendGetMetaError means nothing is known, so the redelivery is a real run."""
+        self.app.conf.worker_deduplicate_successful_tasks = True
+        self.add.backend = Mock(name="backend", persistent=True)
+        self.add.backend.amark_as_done = AsyncMock()
+        self.add.acks_late = True
+
+        with patch("celery.app.trace.AsyncResult") as result:
+            type(result.return_value).state = PropertyMock(side_effect=BackendGetMetaError("no meta"))
+            retval, _ = await self.atrace(
+                self.add,
+                (2, 2),
+                {},
+                eager=False,
+                request={"id": "id-1", "delivery_info": {"redelivered": True}},
+            )
+
+        assert retval == 4
 
 
 class test_TraceInfo(TraceCase):
@@ -918,6 +1220,112 @@ class test_TraceInfo(TraceCase):
         req = Mock(name="req")
         x.handle_reject(self.add, req)
         x._log_error.assert_called_with(self.add, req, ExceptionInfo())
+
+
+@pytest.mark.asyncio
+class test_TraceInfo_async(TraceCase):
+    """The ``a``-prefixed handlers the async tracer dispatches to.
+
+    Twins of the ones above, and separate code paths, so a change to one
+    silently misses the other.
+    """
+
+    class TI(TraceInfo):
+        __slots__ = TraceInfo.__slots__ + ("__dict__",)
+
+    async def test_ahandle_error_state(self):
+        x = self.TI(states.FAILURE)
+        x.ahandle_failure = AsyncMock()
+        await x.ahandle_error_state(self.add_cast, self.add_cast.request)
+        x.ahandle_failure.assert_awaited_with(
+            self.add_cast,
+            self.add_cast.request,
+            store_errors=self.add_cast.store_errors_even_if_ignored,
+            call_errbacks=True,
+        )
+
+    async def test_ahandle_error_state_for_eager_task(self):
+        x = self.TI(states.FAILURE)
+        x.ahandle_failure = AsyncMock()
+
+        await x.ahandle_error_state(self.add, self.add.request, eager=True)
+        x.ahandle_failure.assert_awaited_once_with(
+            self.add,
+            self.add.request,
+            store_errors=False,
+            call_errbacks=True,
+        )
+
+    async def test_ahandle_error_for_eager_saved_to_backend(self):
+        x = self.TI(states.FAILURE)
+        x.ahandle_failure = AsyncMock()
+        self.add.store_eager_result = True
+
+        await x.ahandle_error_state(self.add, self.add.request, eager=True)
+        x.ahandle_failure.assert_awaited_with(
+            self.add,
+            self.add.request,
+            store_errors=True,
+            call_errbacks=True,
+        )
+
+    async def test_ahandle_error_state_dispatches_a_retry(self):
+        x = self.TI(states.RETRY)
+        x.ahandle_retry = AsyncMock()
+        await x.ahandle_error_state(self.add, self.add.request)
+        x.ahandle_retry.assert_awaited_once()
+
+    async def test_ahandle_retry_stores_the_reason(self):
+        self.add.backend.amark_as_retry = AsyncMock()
+        reason = Retry("retry me", KeyError("the cause"))
+        x = self.TI(states.RETRY, reason)
+
+        try:
+            raise reason
+        except Retry:
+            einfo = await x.ahandle_retry(self.add, self.add.request)
+
+        assert einfo.type is Retry
+        args = self.add.backend.amark_as_retry.await_args
+        assert args.args[1] is reason.exc
+
+    async def test_ahandle_retry_without_store_errors_skips_the_backend(self):
+        self.add.backend.amark_as_retry = AsyncMock()
+        reason = Retry("retry me", KeyError("the cause"))
+        x = self.TI(states.RETRY, reason)
+
+        try:
+            raise reason
+        except Retry:
+            await x.ahandle_retry(self.add, self.add.request, store_errors=False)
+
+        self.add.backend.amark_as_retry.assert_not_awaited()
+
+    async def test_ahandle_failure_marks_the_task_failed(self):
+        self.add.backend.amark_as_failure = AsyncMock()
+        x = self.TI(states.FAILURE)
+
+        try:
+            raise KeyError("the cause")
+        except KeyError as exc:
+            x.retval = exc
+            einfo = await x.ahandle_failure(self.add, self.add.request)
+
+        assert einfo.type is KeyError
+        self.add.backend.amark_as_failure.assert_awaited_once()
+        assert self.add.backend.amark_as_failure.await_args.kwargs["store_result"] is True
+
+    async def test_ahandle_failure_borrows_the_traceback_being_handled(self):
+        """An exception that was never raised carries no traceback of its own."""
+        self.add.backend.amark_as_failure = AsyncMock()
+        x = self.TI(states.FAILURE, KeyError("never raised"))
+
+        try:
+            raise RuntimeError("the one actually being handled")
+        except RuntimeError:
+            einfo = await x.ahandle_failure(self.add, self.add.request)
+
+        assert einfo.exception.__traceback__ is not None
 
 
 class test_stackprotection:
