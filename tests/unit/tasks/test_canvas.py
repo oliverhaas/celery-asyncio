@@ -5,6 +5,7 @@ from unittest.mock import ANY, MagicMock, Mock, call, patch, sentinel
 
 import pytest
 
+from celery import states
 from celery._state import _task_stack
 from celery.canvas import (
     Signature,
@@ -21,6 +22,7 @@ from celery.canvas import (
     xmap,
     xstarmap,
 )
+from celery.exceptions import Ignore, Reject
 from celery.result import AsyncResult, EagerResult, GroupResult
 
 SIG = Signature(
@@ -668,6 +670,53 @@ class test_chain(CanvasCase):
         assert res.parent.parent.get() == 8
         assert res.parent.parent.parent is None
 
+    @pytest.mark.parametrize(
+        "exc,state",
+        [(Ignore, states.IGNORED), (Reject, states.REJECTED)],
+    )
+    def test_apply_stops_the_chain_on_a_task_that_produced_no_result(self, exc, state):
+        # On a worker the next step is only sent from the tracer's success
+        # path, so an ignored or rejected task ends the chain there. Eager mode
+        # kept going and handed the next task the ignored task's None.
+        executed = []
+
+        @self.app.task(shared=False)
+        def refuses():
+            raise exc()
+
+        @self.app.task(shared=False)
+        def should_not_run(*args):
+            executed.append(True)
+            return "ran"
+
+        res = (refuses.s() | should_not_run.s()).apply()
+
+        assert executed == []
+        assert res.state == state
+        assert res.get() is None
+
+    @pytest.mark.parametrize(
+        "exc,state",
+        [(Ignore, states.IGNORED), (Reject, states.REJECTED)],
+    )
+    async def test_aapply_stops_the_chain_on_a_task_that_produced_no_result(self, exc, state):
+        executed = []
+
+        @self.app.task(shared=False)
+        def refuses():
+            raise exc()
+
+        @self.app.task(shared=False)
+        def should_not_run(*args):
+            executed.append(True)
+            return "ran"
+
+        res = await (refuses.s() | should_not_run.s()).aapply()
+
+        assert executed == []
+        assert res.state == state
+        assert await res.aget() is None
+
     def test_kwargs_apply(self):
         x = chain(self.add.s(), self.add.s(8), self.add.s(10))
         res = x.apply(kwargs={"x": 1, "y": 1}).get()
@@ -907,7 +956,7 @@ class test_group(CanvasCase):
         # We expect that all group children will be given the errback to ensure
         # it gets called
         for child_sig in g1.tasks:
-            child_sig.link_error.assert_called_with(sig.clone(immutable=True))
+            child_sig.link_error.assert_called_with(sig.clone())
 
     def test_link_error_with_dict_sig(self):
         g1 = group(Mock(name="t1"), Mock(name="t2"), app=self.app)
@@ -917,7 +966,23 @@ class test_group(CanvasCase):
         # We expect that all group children will be given the errback to ensure
         # it gets called
         for child_sig in g1.tasks:
-            child_sig.link_error.assert_called_with(errback.clone(immutable=True))
+            child_sig.link_error.assert_called_with(errback.clone())
+
+    def test_link_error_does_not_leave_a_stray_immutable_option(self):
+        # `clone(immutable=True)` never made the errback immutable -- clone()
+        # copies that flag from the source signature -- so all it did was drop
+        # an `immutable` key into the errback's execution options, which then
+        # rides along into the published message as an unknown property.
+        g1 = group(self.add.s(2, 2), self.add.s(4, 4), app=self.app)
+        errback = self.add.s()
+
+        linked = g1.link_error(errback)
+
+        assert len(linked) == 2
+        for child_sig in g1.tasks:
+            linked_errback = child_sig.options["link_error"][0]
+            assert "immutable" not in linked_errback.options
+            assert linked_errback.immutable is False
 
     def test_apply_empty(self):
         x = group(app=self.app)

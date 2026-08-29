@@ -26,7 +26,8 @@ from kombu.utils.uuid import uuid
 
 from celery._state import current_app
 from celery.exceptions import CPendingDeprecationWarning
-from celery.result import GroupResult, allow_join_result
+from celery.result import EagerResult, GroupResult, allow_join_result
+from celery.states import IGNORED, REJECTED
 from celery.utils import abstract
 from celery.utils.collections import ChainMap
 from celery.utils.functional import _regen, is_list, maybe_list, regen, seq_concat_item, seq_concat_seq
@@ -1502,6 +1503,13 @@ class _chain(Signature):
         for task in self.tasks:
             res = task.clone(fargs, fkwargs).apply(last and (last.get(),), **dict(self.options, **options))
             res.parent, last, (fargs, fkwargs) = last, res, (None, None)
+            # Ignore and Reject both mean "this task produced no result". A
+            # non-eager chain stops there because the next step is only sent
+            # from the tracer's success path, so eager has to stop too --
+            # otherwise it feeds the next task the ignored task's None and the
+            # two execution modes disagree (upstream 1d563dafb).
+            if isinstance(res, EagerResult) and res.state in (IGNORED, REJECTED):
+                break
         return last
 
     async def aapply(self, args=None, kwargs=None, **options):
@@ -1517,6 +1525,10 @@ class _chain(Signature):
                 last and (await last.aget(),), **dict(self.options, **options)
             )
             res.parent, last, (fargs, fkwargs) = last, res, (None, None)
+            # See the note in apply(): an ignored or rejected step ends the
+            # chain here just as it does on a worker (upstream 1d563dafb).
+            if isinstance(res, EagerResult) and res.state in (IGNORED, REJECTED):
+                break
         return last
 
     @property
@@ -2028,7 +2040,13 @@ class group(Signature):
         # each child task signature, of which there might be none!
         sig = maybe_signature(sig)
 
-        return tuple(child_task.link_error(sig.clone(immutable=True)) for child_task in self.tasks)
+        # Not `clone(immutable=True)`: clone() copies `immutable` from the
+        # source signature, and an `immutable` keyword only lands in `options`,
+        # so that call never made anything immutable. All it did was leave a
+        # stray `immutable` execution option to ride along into the published
+        # message as an unknown property. The errback stays as mutable or
+        # immutable as the caller passed it (upstream 379a629dc).
+        return tuple(child_task.link_error(sig.clone()) for child_task in self.tasks)
 
     def _prepared(
         self,
