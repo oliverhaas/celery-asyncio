@@ -53,6 +53,7 @@ from pathlib import Path
 from time import time
 from typing import TYPE_CHECKING, Any
 
+from kombu.exceptions import InconsistencyError
 from kombu.log import get_logger
 from kombu.message import Message
 from kombu.transport._valkey_redis_compat import (
@@ -575,6 +576,15 @@ class Channel:
     ) -> None:
         if exchange:
             bindings = await self._load_bindings(exchange)
+            if not bindings:
+                # Only direct is special. An empty table is the normal AMQP
+                # state for a topic or fanout exchange whose queues were all
+                # unbound, but a direct binding is known to exist by name, so
+                # an empty one means the state is inconsistent rather than that
+                # the message has nowhere to go. InconsistencyError is in
+                # connection_errors, so Connection.ensure redeclares and
+                # retries instead of losing the publish.
+                raise InconsistencyError(f"Cannot route to {exchange}: no bindings declared.")
             for queue, rk in bindings:
                 if rk == routing_key:
                     await self._put_message(queue, message)

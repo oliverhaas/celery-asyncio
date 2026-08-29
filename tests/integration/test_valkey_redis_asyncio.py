@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from kombu import Connection, Exchange, Queue
+from kombu.exceptions import InconsistencyError
 
 pytestmark = pytest.mark.asyncio(loop_scope="function")
 
@@ -305,6 +306,32 @@ class TestExchangeTypes:
         assert msg.payload["data"] == "direct"
 
         await channel.queue_purge(queue_name)
+
+    async def test_direct_exchange_with_no_bindings_raises(self, channel):
+        """PORT-PLAN fix 7.
+
+        A direct binding is known to exist by name, so an empty table means the
+        state is inconsistent, not that the message has nowhere to go. Dropping
+        it silently loses work; InconsistencyError lets Connection.ensure
+        redeclare and retry.
+        """
+        exchange_name = "test_direct_exchange_unbound"
+        await channel.declare_exchange(Exchange(exchange_name, type="direct"))
+
+        with pytest.raises(InconsistencyError):
+            await channel.publish(JSON_MESSAGE, exchange=exchange_name, routing_key="nobody.listens")
+
+    async def test_topic_exchange_with_no_bindings_is_silent(self, channel):
+        """PORT-PLAN fix 7.
+
+        Only direct is special. An empty topic table is the normal AMQP state
+        for an exchange whose queues were all unbound, so the publish is
+        discarded as kombu decided in PR #1404.
+        """
+        exchange_name = "test_topic_exchange_unbound"
+        await channel.declare_exchange(Exchange(exchange_name, type="topic"))
+
+        await channel.publish(JSON_MESSAGE, exchange=exchange_name, routing_key="nobody.listens")
 
     async def test_topic_exchange_pattern_matching(self, channel):
         """Test topic exchange pattern matching."""

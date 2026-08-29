@@ -27,7 +27,7 @@ Correctness fixes that change no public API go first. Item 5 depends on 3; item 
 | 4 | yes | `no_ack` deliveries stay in the index | spurious redelivery of pidbox/reply | ARGV arity |
 | 5 | yes | `redelivered` written but never read | celery never sees redeliveries | hash field, headers |
 | 6 | yes | RabbitMQ naming and `delivery_limit` semantics | reject loops never stop | option, header, default |
-| 7 | no | Direct exchange with no bindings loses the message | silent drop | raises to publishers |
+| 7 | yes | Direct exchange with no bindings loses the message | silent drop | raises to publishers |
 
 Features, deferred until the seven land: 8 to 12.
 
@@ -137,19 +137,23 @@ Without it a consumer rejecting in a tight loop spins forever.
 
 ## 7. Publishing to a direct exchange with no bindings loses the message
 
-**Confirmed applicable.** There is no `_lookup` override here, so kombu's
-`virtual.Channel._lookup` applies: an empty table yields `R = []` and the publish is discarded.
-kombu made that change deliberately in PR #1404, because an empty table is the normal AMQP state
-for an exchange whose queues were all unbound.
+**Confirmed applicable**, though by a different route than in celery-redis-plus. This channel does
+not subclass `virtual.Channel` and has no `_lookup`; the equivalent code is `_direct_publish`
+(valkey_redis.py:570), which loops over an empty binding list and returns. Same outcome as kombu's
+`virtual.Channel._lookup`, which yields `R = []` and discards the publish. kombu made that change
+deliberately in PR #1404, because an empty table is the normal AMQP state for an exchange whose
+queues were all unbound.
 
 That reasoning holds for topic and fanout. It does not hold for direct, where the binding is
 known to exist, and it stops holding entirely once binding keys carry a TTL (item 8).
 
-Raise `InconsistencyError` in `_lookup`, not in `get_table`: `exchange_delete`, `queue_unbind`
-and `list_bindings` also call `get_table` and would throw during teardown. `InconsistencyError`
-is already in this transport's `connection_errors` (valkey_redis.py:1523), so kombu's
-`Connection.ensure` reconnects, redeclares and retries, and `Mailbox._publish_reply` already
-catches it, so pidbox is exempt for free.
+Raise `InconsistencyError` in `_direct_publish`, not in `_load_bindings`: `queue_unbind` and
+`queue_delete` also read the binding set and would throw during teardown. That is the same
+reasoning behind celery-redis-plus raising in `_lookup` rather than `get_table`.
+`InconsistencyError` subclasses kombu's `ConnectionError` and so is already covered by this
+transport's `connection_errors`, which means `Connection.ensure` reconnects, redeclares and
+retries. `Mailbox._publish_reply` (pidbox.py:300) already catches it, so pidbox is exempt for
+free.
 
 ---
 
