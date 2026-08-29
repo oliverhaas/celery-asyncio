@@ -1,6 +1,7 @@
 import dbm
 import errno
 import pickle
+import warnings
 from datetime import UTC, datetime, timedelta
 from pickle import dumps, loads
 from unittest.mock import MagicMock, Mock, call, patch
@@ -329,14 +330,21 @@ class test_Scheduler:
         s.schedule = {"foo": "bar"}
         assert s.data == {"foo": "bar"}
 
-    @patch("kombu.connection.Connection.ensure_connection")
-    def test_ensure_connection_error_handler(self, ensure):
-        s = mScheduler(app=self.app)
-        assert s._ensure_connected()
-        ensure.assert_called()
-        callback = ensure.call_args[0][0]
+    def test_a_tick_opens_no_broker_connection_of_its_own(self):
+        # Publishing is async here and opens its own connection, so beat holds
+        # none. It used to build one per tick and hand `apply_async` a Producer
+        # wrapping an unawaited `ensure_connection()` coroutine, which nothing
+        # downstream looked at.
+        scheduler = mScheduler(app=self.app)
+        scheduler.add(name="test_no_connection", schedule=always_due)
 
-        callback(KeyError(), 5)
+        with patch.object(self.app, "connection_for_write") as connection_for_write:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", RuntimeWarning)
+                scheduler.tick()
+
+        connection_for_write.assert_not_called()
+        assert scheduler.sent
 
     def test_install_default_entries(self):
         self.app.conf.result_expires = None

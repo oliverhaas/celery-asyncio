@@ -265,6 +265,8 @@ class Scheduler:
         self.app = app
         self.data = maybe_evaluate({} if schedule is None else schedule)
         self.max_interval = max_interval or app.conf.beat_max_loop_interval or self.max_interval
+        # Kept for subclasses that publish for themselves. The scheduler no
+        # longer uses it: see the note on `apply_entry`.
         self.Producer = Producer or app.amqp.Producer
         self._heap = None
         self.old_schedulers = None
@@ -284,14 +286,15 @@ class Scheduler:
         self.update_from_dict(entries)
 
     def apply_entry(self, entry, producer=None):
+        # `producer` is accepted for signature compatibility and passed along,
+        # but `tick()` never supplies one: publishing is async here and opens
+        # its own connection, so the scheduler holds no broker connection of
+        # its own the way upstream's does.
         info("Scheduler: Sending due task %s (%s)", entry.name, entry.task)
         try:
             result = self.apply_async(entry, producer=producer, advance=False)
         except Exception as exc:
             error("Message Error: %s\n%s", exc, traceback.format_stack(), exc_info=True)
-            # Clear cached connection/producer so the next attempt
-            # creates a fresh connection (handles broker restarts).
-            self._reset_producer()
         else:
             if result and hasattr(result, "id"):
                 debug("%s sent. id->%s", entry.task, result.id)
@@ -356,7 +359,7 @@ class Scheduler:
             verify = heappop(H)
             if verify is event:
                 next_entry = self.reserve(entry)
-                self.apply_entry(entry, producer=self.producer)
+                self.apply_entry(entry)
                 heappush(H, event_t(self._when(next_entry, next_time_to_run), event[1], next_entry))
                 return 0
             else:
@@ -486,14 +489,6 @@ class Scheduler:
             else:
                 schedule[key] = entry
 
-    def _ensure_connected(self):
-        # callback called for each retry while the connection
-        # can't be established.
-        def _error_handler(exc, interval):
-            error("beat: Connection error: %s. Trying again in %s seconds...", exc, interval)
-
-        return self.connection.ensure_connection(_error_handler, self.app.conf.broker_connection_max_retries)
-
     def get_schedule(self):
         return self.data
 
@@ -501,29 +496,6 @@ class Scheduler:
         self.data = schedule
 
     schedule = property(get_schedule, set_schedule)
-
-    def _reset_producer(self):
-        """Clear cached connection and producer so the next access reconnects."""
-        try:
-            if "producer" in self.__dict__:
-                del self.__dict__["producer"]
-            if "connection" in self.__dict__:
-                conn = self.__dict__.pop("connection", None)
-                if conn:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-    @cached_property
-    def connection(self):
-        return self.app.connection_for_write()
-
-    @cached_property
-    def producer(self):
-        return self.Producer(self._ensure_connected(), auto_declare=False)
 
     @property
     def info(self):
