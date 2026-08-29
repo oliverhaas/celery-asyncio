@@ -390,6 +390,20 @@ class test_AsyncResult:
 
         assert not self.app.AsyncResult(uuid()).ready()
 
+    def test_exists(self):
+        # PENDING is reported both for a task that is genuinely waiting and for
+        # an id the backend has never heard of, so ready()/state cannot tell
+        # the two apart -- exists() can.
+        for task in (self.task1, self.task2, self.task3, self.task4):
+            assert self.app.AsyncResult(task["id"]).exists() is True
+
+        assert self.app.AsyncResult(uuid()).exists() is False
+        assert self.app.AsyncResult("totally-fake-id").exists() is False
+
+    async def test_aexists(self):
+        assert await self.app.AsyncResult(self.task1["id"]).aexists() is True
+        assert await self.app.AsyncResult(uuid()).aexists() is False
+
     def test_del(self):
         with patch("celery.result.AsyncResult.backend") as backend:
             result = self.app.AsyncResult(self.task1["id"])

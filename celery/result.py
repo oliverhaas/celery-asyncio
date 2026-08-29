@@ -489,6 +489,28 @@ class AsyncResult(ResultBase):
             elif is_incomplete_stream:
                 raise IncompleteStream()
 
+    def exists(self):
+        """Return :const:`True` if the backend holds a result for this task.
+
+        This tells a task that is truly pending -- submitted and waiting to
+        run -- apart from a task id that was never submitted at all, or whose
+        result has since been forgotten or expired. All of those report
+        :state:`PENDING` as their state, so the state alone cannot
+        distinguish them.
+
+        Returns:
+            bool: :const:`True` if the backend has a result stored for
+                this task ID, :const:`False` otherwise.
+        """
+        return self.backend.task_result_exists(self.id)
+
+    async def aexists(self):
+        """Async version of :meth:`exists`.
+
+        Return value is the same as :meth:`exists`.
+        """
+        return await self.backend.atask_result_exists(self.id)
+
     def ready(self):
         """Return :const:`True` if the task has executed.
 

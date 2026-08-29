@@ -486,6 +486,28 @@ class test_BaseBackend_dict:
         self.b.serializer = "pickle"
         assert isinstance(self.b.prepare_value(g), self.app.GroupResult)
 
+    @pytest.mark.parametrize(
+        "status,exists",
+        [
+            (states.SUCCESS, True),
+            (states.FAILURE, True),
+            (states.RETRY, True),
+            (states.PENDING, False),
+        ],
+    )
+    def test_task_result_exists(self, status, exists):
+        b = DictBackend(app=self.app)
+        b._get_task_meta_for = Mock(return_value={"status": status, "result": None})
+        assert b.task_result_exists("task-id") is exists
+
+    @pytest.mark.parametrize("status,exists", [(states.SUCCESS, True), (states.PENDING, False)])
+    async def test_atask_result_exists(self, status, exists):
+        # The base backend has no native async store, so the async twin goes
+        # through sync_to_async and has to agree with the sync one.
+        b = DictBackend(app=self.app)
+        b._get_task_meta_for = Mock(return_value={"status": status, "result": None})
+        assert await b.atask_result_exists("task-id") is exists
+
     def test_is_cached(self):
         b = BaseBackend(app=self.app, max_cached_results=1)
         b._cache["foo"] = 1
@@ -1379,6 +1401,38 @@ class test_KeyValueStoreBackend:
 
     def test_restore_missing_group(self):
         assert self.b.restore_group("xxx-nonexistant") is None
+
+    def test_task_result_exists_missing(self):
+        assert self.b.task_result_exists("xxx-nonexistant") is False
+
+    @pytest.mark.parametrize(
+        "store",
+        [
+            lambda b, tid: b.mark_as_done(tid, "result"),
+            lambda b, tid: b.mark_as_failure(tid, RuntimeError("failed"), traceback="tb"),
+            lambda b, tid: b.mark_as_retry(tid, RuntimeError("retry"), traceback="tb"),
+        ],
+        ids=["done", "failure", "retry"],
+    )
+    def test_task_result_exists_after_store(self, store):
+        tid = uuid()
+        store(self.b, tid)
+        assert self.b.task_result_exists(tid) is True
+
+    def test_task_result_exists_after_forget(self):
+        tid = uuid()
+        self.b.mark_as_done(tid, "result")
+        assert self.b.task_result_exists(tid) is True
+        self.b.forget(tid)
+        assert self.b.task_result_exists(tid) is False
+
+    async def test_atask_result_exists(self):
+        # A key-value store only overrides the sync half, so the async twin
+        # reaches it through the base sync_to_async wrapper.
+        tid = uuid()
+        assert await self.b.atask_result_exists(tid) is False
+        self.b.mark_as_done(tid, "result")
+        assert await self.b.atask_result_exists(tid) is True
 
 
 class test_KeyValueStoreBackend_interface:

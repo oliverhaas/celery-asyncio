@@ -748,6 +748,19 @@ class Backend:
         """Reload task result, even if it has been previously fetched."""
         self._cache[task_id] = self.get_task_meta(task_id, cache=False)
 
+    def task_result_exists(self, task_id):
+        """Check if a result exists in the backend for the given task ID.
+
+        Lets a caller tell a task that is genuinely pending apart from a task
+        id that was never submitted, or whose result has since been forgotten
+        or expired -- both of which report :state:`PENDING`.
+
+        Returns:
+            bool: :const:`True` if the backend has a result for the task,
+                :const:`False` otherwise.
+        """
+        return self._get_task_meta_for(task_id)["status"] != states.PENDING
+
     def reload_group_result(self, group_id):
         """Reload group result, even if it has been previously fetched."""
         self._cache[group_id] = self.get_group_meta(group_id, cache=False)
@@ -786,6 +799,10 @@ class Backend:
     async def aforget(self, task_id):
         """Async version of forget."""
         return await sync_to_async(self.forget, thread_sensitive=False)(task_id)
+
+    async def atask_result_exists(self, task_id):
+        """Async version of task_result_exists."""
+        return await sync_to_async(self.task_result_exists, thread_sensitive=False)(task_id)
 
     async def asave_group(self, group_id, result):
         """Async version of save_group."""
@@ -1308,6 +1325,15 @@ class BaseKeyValueStoreBackend(Backend):
         if not meta:
             return {"status": states.PENDING, "result": None}
         return self.decode_result(meta)
+
+    def task_result_exists(self, task_id):
+        """Check the store for the task's key directly.
+
+        More accurate than the base implementation, which infers existence
+        from the status: a result that was stored *as* :state:`PENDING` is
+        still a stored result, and the base check would miss it.
+        """
+        return bool(self.get(self.get_key_for_task(task_id)))
 
     def _restore_group(self, group_id):
         """Get task meta-data for a task by id."""

@@ -807,6 +807,10 @@ return false
             self._cache[task_id] = meta
         return meta
 
+    async def atask_result_exists(self, task_id):
+        """Async version of task_result_exists, using the native async client."""
+        return bool(await self.aget(self.get_key_for_task(task_id)))
+
     async def _aget_task_meta_for(self, task_id):
         """Async version of _get_task_meta_for."""
         meta = await self.aget(self.get_key_for_task(task_id))

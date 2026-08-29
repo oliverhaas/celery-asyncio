@@ -4,7 +4,7 @@ import ssl
 from contextlib import contextmanager
 from datetime import timedelta
 from pickle import dumps, loads
-from unittest.mock import ANY, Mock, call, patch
+from unittest.mock import ANY, AsyncMock, Mock, call, patch
 
 import pytest
 
@@ -724,6 +724,16 @@ class test_RedisBackend(basetest_RedisBackend):
         self.b.client = Mock(name="client")
         self.b.expire("foo", 300)
         self.b.client.expire.assert_called_with("foo", 300)
+
+    @pytest.mark.parametrize("stored,exists", [(b"result", True), (None, False)])
+    async def test_atask_result_exists(self, stored, exists):
+        # Redis has a native async client, so this must not fall back to the
+        # base backend's sync_to_async wrapper around the sync half.
+        self.b.async_client = AsyncMock(name="async_client")
+        self.b.async_client.get.return_value = stored
+
+        assert await self.b.atask_result_exists("task-id") is exists
+        self.b.async_client.get.assert_awaited_once_with(self.b.get_key_for_task("task-id"))
 
     def test_apply_chord(self, unlock="celery.chord_unlock"):
         self.app.tasks[unlock] = Mock()
