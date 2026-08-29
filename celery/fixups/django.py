@@ -2,7 +2,6 @@
 # https://github.com/celery/celery
 """Django-specific customization."""
 
-import contextlib
 import os
 import sys
 import warnings
@@ -198,13 +197,20 @@ class DjangoWorkerFixup:
         self._db_recycles += 1
 
     def _close_database(self) -> None:
-        for conn in self._db.connections.all():
+        # `initialized_only=True`, so that a task that never touched a given
+        # database does not cause a connection to be opened purely so that it
+        # can be closed again (upstream cc3350ef9). Django 4.1 and up, and the
+        # django extra here requires 6.0.
+        #
+        # The connection *pool* is deliberately left alone. Upstream closes it
+        # under prefork, where each child owns its own pool and has to hand it
+        # back (upstream a4f9beb41). This worker is a single process with one
+        # shared pool, and this method runs on every task prerun and postrun,
+        # so closing it here would tear down the pool between tasks and leave
+        # pooling doing nothing but adding a layer.
+        for conn in self._db.connections.all(initialized_only=True):
             try:
                 conn.close()
-                pool_enabled = self._settings.DATABASES.get(conn.alias, {}).get("OPTIONS", {}).get("pool")
-                if pool_enabled and hasattr(conn, "close_pool"):
-                    with contextlib.suppress(KeyError):
-                        conn.close_pool()
             except self.interface_errors:
                 pass
             except self.DatabaseError as exc:

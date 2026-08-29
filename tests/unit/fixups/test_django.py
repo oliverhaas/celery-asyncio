@@ -258,7 +258,7 @@ class test_DjangoWorkerFixup(FixupCase):
             f.interface_errors = ()
 
             f._db.connections = Mock()  # ConnectionHandler
-            f._db.connections.all.side_effect = lambda: conns
+            f._db.connections.all.side_effect = lambda **kwargs: conns
 
             f._close_database()
             conns[0].close.assert_called_with()
@@ -279,55 +279,23 @@ class test_DjangoWorkerFixup(FixupCase):
             # it to optimize connection handling.
             conn.close_if_unusable_or_obsolete.assert_not_called()
 
-    def test_close_database_skip_conn_pool(self):
-        class Connection:
-            """Mock connection without `close_pool` method."""
-
-            alias = "default"
-
-            def close(self):
-                pass
-
+    def test_close_database_only_looks_at_connections_that_exist(self):
+        # Without `initialized_only`, closing after a task that never touched
+        # the database opens a connection just to close it (upstream cc3350ef9).
         with self.fixup_context(self.app) as (f, _, _):
-            conn = Mock(spec=Connection)
-            f._db.connections.all = Mock(return_value=[conn])
+            f._db.connections.all = Mock(return_value=[])
             f.close_database()
-            assert not hasattr(conn, "close_pool")
-            conn.close.assert_called_once_with()
+            f._db.connections.all.assert_called_once_with(initialized_only=True)
 
-    def test_close_database_suppresses_close_pool_keyerror(self):
-        with self.fixup_context(self.app) as (f, _, _):
-            conn = Mock()
-            conn.close_pool = Mock(side_effect=KeyError("pool already closed"))
-            f._db.connections.all = Mock(return_value=[conn])
-            f.close_database()  # should not raise
-            conn.close.assert_called_once_with()
-            conn.close_pool.assert_called_once_with()
-
-    def test_close_database_conn_pool_based_on_settings(self):
-        class DJSettings:
-            DATABASES = {}
-
+    def test_close_database_leaves_the_pool_alone(self):
+        # One process, one shared pool, and this runs on every task prerun and
+        # postrun. Closing the pool here would leave pooling doing nothing.
+        # Upstream closes it under prefork only (upstream a4f9beb41).
         with self.fixup_context(self.app) as (f, _, _):
             conn = Mock()
             conn.alias = "default"
-            conn.close_pool = Mock()
             f._db.connections.all = Mock(return_value=[conn])
-            f._settings = DJSettings
-
-            f._settings.DATABASES["default"] = {"OPTIONS": {}}
-            f.close_database()
-            conn.close.assert_called_once_with()
-            conn.close_pool.assert_not_called()
-
-            conn.reset_mock()
-            f._settings.DATABASES["default"] = {"OPTIONS": {"pool": True}}
-            f.close_database()
-            conn.close.assert_called_once_with()
-            conn.close_pool.assert_called_once_with()
-
-            conn.reset_mock()
-            f._settings.DATABASES["default"] = {"OPTIONS": {"pool": False}}
+            f._settings.DATABASES = {"default": {"OPTIONS": {"pool": True}}}
             f.close_database()
             conn.close.assert_called_once_with()
             conn.close_pool.assert_not_called()
