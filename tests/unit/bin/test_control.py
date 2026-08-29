@@ -2,9 +2,12 @@ import os
 import re
 from unittest.mock import patch
 
+import click
 import pytest
 from click.testing import CliRunner
+from kombu.exceptions import OperationalError
 
+from celery.bin.base import handle_remote_command_error
 from celery.bin.celery import celery
 from celery.platforms import EX_UNAVAILABLE
 
@@ -77,3 +80,88 @@ def test_listing_remote_commands(celery_cmd, expected_regex, cli_runner: CliRunn
     )
     assert res.exit_code == 0, (res, res.stdout)
     assert expected_regex.search(res.stdout)
+
+
+# A broker that is down is the single most likely reason any of these three
+# commands fails, and printing the kombu traceback for it tells the operator
+# nothing actionable (upstream 7735d2ba9). Each command is checked twice: once
+# for the broker case, which gets its own message, and once for anything else,
+# which gets summarised rather than dumped.
+_REMOTE_COMMANDS = [
+    ("celery.app.control.Inspect.ping", ["status"], "status"),
+    (
+        "celery.app.control.Inspect._request",
+        ["inspect", *_INSPECT_OPTIONS, "custom_inspect_cmd", "1"],
+        "inspect custom_inspect_cmd",
+    ),
+    (
+        "celery.app.control.Control.broadcast",
+        ["control", *_INSPECT_OPTIONS, "custom_control_cmd", "1", "2"],
+        "control custom_control_cmd",
+    ),
+]
+
+
+@pytest.mark.parametrize(("target", "argv", "label"), _REMOTE_COMMANDS, ids=["status", "inspect", "control"])
+def test_friendly_error_when_broker_unreachable(target, argv, label, cli_runner: CliRunner):
+    with patch(target, side_effect=OperationalError("[Errno 61] Connection refused")):
+        res = cli_runner.invoke(celery, [*_GLOBAL_OPTIONS, *argv], catch_exceptions=False)
+
+    assert res.exit_code == EX_UNAVAILABLE, (res, res.output)
+    assert "Error: Could not connect to the message broker." in res.output
+    assert "Reason: [Errno 61] Connection refused" in res.output
+    assert "Traceback" not in res.output
+
+
+@pytest.mark.parametrize(("target", "argv", "label"), _REMOTE_COMMANDS, ids=["status", "inspect", "control"])
+def test_unexpected_error_is_summarized(target, argv, label, cli_runner: CliRunner):
+    with patch(target, side_effect=RuntimeError("boom")):
+        res = cli_runner.invoke(celery, [*_GLOBAL_OPTIONS, *argv], catch_exceptions=False)
+
+    assert res.exit_code == EX_UNAVAILABLE, (res, res.output)
+    assert f"Error: Unable to run the `{label}` command. Reason: boom" in res.output
+    assert "Traceback" not in res.output
+
+
+def test_handle_remote_command_error_reraises_click_exception():
+    # A ClickException already carries its own message and exit code, so
+    # wrapping it would only bury both.
+    original = click.ClickException("original click error")
+
+    with pytest.raises(click.ClickException) as exc_info:
+        handle_remote_command_error("any", original)
+
+    assert exc_info.value is original
+
+
+def test_control_with_preload_option(cli_runner: CliRunner):
+    # `control` was the one remote command whose callback took no **kwargs, so
+    # an app-registered preload option arrived as an unexpected keyword
+    # argument (upstream 4886d5d0c). `status` and `inspect` already had it.
+    # Upstream's own test passes `--workdir`, which is a global option and
+    # never reaches the callback at all; a real preload option does. This is
+    # the same `--ini` that tests/unit/app/test_preload_cli.py exercises.
+    # The app's connection is mocked for `purge`, not for a broadcast, so the
+    # broadcast itself is stubbed out. What is under test is whether the
+    # callback can be *called* at all with --ini in kwargs.
+    with patch("celery.app.control.Control.broadcast", return_value={}) as broadcast:
+        res = cli_runner.invoke(
+            celery,
+            [
+                "-A",
+                "tests.unit.bin.proj.pyramid_celery_app",
+                "--broker",
+                "memory://",
+                "control",
+                *_INSPECT_OPTIONS,
+                "revoke",
+                "some-task-id",
+                "--ini",
+                "some_ini.ini",
+            ],
+            catch_exceptions=False,
+        )
+
+    assert broadcast.called
+    assert res.exit_code == EX_UNAVAILABLE, (res, res.output)
+    assert res.output.strip() == "Error: No nodes replied within time constraint"

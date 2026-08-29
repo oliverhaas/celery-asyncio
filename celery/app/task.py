@@ -4,6 +4,7 @@
 
 import asyncio
 import sys
+import types
 
 from asgiref.sync import sync_to_async
 from kombu import serialization
@@ -496,6 +497,8 @@ class Task:
         finally:
             self.pop_request()
             _task_stack.pop()
+
+    __class_getitem__ = classmethod(types.GenericAlias)
 
     def __reduce__(self):
         # - tasks are pickled into the name of the task only, and the receiver

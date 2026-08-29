@@ -7,13 +7,16 @@ import numbers
 from collections import OrderedDict
 from functools import update_wrapper
 from pprint import pformat
-from typing import Any
+from typing import Any, NoReturn
 
 import click
 from click import Context, ParamType
+from kombu.exceptions import OperationalError
 from kombu.utils.objects import cached_property
 
 from celery._state import get_current_app
+from celery.exceptions import CeleryCommandException
+from celery.platforms import EX_UNAVAILABLE
 from celery.signals import user_preload_options
 from celery.utils import text
 from celery.utils.log import mlevel
@@ -116,6 +119,34 @@ class CLIContext:
         self.echo(f"{dirstr} {title}")
         if body and show_body:
             self.echo(body)
+
+
+def handle_remote_command_error(command: str, exc: Exception) -> NoReturn:
+    """Re-raise a remote-control failure as something a CLI user can act on.
+
+    `celery status` against a broker that is not running printed the whole
+    kombu traceback, which says nothing about what to do next (upstream
+    7735d2ba9). Click renders a `CeleryCommandException` as a one-line error
+    with an exit code instead.
+    """
+    if isinstance(exc, click.ClickException):
+        # Already has a message and an exit code of its own.
+        raise exc
+
+    if isinstance(exc, OperationalError):
+        raise CeleryCommandException(
+            message=(
+                "Could not connect to the message broker. "
+                "Please make sure your broker (e.g., RabbitMQ, Redis or Valkey) is running and "
+                f"the connection settings are correct. Reason: {exc}"
+            ),
+            exit_code=EX_UNAVAILABLE,
+        ) from exc
+
+    raise CeleryCommandException(
+        message=f"Unable to run the `{command}` command. Reason: {exc}",
+        exit_code=EX_UNAVAILABLE,
+    ) from exc
 
 
 def handle_preload_options(f):

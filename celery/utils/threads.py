@@ -7,6 +7,7 @@ import socket
 import sys
 import threading
 import traceback
+import types
 from contextlib import contextmanager
 from threading import TIMEOUT_MAX as THREAD_TIMEOUT_MAX
 from threading import get_ident
@@ -218,6 +219,8 @@ class _LocalStack:
             return stack[-1]
         else:
             return stack.pop()
+
+    __class_getitem__ = classmethod(types.GenericAlias)
 
     def __len__(self):
         stack = getattr(self._local, "stack", None)
