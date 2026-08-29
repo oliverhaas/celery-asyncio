@@ -63,6 +63,12 @@ Then drop anything touching only the subsystems listed above.
 | `ece686299` `deselect` no longer promotes the routing table to a selection | `a5af881a0` | Verbatim. Depends on `066e96e01`. |
 | `2e150f833` `select` keys `consume_from` by the real queue name, not the alias | `a5af881a0` | Verbatim. |
 | `1a4768959` Defer the default queue lookup in the task sender | `a5af881a0` | Adapted: applied to `_create_async_task_sender` as well, which upstream does not have. |
+| `1cc9ecf43` `Consumer.on_close()` no longer wipes in-flight reservations | `34c397bb8` | Verbatim. |
+| `d6131816f` Tolerate errors from `request.cancel()` after connection loss | `34c397bb8` | Verbatim. |
+| `201573a11` Null the pidbox consumer between reset cycles | `34c397bb8` | Adapted: the fork's `Pidbox.stop` is a coroutine and already swallows the cancel error, so only the `self.consumer = None` is new. |
+| `03c79ac14` Guard the event control commands against a `None` dispatcher | `34c397bb8` | Adapted: applied to `enable_events` and `disable_events` too, not just `heartbeat`. |
+| `63c191022` Do not fail a task on timeout during cold shutdown | `36e095705` | Adapted. `on_cold_shutdown` sets `state.should_terminate` itself, since the signal handler only sets it after the callback returns. Upstream's `task_consumer.cancel()` is skipped: it is a coroutine here and the handler is sync. |
+| `713576800` Run the failure callbacks on a hard timeout, not just `mark_as_failure` | `36e095705` | Verbatim. Lands on the same `on_timeout` branch as `63c191022`. |
 
 ### Found along the way
 
@@ -117,7 +123,10 @@ leak, reverted and re-landed upstream · `6b1fad369` deprecated `get_connection`
 `5013b4a99`, `41bad6f22`, `30649dbd4`, `ba20bed77` native delayed delivery ·
 `975840963` Sphinx extension ·
 `730ab395c` reserved requests get the new dispatcher on reconnect, there is no
-`reserved_requests`/`request.eventer` pairing here
+`reserved_requests`/`request.eventer` pairing here ·
+`b313b6412` skip prefetch reduction under per-consumer QoS: `Tasks.start` installs a no-op
+`set_prefetch_count` and computes no `qos_global`, so there is no per-consumer vs global
+distinction to act on. Revisit if prefetch/QoS is ever implemented
 
 **Docs, release prep, test fixtures**
 `d96df921e`, `658230391`, `066092edc`, `a3f51e4c3`, `99b0a8977`, `bcc1798a8`,
@@ -132,19 +141,19 @@ by how much they matter. **Every one of these is (unverified).**
 
 ### Worker
 
-`1cc9ecf43` `Consumer.on_close()` wipes in-flight reservations, which breaks
-`worker_disable_prefetch` · `d6131816f` tolerate errors from `request.cancel()` after connection
-loss · `b313b6412` skip prefetch reduction when per-consumer QoS is in effect (needs a
-`qos_global` on the consumer) · `feb789acc` close the broken connection after `collect()` during
-recovery · `201573a11` null the pidbox consumer between reset cycles · `63c191022` do not fail a
-task on timeout during cold shutdown, which is a rename plus a `should_terminate` check ·
-`333a82f74` mark revoked tasks REVOKED in the backend immediately · `03c79ac14` guard the
-heartbeat control command against a `None` event dispatcher
+`feb789acc` close the broken connection during recovery. Only half applies: the fork never calls
+`collect()`, so the `socket_timeout` half is N/A, but the fork's `Connection` bootstep has no
+`stop()` and `blueprint.restart()` uses `method="stop"`, so the dead connection really does
+survive the restart. Needs async handling, since
+`on_connection_error_after_connected` is sync and `connection.close()` is a coroutine ·
+`333a82f74` mark revoked tasks REVOKED in the backend immediately. Must not be ported verbatim:
+the sync `store_result` would do blocking Redis I/O on the event loop inside the pidbox handler.
+Use `app.backend.amark_as_revoked` scheduled on the running loop, falling back to the sync path
+when no loop is running
 
 ### Request, task and trace
 
-`e2b276e60` mark a rejected task failed when it is not requeued · `713576800` run the failure
-callbacks on a hard timeout, not just `mark_as_failure` · `1fe2a08d0` expose `time_limit` and
+`e2b276e60` mark a rejected task failed when it is not requeued · `1fe2a08d0` expose `time_limit` and
 `soft_time_limit` on `task.request` · `b8f85213f` let a request's `ignore_result` beat the task
 definition · `40c234919` split `acks_on_failure` and `acks_on_timeout` · `865922abd` dispatch the
 chain and callbacks on the dedup fast path (the fork uses `build_async_tracer`, so this needs
