@@ -393,8 +393,11 @@ class Channel:
         if not arguments:
             arguments = getattr(queue, "arguments", None) or {}
 
+        # Recomputed on every declare, never skipped when the queue is already
+        # known: a redeclare is how a caller changes or drops a TTL, and the old
+        # "first declare wins" rule silently kept a stale one forever.
         x_expires = arguments.get("x-expires")
-        if x_expires is not None and name not in self._expires:
+        if x_expires is not None:
             x_expires = int(x_expires)
             if x_expires < MIN_QUEUE_EXPIRES:
                 if not self._warned_expires_clamp:
@@ -407,11 +410,20 @@ class Channel:
                     )
                     Channel._warned_expires_clamp = True
                 x_expires = MIN_QUEUE_EXPIRES
+        previous_expires = self._expires.get(name)
+        if x_expires is None:
+            self._expires.pop(name, None)
+        else:
             self._expires[name] = x_expires
+        if x_expires != previous_expires:
+            # The refresh interval is derived from the smallest TTL, so it has
+            # to be recomputed whenever the set of TTLs changes.
             self._update_expires_task()
 
         x_message_ttl = arguments.get("x-message-ttl")
-        if x_message_ttl is not None and name not in self._message_ttls:
+        if x_message_ttl is None:
+            self._message_ttls.pop(name, None)
+        else:
             self._message_ttls[name] = int(x_message_ttl)
 
         if getattr(queue, "auto_delete", False):

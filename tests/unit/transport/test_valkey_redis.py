@@ -245,6 +245,31 @@ class TestQueueOps:
         await ch.declare_queue(q)
         assert ch._expires["test_q"] == MIN_QUEUE_EXPIRES
 
+    async def test_redeclaring_a_queue_updates_its_expires(self):
+        """A redeclare is how a caller changes a TTL; first-declare-wins kept it stale."""
+        ch = _make_channel()
+        ch.client.sadd = AsyncMock()
+        q = Queue("test_q")
+        q.queue_arguments = {"x-expires": 20_000, "x-message-ttl": 30_000}
+        await ch.declare_queue(q)
+
+        q.queue_arguments = {"x-expires": 60_000, "x-message-ttl": 90_000}
+        await ch.declare_queue(q)
+        assert ch._expires["test_q"] == 60_000
+        assert ch._message_ttls["test_q"] == 90_000
+
+    async def test_redeclaring_a_queue_without_expires_drops_the_ttl(self):
+        ch = _make_channel()
+        ch.client.sadd = AsyncMock()
+        q = Queue("test_q")
+        q.queue_arguments = {"x-expires": 20_000, "x-message-ttl": 30_000}
+        await ch.declare_queue(q)
+
+        q.queue_arguments = {}
+        await ch.declare_queue(q)
+        assert "test_q" not in ch._expires
+        assert "test_q" not in ch._message_ttls
+
     async def test_queue_bind(self):
         ch = _make_channel()
         ch.client.sadd = AsyncMock()
