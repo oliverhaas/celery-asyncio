@@ -74,6 +74,8 @@ Then drop anything touching only the subsystems listed above.
 | `b8f85213f` Let a request's `ignore_result` beat the task definition | `8e61fa099` | Adapted: applied to `build_async_tracer` and `ahandle_error_state` as well, which upstream does not have. |
 | `1fe2a08d0` Expose `time_limit` and `soft_time_limit` on `task.request` | `fc3cfc464` | Adapted: `Context.update()` detects a written `timelimit` by comparing the stored object's identity, since every input form `dict.update` accepts replaces it. |
 | `865922abd` Dispatch the chain and callbacks on the dedup fast path | `a43f31759` | Adapted: an awaiting `_adispatch_callbacks_and_chain` twin for `build_async_tracer`, which upstream does not have. The `Reject` passthrough was added to both tracers and to `trace_task`. |
+| `333a82f74` Mark revoked tasks REVOKED in the backend immediately | `66350406f` | Adapted: `amark_as_revoked` scheduled on the running loop rather than upstream's blocking call, since the pidbox handler runs on the worker's event loop. The existing schedule-or-run idiom was extracted into `_schedule()` and given the strong task reference its two copies lacked. |
+| `feb789acc` Close the broken connection before reconnecting | `31866ad09` | Adapted, and only half applies: the fork's handler never calls `collect()`. `Connection.close()` is a coroutine here, so `on_connection_error_after_connected` and its call site became `async`. |
 
 ### Found along the way
 
@@ -92,10 +94,13 @@ not read until the scheduled task runs, so the clear won every time and the brok
 Fixed in `1f32bb270`. The existing `test_send_buffer_group` asserted `_publish` was called with
 `[]`, so the bug was written down as an expectation.
 
-**The async tracer has no tests at all.** `grep -rl 'build_async_tracer\|atrace_task\|ahandle_error_state' tests/`
-returns nothing. Every `trace.py` port therefore has to be applied twice, by hand, with only the
-sync half verifiable by the suite. Both halves of `b8f85213f` were written that way. This is the
-fork's largest coverage gap and worth closing before the next `trace.py` sweep.
+**The async tracer is almost untested.** Before `a43f31759` the suite had no test that went through
+`build_async_tracer`, `atrace_task` or `ahandle_error_state` at all, so both halves of `b8f85213f`
+were written blind: every `trace.py` port has to be applied twice, by hand, with only the sync half
+verifiable. `a43f31759` added an `atrace()` helper and three async tests covering the dedup fast
+path, but that is three tests against roughly six hundred lines of async tracer. The sync
+`test_trace.py` cases are the model -- most of them have no async twin. Still the fork's largest
+coverage gap, and worth closing before the next `trace.py` sweep.
 
 ## Not applicable
 
@@ -153,18 +158,6 @@ so `_localized` and `use_fast_trace_task` are always set together. Upstream's me
 
 Triaged as real and missing but not yet checked line by line, let alone ported. Roughly ordered
 by how much they matter. **Every one of these is (unverified).**
-
-### Worker
-
-`feb789acc` close the broken connection during recovery. Only half applies: the fork never calls
-`collect()`, so the `socket_timeout` half is N/A, but the fork's `Connection` bootstep has no
-`stop()` and `blueprint.restart()` uses `method="stop"`, so the dead connection really does
-survive the restart. Needs async handling, since
-`on_connection_error_after_connected` is sync and `connection.close()` is a coroutine ·
-`333a82f74` mark revoked tasks REVOKED in the backend immediately. Must not be ported verbatim:
-the sync `store_result` would do blocking Redis I/O on the event loop inside the pidbox handler.
-Use `app.backend.amark_as_revoked` scheduled on the running loop, falling back to the sync path
-when no loop is running
 
 ### Canvas and results
 
