@@ -36,6 +36,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+import _versions
 import psutil
 
 
@@ -327,6 +328,10 @@ def main() -> None:
             "sync_workers": args.sync_workers,
             "python": sys.version.split()[0],
             "executable": sys.executable,
+            # Which celery/kombu actually produced the number, recorded at run
+            # time. Probing later reads whatever the venv holds by then, and a
+            # result that outlives one setup_venvs.sh becomes unattributable.
+            "versions": _versions.probe(_versions.venv_for(args.config)),
             "worker_bin": args.worker_bin,
             "taskset": args.taskset,
             "n_tasks": n_tasks,
