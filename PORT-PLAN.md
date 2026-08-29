@@ -34,7 +34,7 @@ already, and the rest of it is the only thing still open.
 
 | # | Done | Feature |
 |---|---|---|
-| 8 | partly | `queue_expires`: per-queue TTL is in, fanout streams and binding keys are not |
+| 8 | partly | `queue_expires`: per-queue TTL and fanout streams are in, binding key staleness is not |
 | 9 | yes | Sweep reporting |
 | 10 | yes | Fanout binding cleanup |
 | 11 | n/a | Closed after investigation, nothing to port |
@@ -187,16 +187,27 @@ loop is unset and nothing re-ran it after `register_with_event_loop`. That canno
 `_update_expires_task` (1444) is called from `queue_declare` whenever the value changes, and
 there is a running loop by then.
 
-**8b. Fanout streams and binding keys. Open.** `_fanout_publish` (636) bounds the stream with
-`maxlen` only, so an exchange nobody consumes from keeps a trimmed stream alive indefinitely.
-`_binding_key(exchange)` is a plain SET that only disappears in `exchange_delete` (412).
-celery-redis-plus moves the binding table to a sorted set scored with the staleness deadline, and
-migrates existing keys in place with a fifth Lua script (`transport_convert_bindings.lua`).
+**8b. Fanout streams. Done.** There was no global `queue_expires` here, so 8a only ever applied
+to queues that asked for `x-expires` themselves. The option is in now, as the fallback for a
+queue declared without one, and it is what gates the stream TTL: `_fanout_publish` bounded the
+stream with `maxlen` alone, which trims a stream but never removes it, so an exchange nobody
+publishes to again stayed for the server's life.
 
-Two things to settle before porting that half: a binding table that expires changes what "no
-bindings" means for item 7, which currently reads it as a misconfiguration and raises; and the
-stream TTL has to outlive the longest consumer gap, not the queue TTL, since a fanout consumer
-that reconnects after the stream expired silently loses its offset.
+The open question was whether a stream TTL can outlive the longest consumer gap, since a consumer
+that reconnects after the stream expired resumes from `$`. It can, because the publisher refreshes
+the TTL on every publish: the stream can only have expired if nobody published for `queue_expires`,
+and then there is nothing for the returning consumer to have missed.
+
+**8c. Binding key staleness. Open.** `_binding_key(exchange)` is a plain SET that only disappears
+in `exchange_delete`. celery-redis-plus moves the binding table to a sorted set scored with each
+member's staleness deadline, prunes on read, and migrates existing keys in place with a fifth Lua
+script (`transport_convert_bindings.lua`).
+
+Item 10 removed the fanout half of this problem: fanout no longer writes to the table at all, and
+those were the members that piled up. What is left is a direct or topic exchange whose consumer's
+queue expires while the binding stays. Note that expiry changes what "no bindings" means for item
+7, which reads an empty direct table as a misconfiguration and raises; celery-redis-plus's answer
+is to raise only for a durable direct exchange and to log-and-drop for a transient one.
 
 ### 9. Sweep reporting
 

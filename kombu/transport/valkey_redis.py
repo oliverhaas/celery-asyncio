@@ -36,6 +36,8 @@ Transport Options
   so the worst-case restore delay is roughly ``visibility_timeout + 2 *
   requeue_check_interval``. Lower it alongside a low ``visibility_timeout``, which on its
   own cannot make restores happen sooner than the sweep.
+* ``queue_expires``: Fallback ``x-expires`` in seconds for queues declared without one,
+  which also puts the same TTL on fanout streams (default: None, queues live until deleted)
 * ``message_ttl``: TTL for per-message hashes in seconds (-1 = no TTL)
 * ``stream_maxlen``: Maximum stream length for fanout streams (default: 10000)
 * ``fanout_prefix``: Prefix for fanout stream keys (default: '/{db}.')
@@ -114,6 +116,9 @@ DEFAULT_REQUEUE_CHECK_INTERVAL = 60
 DEFAULT_REQUEUE_BATCH_LIMIT = 1000
 DEFAULT_MESSAGE_TTL = -1
 MIN_QUEUE_EXPIRES = 10_000
+# Fallback x-expires in seconds for queues declared without one. None keeps
+# kombu semantics, where a queue lives until something deletes it.
+DEFAULT_QUEUE_EXPIRES: int | None = None
 # Matches RabbitMQ, which has applied a delivery-limit of 20 to quorum queues
 # since 4.0. None disables the limit and lets a poison message redeliver forever.
 DEFAULT_DELIVERY_LIMIT: int | None = 20
@@ -242,6 +247,7 @@ class Channel:
     """
 
     _warned_expires_clamp = False
+    _warned_queue_expires_clamp = False
 
     def __init__(self, transport: Transport, connection_id: str) -> None:
         self._transport = transport
@@ -285,6 +291,7 @@ class Channel:
         )
         self._requeue_check_interval: float = _resolve_requeue_check_interval(opts)
         self._message_ttl: int = opts.get("message_ttl", DEFAULT_MESSAGE_TTL)
+        self._queue_expires: int | None = opts.get("queue_expires", DEFAULT_QUEUE_EXPIRES)
         self._stream_maxlen: int = opts.get("stream_maxlen", DEFAULT_STREAM_MAXLEN)
         self._delivery_limit: int | None = opts.get(
             "delivery_limit",
@@ -364,6 +371,22 @@ class Channel:
     def _fanout_stream_key(self, exchange: str) -> str:
         return self._prefixed(f"{self._fanout_prefix}{exchange}")
 
+    def _global_expires_ms(self) -> int | None:
+        """The queue_expires option in milliseconds, floored like x-expires."""
+        if self._queue_expires is None:
+            return None
+        expires_ms = int(self._queue_expires * 1000)
+        if expires_ms < MIN_QUEUE_EXPIRES:
+            if not self._warned_queue_expires_clamp:
+                logger.warning(
+                    "queue_expires %dms is below minimum %dms, clamping.",
+                    expires_ms,
+                    MIN_QUEUE_EXPIRES,
+                )
+                Channel._warned_queue_expires_clamp = True
+            expires_ms = MIN_QUEUE_EXPIRES
+        return expires_ms
+
     # ---- client access -----------------------------------------------------
 
     @property
@@ -440,7 +463,9 @@ class Channel:
         # known: a redeclare is how a caller changes or drops a TTL, and the old
         # "first declare wins" rule silently kept a stale one forever.
         x_expires = arguments.get("x-expires")
-        if x_expires is not None:
+        if x_expires is None:
+            x_expires = self._global_expires_ms()
+        else:
             x_expires = int(x_expires)
             if x_expires < MIN_QUEUE_EXPIRES:
                 if not self._warned_expires_clamp:
@@ -670,6 +695,13 @@ class Channel:
             maxlen=self._stream_maxlen,
             approximate=True,
         )
+        expires_ms = self._global_expires_ms()
+        if expires_ms is not None:
+            # Refreshed by the publisher, because only a publisher can say the
+            # exchange is still in use. A consumer that reconnects after the
+            # stream expired resumes from "$" and has missed nothing: the
+            # stream can only have expired if nobody published for that long.
+            await self.client.pexpire(stream_key, expires_ms)
 
     async def _topic_publish(
         self,

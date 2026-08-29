@@ -284,6 +284,32 @@ class TestQueueOps:
         assert "test_q" not in ch._expires
         assert "test_q" not in ch._message_ttls
 
+    async def test_queue_expires_is_the_fallback_for_a_queue_without_one(self):
+        ch = _make_channel(queue_expires=45)
+        ch.client.sadd = AsyncMock()
+        q = Queue("test_q")
+        await ch.declare_queue(q)
+        assert ch._expires["test_q"] == 45_000
+
+    async def test_an_explicit_expires_wins_over_the_fallback(self):
+        ch = _make_channel(queue_expires=45)
+        ch.client.sadd = AsyncMock()
+        q = Queue("test_q")
+        q.queue_arguments = {"x-expires": 20_000}
+        await ch.declare_queue(q)
+        assert ch._expires["test_q"] == 20_000
+
+    async def test_queue_expires_is_clamped_to_the_minimum(self):
+        ch = _make_channel(queue_expires=1)
+        assert ch._global_expires_ms() == MIN_QUEUE_EXPIRES
+
+    async def test_no_queue_expires_leaves_queues_alone(self):
+        ch = _make_channel()
+        ch.client.sadd = AsyncMock()
+        await ch.declare_queue(Queue("test_q"))
+        assert ch._global_expires_ms() is None
+        assert "test_q" not in ch._expires
+
     async def test_queue_bind(self):
         ch = _make_channel()
         ch.client.sadd = AsyncMock()
@@ -2079,6 +2105,26 @@ class TestPutMessageFanout:
         await ch._fanout_publish("fanout_ex", b'{"body": "test"}')
         call_kw = ch.client.xadd.call_args[1]
         assert call_kw["maxlen"] == 500
+
+    async def test_publishing_refreshes_the_stream_ttl(self):
+        """maxlen trims a stream but never removes it, so an exchange nobody
+        publishes to again stays in Redis for the server's life."""
+        ch = _make_channel(queue_expires=45)
+        ch.client.xadd = AsyncMock()
+        ch.client.pexpire = AsyncMock()
+
+        await ch._fanout_publish("fanout_ex", b'{"body": "test"}')
+
+        ch.client.pexpire.assert_called_once_with(ch._fanout_stream_key("fanout_ex"), 45_000)
+
+    async def test_without_queue_expires_the_stream_gets_no_ttl(self):
+        ch = _make_channel()
+        ch.client.xadd = AsyncMock()
+        ch.client.pexpire = AsyncMock()
+
+        await ch._fanout_publish("fanout_ex", b'{"body": "test"}')
+
+        ch.client.pexpire.assert_not_called()
 
     async def test_put_message_with_message_ttl(self):
         ch = _make_channel(message_ttl=3600)
