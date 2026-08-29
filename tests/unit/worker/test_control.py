@@ -76,6 +76,19 @@ class test_Pidbox:
         await pbox.shutdown(parent)
         pconsumer.cancel.assert_called()
 
+    async def test_stop_drops_the_cancelled_consumer(self):
+        # A reset that cancels and then fails to start a replacement must not
+        # leave the dead consumer behind for the next cycle to cancel again.
+        parent = Mock()
+        pbox = Pidbox(parent)
+        pconsumer = pbox.consumer = AsyncMock()
+
+        await pbox.stop(parent)
+        assert pbox.consumer is None
+
+        await pbox.stop(parent)
+        pconsumer.cancel.assert_awaited_once()
+
 
 class test_ControlPanel:
     def setup_method(self):
@@ -122,6 +135,18 @@ class test_ControlPanel:
         panel.handle("disable_events")
         assert "task" not in evd.groups
         assert "already disabled" in panel.handle("disable_events")["ok"]
+
+    def test_event_commands_without_a_dispatcher(self):
+        # event_dispatcher is None between a connection loss and the next
+        # Events bootstep start, and for the whole run under
+        # --without-heartbeat. These used to raise AttributeError.
+        consumer = Consumer(self.app)
+        consumer.event_dispatcher = None
+        panel = self.create_panel(consumer=consumer)
+
+        assert "unavailable" in panel.handle("enable_events")["error"]
+        assert "unavailable" in panel.handle("disable_events")["error"]
+        assert panel.handle("heartbeat") is None
 
     def test_clock(self):
         consumer = Consumer(self.app)

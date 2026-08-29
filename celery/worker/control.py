@@ -350,6 +350,10 @@ def election(state, id, topic, action=None, **kwargs):
 def enable_events(state):
     """Tell worker(s) to send task-related events."""
     dispatcher = state.consumer.event_dispatcher
+    # None between a connection loss and the next Events bootstep start, and
+    # for the whole run under --without-heartbeat (upstream 03c79ac14).
+    if dispatcher is None:
+        return nok("event dispatcher unavailable")
     if dispatcher.groups and "task" not in dispatcher.groups:
         dispatcher.groups.add("task")
         logger.info("Events of group {task} enabled by remote.")
@@ -361,6 +365,8 @@ def enable_events(state):
 def disable_events(state):
     """Tell worker(s) to stop sending task-related events."""
     dispatcher = state.consumer.event_dispatcher
+    if dispatcher is None:
+        return nok("event dispatcher unavailable")
     if "task" in dispatcher.groups:
         dispatcher.groups.discard("task")
         logger.info("Events of group {task} disabled by remote.")
@@ -373,7 +379,8 @@ def heartbeat(state):
     """Tell worker(s) to send event heartbeat immediately."""
     logger.debug("Heartbeat requested by remote.")
     dispatcher = state.consumer.event_dispatcher
-    dispatcher.send("worker-heartbeat", freq=5, **worker_state.SOFTWARE_INFO)
+    if dispatcher:
+        dispatcher.send("worker-heartbeat", freq=5, **worker_state.SOFTWARE_INFO)
 
 
 # -- Worker

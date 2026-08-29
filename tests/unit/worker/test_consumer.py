@@ -332,6 +332,29 @@ class test_Consumer(ConsumerTestCase):
             c.pool = None
             c.on_close()
 
+    def test_on_close_keeps_the_requests_that_are_still_running(self):
+        # Wiping an executing task's entry loses what revoke/terminate looks
+        # up by id and makes the reserved count wrong until it finishes.
+        from celery.worker import state as worker_state
+
+        running = Mock(id="running")
+        merely_reserved = Mock(id="merely-reserved")
+        worker_state.requests.update({r.id: r for r in (running, merely_reserved)})
+        worker_state.reserved_requests.update((running, merely_reserved))
+        worker_state.active_requests.add(running)
+        try:
+            c = self.get_consumer()
+            c.on_close()
+
+            assert "running" in worker_state.requests
+            assert "merely-reserved" not in worker_state.requests
+            assert running in worker_state.reserved_requests
+            assert merely_reserved not in worker_state.reserved_requests
+        finally:
+            worker_state.requests.clear()
+            worker_state.reserved_requests.clear()
+            worker_state.active_requests.clear()
+
     async def test_connect_error_handler(self):
         self.app._connection = _amqp_connection()
         conn = self.app._connection.return_value
@@ -388,6 +411,27 @@ class test_Consumer(ConsumerTestCase):
         mock_request_acks_early.cancel.assert_not_called()
 
         active_requests.clear()
+
+    def test_cancel_long_running_tasks_on_connection_loss__cancel_raises(self):
+        # cancel() announces itself through the result backend, which on a
+        # broker outage is often unreachable too. One failure must not skip
+        # the requests behind it.
+        c = self.get_consumer()
+        c.app.conf.worker_cancel_long_running_tasks_on_connection_loss = True
+
+        first, second = Mock(), Mock()
+        for request in (first, second):
+            request.task.acks_late = True
+            request.acknowledged = False
+            active_requests.add(request)
+        first.cancel.side_effect = OSError("backend unreachable")
+
+        try:
+            c.on_connection_error_after_connected(Mock())
+            first.cancel.assert_called_once_with(c.pool)
+            second.cancel.assert_called_once_with(c.pool)
+        finally:
+            active_requests.clear()
 
     def test_cancel_long_running_tasks_on_connection_loss__warning(self):
         c = self.get_consumer()

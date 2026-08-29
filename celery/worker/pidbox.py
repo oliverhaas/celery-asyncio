@@ -65,20 +65,19 @@ class Pidbox:
     async def stop(self, c):
         # Don't close the default channel - it's shared.
         if self.consumer:
+            debug("Canceling broadcast consumer...")
             try:
                 await self.consumer.cancel()
             except Exception:
                 pass
+            # Drop the reference too. Otherwise a cancelled consumer that
+            # start() then failed to replace stays around and gets cancelled
+            # again on every later reset cycle (upstream 201573a11).
+            self.consumer = None
 
     async def _async_reset(self):
         await self.stop(self.c)
         await self.start(self.c)
 
     async def shutdown(self, c):
-        if self.consumer:
-            debug("Canceling broadcast consumer...")
-            try:
-                await self.consumer.cancel()
-            except Exception:
-                pass
         await self.stop(c)

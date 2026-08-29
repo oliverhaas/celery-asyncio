@@ -388,7 +388,14 @@ class Consumer:
             for request in active_snapshot:
                 if request.task.acks_late and not request.acknowledged:
                     warn(TERMINATING_TASK_ON_RESTART_AFTER_A_CONNECTION_LOSS, request)
-                    request.cancel(self.pool)
+                    try:
+                        request.cancel(self.pool)
+                    except Exception:
+                        # cancel() announces the cancellation through the
+                        # result backend, which on a broker outage is often
+                        # unreachable too. One failure must not skip the
+                        # remaining requests (upstream d6131816f).
+                        warn("Failed to cancel active request %r after connection loss", request, exc_info=True)
         else:
             warnings.warn(CANCEL_TASKS_BY_DEFAULT, CPendingDeprecationWarning, stacklevel=2)
 
@@ -458,9 +465,15 @@ class Consumer:
             if bucket:
                 bucket.clear_pending()
         with state._lock:
+            # Active requests are still executing. Dropping them loses the
+            # `requests` entry that revoke/terminate looks up by id and makes
+            # the reserved count wrong until they finish, so only the merely
+            # reserved ones go (upstream 1cc9ecf43).
             for request in tuple(reserved_requests):
-                requests.pop(request.id, None)
+                if request not in active_requests:
+                    requests.pop(request.id, None)
             reserved_requests.clear()
+            reserved_requests.update(tuple(active_requests))
         if self.pool and self.pool.flush:
             self.pool.flush()
 
