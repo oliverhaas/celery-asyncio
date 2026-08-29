@@ -21,6 +21,14 @@ from .utils.uuid import uuid
 
 REPLY_QUEUE_EXPIRES = 10
 
+W_PIDBOX_IN_USE = """\
+A node named {node.hostname} is already using this process mailbox!
+
+Maybe you forgot to shutdown the other node or did your hostname change?
+
+Ensure that only one node is using the same mailbox at any given time.
+"""
+
 __all__ = ("Mailbox", "Node")
 logger = get_logger(__name__)
 debug, error = logger.debug, logger.error
@@ -78,7 +86,16 @@ class Node:
             callbacks=[callback or self.handle_message],
             on_decode_error=self.on_decode_error,
         )
-        await consumer.consume()
+        # Pidbox queues are exclusive by default, so a second node claiming the
+        # same hostname now gets RESOURCE_LOCKED instead of quietly sharing the
+        # queue. Upstream kombu (9bece764) translates it in Node.Consumer, but
+        # here nothing touches the broker until consume() runs the declare.
+        conn = self.mailbox.connection
+        locked_errors = conn.resource_locked_errors if conn is not None else ()
+        try:
+            await consumer.consume()
+        except locked_errors as exc:
+            raise InconsistencyError(W_PIDBOX_IN_USE.format(node=self)) from exc
         return consumer
 
     async def dispatch(self, method, arguments=None, reply_to=None, ticket=None, **kwargs):
@@ -186,7 +203,7 @@ class Mailbox:
         queue_ttl: float | None = None,
         queue_expires: float | None = None,
         queue_durable: bool = False,
-        queue_exclusive: bool = False,
+        queue_exclusive: bool | None = None,
         reply_queue_ttl: float | None = None,
         reply_queue_expires: float = 10.0,
         **kwargs: Any,
@@ -203,14 +220,22 @@ class Mailbox:
         self.queue_ttl = queue_ttl
         self.queue_expires = queue_expires
         self.queue_durable = queue_durable
-        self.queue_exclusive = queue_exclusive
-        self.reply_queue_ttl = reply_queue_ttl
-        self.reply_queue_expires = reply_queue_expires
-        if queue_exclusive and queue_durable:
+        # Exclusive by default since RabbitMQ 4.3.0 refuses to redeclare a
+        # non-exclusive queue that another connection already owns, which is
+        # exactly what two nodes sharing a hostname do (upstream kombu
+        # 9bece764). ``None`` means the caller did not ask either way, so
+        # asking only for durability still gets a working mailbox rather than
+        # the ValueError below.
+        if queue_exclusive is None:
+            queue_exclusive = not queue_durable
+        elif queue_exclusive and queue_durable:
             raise ValueError(
                 "queue_exclusive and queue_durable cannot both be True "
                 "(exclusive queues are automatically deleted and cannot be durable).",
             )
+        self.queue_exclusive = queue_exclusive
+        self.reply_queue_ttl = reply_queue_ttl
+        self.reply_queue_expires = reply_queue_expires
 
     def __call__(self, connection):
         bound = copy(self)

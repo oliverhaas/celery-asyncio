@@ -60,9 +60,13 @@ if aio_pika is not None:
         aiormq_exc.AMQPConnectionError,
     )
     _amqp_channel_errors: tuple[type[Exception], ...] = (aiormq_exc.AMQPChannelError,)
+    # aiormq raises a distinct class per AMQP reply code and, unlike py-amqp,
+    # puts no `code` attribute on the exception, so 405 is matched by type.
+    _amqp_resource_locked_errors: tuple[type[Exception], ...] = (aiormq_exc.ChannelLockedResource,)
 else:
     _amqp_connection_errors = ()
     _amqp_channel_errors = ()
+    _amqp_resource_locked_errors = ()
 
 
 # ---------------------------------------------------------------------------
@@ -540,6 +544,8 @@ class Transport(BaseTransport):
     )
 
     channel_errors = BaseTransport.channel_errors + _amqp_channel_errors
+
+    resource_locked_errors = _amqp_resource_locked_errors
 
     def __init__(
         self,

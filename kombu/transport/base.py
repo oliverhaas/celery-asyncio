@@ -200,6 +200,13 @@ class Transport(ABC):
     #: Tuple of errors that can happen due to channel/method failure
     channel_errors: tuple[type[Exception], ...] = (ChannelError,)
 
+    #: Subset of :attr:`channel_errors` meaning "another connection already
+    #: holds this exclusive resource" (AMQP 405 RESOURCE_LOCKED). Empty for
+    #: transports without exclusive ownership, so callers can catch it
+    #: unconditionally. Kept as a tuple of types rather than a numeric code
+    #: because not every driver exposes the reply code on the exception.
+    resource_locked_errors: tuple[type[Exception], ...] = ()
+
     #: Type of driver (e.g., 'redis', 'memory', 'amqp')
     driver_type: str = "N/A"
 

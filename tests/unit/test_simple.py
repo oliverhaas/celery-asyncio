@@ -56,3 +56,11 @@ class test_SimpleBuffer:
             msg = await buf.get(timeout=1)
             assert msg.payload == {"data": "value"}
             await msg.ack()
+
+
+async def test_simple_buffer_declares_an_exclusive_queue():
+    # RabbitMQ 4.3.0 rejects transient non-exclusive queues, and a buffer is
+    # by definition owned by the connection that created it.
+    async with Connection("memory://") as conn, SimpleBuffer(conn, "test_buf_excl") as buf:
+        assert buf._queue.exclusive is True
+        assert buf._queue.durable is False

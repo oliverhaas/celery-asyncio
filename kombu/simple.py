@@ -298,6 +298,7 @@ class SimpleBuffer(SimpleQueue):
     queue_opts: dict = {
         "durable": False,
         "auto_delete": True,
+        "exclusive": True,
     }
     exchange_opts: dict = {
         "type": "direct",

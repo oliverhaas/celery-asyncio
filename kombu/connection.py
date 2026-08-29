@@ -381,6 +381,17 @@ class Connection:
             return self._transport.channel_errors
         return (ChannelError,)
 
+    @property
+    def resource_locked_errors(self) -> tuple[type[Exception], ...]:
+        """Tuple of exceptions meaning an exclusive resource is already held.
+
+        A subset of :attr:`channel_errors`; empty for transports that have no
+        notion of exclusive ownership.
+        """
+        if self._transport is not None:
+            return self._transport.resource_locked_errors
+        return ()
+
     def as_uri(self, include_password: bool = False) -> str:
         """Return the connection URI, with password masked by default.
 
