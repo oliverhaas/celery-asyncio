@@ -1,7 +1,7 @@
 import copy
 import re
 from contextlib import contextmanager
-from unittest.mock import ANY, MagicMock, Mock, call, patch, sentinel
+from unittest.mock import ANY, AsyncMock, MagicMock, Mock, call, patch, sentinel
 from uuid import UUID
 
 import pytest
@@ -617,6 +617,44 @@ class test_BaseBackend_dict:
         b.mark_as_failure("id", exc, request=request)
         b.on_chord_part_return.assert_called_with(request, states.FAILURE, exc)
 
+    def _chained_chord(self):
+        inner_chord = chord(
+            group([signature("test.h1"), signature("test.h2")]),
+            signature("test.body", immutable=True),
+            app=self.app,
+        )
+        inner_chord.options["task_id"] = "inner-chord-id"
+        inner_chord.body.options["task_id"] = "chord-body-id"
+        return dict(inner_chord)
+
+    def test_mark_as_failure__chained_chord_propagates_to_body(self):
+        # A chord step finishes when its body does, so an enclosing chord waits
+        # on the body id, not the chord's own. Marking only the latter left the
+        # body PENDING and chord_unlock retried without bound (upstream
+        # 1432d9b6c, issue #9674).
+        b = BaseBackend(app=self.app)
+        b.store_result = Mock()
+        b.on_chord_part_return = Mock()
+        request = Context()
+        request.chain = [self._chained_chord()]
+        request.errbacks = []
+
+        b.mark_as_failure("fail-id", ValueError("boom"), request=request)
+
+        assert "chord-body-id" in [c.args[0] for c in b.store_result.call_args_list]
+
+    async def test_amark_as_failure__chained_chord_propagates_to_body(self):
+        b = BaseBackend(app=self.app)
+        b.astore_result = AsyncMock()
+        b.aon_chord_part_return = AsyncMock()
+        request = Context()
+        request.chain = [self._chained_chord()]
+        request.errbacks = []
+
+        await b.amark_as_failure("fail-id", ValueError("boom"), request=request)
+
+        assert "chord-body-id" in [c.args[0] for c in b.astore_result.call_args_list]
+
     def test_mark_as_revoked__chord(self):
         b = BaseBackend(app=self.app)
         b._store_result = Mock()
@@ -643,6 +681,21 @@ class test_BaseBackend_dict:
             callback.id,
             exc=mock_call_errbacks.side_effect,
         )
+
+    def test_chord_error_from_stack_without_a_callback_id(self):
+        # A chord body that was never frozen has no id, and
+        # fail_from_current_stack would then reach get_key_for_task(None) and
+        # raise instead of recording the failure (upstream 72e9240aa, #4834).
+        b = BaseBackend(app=self.app)
+        b.fail_from_current_stack = Mock()
+        callback = signature("test.body", app=self.app)
+        assert callback.id is None
+
+        b.chord_error_from_stack(callback, exc=ValueError("boom"))
+
+        (failed_id,) = b.fail_from_current_stack.call_args.args
+        assert failed_id
+        assert callback.options["task_id"] == failed_id
 
     def test_exception_to_python_when_None(self):
         b = BaseBackend(app=self.app)

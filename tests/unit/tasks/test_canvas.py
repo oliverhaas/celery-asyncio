@@ -566,6 +566,38 @@ class test_chain(CanvasCase):
         tasks, _ = c.prepare_steps((), {}, c.tasks, last_task_id=last_task.id)
         assert c.id == last_task.id
 
+    def test_prepare_steps_sets_the_chain_id_when_none_was_given(self):
+        # Without an explicit last_task_id the chain kept id=None. A chain used
+        # as a chord body then reached get_key_for_task(None) in the chord
+        # error handler and raised instead of recording the failure (upstream
+        # 72e9240aa, issue #4834).
+        c = self.add.s(4) | self.add.s(2)
+        assert c.id is None
+
+        _, results = c.prepare_steps((), {}, c.tasks)
+
+        assert c.id is not None
+        assert c.id == results[0].id
+
+    @pytest.mark.parametrize("allow_error_cb_on_chord_header", [False, True])
+    def test_prepare_steps_links_the_error_to_the_chord_body_exactly_once(self, allow_error_cb_on_chord_header):
+        # chord_error_from_stack reads the errbacks off the body, so a chain's
+        # link_error has to reach it. `_chord.link_error` already does that
+        # unconditionally, which is why upstream 72e9240aa's second hunk (an
+        # explicit `task.body.link_error(errback)` here) was not ported: it
+        # only survives being a no-op because append_to_list_option dedupes.
+        # This test pins both halves of that -- present, and not twice.
+        self.app.conf.task_allow_error_cb_on_chord_header = allow_error_cb_on_chord_header
+        errback = self.add.s()
+        c = _chain(group(self.add.s(2, 2), self.add.s(4, 4), app=self.app), self.add.s(8), app=self.app)
+
+        tasks, _ = c.prepare_steps((), {}, c.tasks, link_error=errback)
+
+        chord_steps = [task for task in tasks if isinstance(task, chord)]
+        assert chord_steps
+        for chord_step in chord_steps:
+            assert len(chord_step.body.options["link_error"]) == 1
+
     def test_group_to_chord(self):
         c = (
             self.add.s(5)

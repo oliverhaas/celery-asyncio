@@ -12,7 +12,7 @@ import asyncio
 import sys
 import time
 import warnings
-from collections import namedtuple
+from collections import deque, namedtuple
 from datetime import timedelta
 from functools import partial
 from uuid import UUID
@@ -23,6 +23,7 @@ from kombu.serialization import dumps, loads, prepare_accept_content
 from kombu.serialization import registry as serializer_registry
 from kombu.utils.encoding import bytes_to_str, ensure_bytes
 from kombu.utils.url import maybe_sanitize_url
+from kombu.utils.uuid import uuid
 
 import celery.exceptions
 from celery import current_app, group, maybe_signature, states
@@ -227,7 +228,9 @@ class Backend:
                 chain_data = iter(request.chain)
             except AttributeError, TypeError:
                 chain_data = ()
-            for chain_elem in chain_data:
+            chain_elems = deque(chain_data)
+            while chain_elems:
+                chain_elem = chain_elems.popleft()
                 # Reconstruct a `Context` object for the chained task which has
                 # enough information to for backends to work with
                 chain_elem_ctx = Context(chain_elem)
@@ -245,9 +248,9 @@ class Backend:
                 # complex, we assume it must have been uplifted to a chord by
                 # the canvas code and therefore the condition below will ensure
                 # that we mark something as being complete as avoid stalling.
-                if store_result and state in states.PROPAGATE_STATES and chain_elem_ctx.task_id is not None:
+                if store_result and state in states.PROPAGATE_STATES and chain_elem_ctx.id is not None:
                     self.store_result(
-                        chain_elem_ctx.task_id,
+                        chain_elem_ctx.id,
                         exc,
                         state,
                         traceback=traceback,
@@ -257,6 +260,16 @@ class Backend:
                 # to call `on_chord_part_return()` as well to avoid stalls.
                 if "chord" in chain_elem_ctx.options:
                     self.on_chord_part_return(chain_elem_ctx, state, exc)
+                # A chord step completes only when its body does, so the result
+                # that later steps and any enclosing chord wait on is the body,
+                # not the chord's own id. Descend into it so the failure
+                # reaches that result, otherwise the body stays PENDING and the
+                # outer chord's unlock retries forever (upstream 1432d9b6c,
+                # issue #9674).
+                if getattr(chain_elem_ctx, "subtask_type", None) == "chord":
+                    chord_body = (chain_elem_ctx.kwargs or {}).get("body")
+                    if chord_body is not None:
+                        chain_elems.append(chord_body)
             # And finally we'll fire any errbacks
             if call_errbacks and request.errbacks:
                 self._call_task_errbacks(request, exc, traceback)
@@ -345,6 +358,15 @@ class Backend:
         # Handle group callbacks specially to prevent hanging body tasks
         if isinstance(callback, group):
             return self._handle_group_chord_error(group_callback=callback, backend=backend, exc=original_exc)
+
+        # The failure has to be stored somewhere, and a callback that was never
+        # frozen has no id -- fail_from_current_stack would then reach
+        # get_key_for_task(None) and raise instead of recording the error
+        # (upstream 72e9240aa, issue #4834).
+        callback_id = callback.id
+        if not callback_id:
+            callback_id = callback.options["task_id"] = uuid()
+
         # We have to make a fake request since either the callback failed or
         # we're pretending it did since we don't have information about the
         # chord part(s) which failed. This request is constructed as a best
@@ -919,14 +941,16 @@ class Backend:
                 chain_data = iter(request.chain)
             except AttributeError, TypeError:
                 chain_data = ()
-            for chain_elem in chain_data:
+            chain_elems = deque(chain_data)
+            while chain_elems:
+                chain_elem = chain_elems.popleft()
                 chain_elem_ctx = Context(chain_elem)
                 chain_elem_ctx.update(chain_elem_ctx.options)
                 chain_elem_ctx.id = chain_elem_ctx.options.get("task_id")
                 chain_elem_ctx.group = chain_elem_ctx.options.get("group_id")
-                if store_result and state in states.PROPAGATE_STATES and chain_elem_ctx.task_id is not None:
+                if store_result and state in states.PROPAGATE_STATES and chain_elem_ctx.id is not None:
                     await self.astore_result(
-                        chain_elem_ctx.task_id,
+                        chain_elem_ctx.id,
                         exc,
                         state,
                         traceback=traceback,
@@ -934,6 +958,11 @@ class Backend:
                     )
                 if "chord" in chain_elem_ctx.options:
                     await self.aon_chord_part_return(chain_elem_ctx, state, exc)
+                # Descend into a chord step's body -- see mark_as_failure().
+                if getattr(chain_elem_ctx, "subtask_type", None) == "chord":
+                    chord_body = (chain_elem_ctx.kwargs or {}).get("body")
+                    if chord_body is not None:
+                        chain_elems.append(chord_body)
             if call_errbacks and request.errbacks:
                 self._call_task_errbacks(request, exc, traceback)
 

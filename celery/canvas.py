@@ -1516,7 +1516,11 @@ class _chain(Signature):
                 while node.parent:
                     node = node.parent
                 prev_res = node
-        self.id = last_task_id
+        # The last task's real id, not the parameter that was passed in: when
+        # no id was requested `last_task_id` is None, and a chain left with
+        # id=None as a chord body makes get_key_for_task(None) raise in the
+        # error handler (upstream 72e9240aa, issue #4834).
+        self.id = results[0].id if results else last_task_id
         return tasks, results
 
     def apply(self, args=None, kwargs=None, **options):
