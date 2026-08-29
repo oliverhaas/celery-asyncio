@@ -1,3 +1,4 @@
+import asyncio
 import gc
 import importlib
 import inspect
@@ -12,6 +13,7 @@ from unittest.mock import DEFAULT, Mock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
+from kombu import Connection
 
 pydantic = pytest.importorskip("pydantic")
 from pydantic import BaseModel, ValidationInfo, model_validator
@@ -1436,6 +1438,77 @@ class test_send_task_exec_options:
         with patch.dict(self.app._tasks, {"t.raw.class": Task}):
             _, _, published = self._send("t.raw.class")
         assert "serializer" not in published
+
+
+class test_broker_connection_reuse:
+    """One broker connection per app and event loop, not one per message.
+
+    `_asend_task_message` used to call `connection_for_write()` itself, and the
+    sync path ran it through `async_to_sync`, which builds a throwaway loop per
+    call. A transport belongs to the loop that opened it, so every published
+    message opened a connection and abandoned it unclosed.
+    """
+
+    def _counting_connect(self, connected):
+        real_connect = Connection.connect
+
+        async def connect(conn, *args, **kwargs):
+            connected.append(conn)
+            return await real_connect(conn, *args, **kwargs)
+
+        return patch.object(Connection, "connect", connect)
+
+    def _app(self, name):
+        app = self.Celery(set_as_current=False, broker="memory://")
+
+        @app.task(name=name, shared=False)
+        def t():
+            pass
+
+        return app
+
+    def test_repeated_sync_sends_share_one_connection(self):
+        app = self._app("t.reuse.sync")
+        connected = []
+
+        with self._counting_connect(connected):
+            for _ in range(3):
+                app.send_task("t.reuse.sync")
+
+        assert len(connected) == 1
+        assert len(app._async_connections) == 1
+
+    async def test_repeated_async_sends_share_one_connection(self):
+        app = self._app("t.reuse.async")
+        connected = []
+
+        with self._counting_connect(connected):
+            for _ in range(3):
+                await app.asend_task("t.reuse.async")
+
+        assert len(connected) == 1
+        assert app._async_connections[asyncio.get_running_loop()] is connected[0]
+
+    async def test_a_caller_with_its_own_loop_gets_its_own_connection(self):
+        # Not an inefficiency to fix later: a transport opened on the
+        # background loop cannot be driven from this one.
+        app = self._app("t.reuse.both")
+        await app.asend_task("t.reuse.both")
+        await asyncio.to_thread(app.send_task, "t.reuse.both")
+
+        assert len(app._async_connections) == 2
+
+    def test_close_hands_the_connection_back(self):
+        app = self._app("t.reuse.close")
+        app.send_task("t.reuse.close")
+        connection = next(iter(app._async_connections.values()))
+
+        # Closing is a coroutine and has to run on the loop that owns the
+        # transport, so `close()` hands it over and waits for it there.
+        app.close()
+
+        assert not connection.is_connected
+        assert not app._async_connections
 
 
 class test_defaults:

@@ -3,6 +3,7 @@
 """Actual App instance implementation."""
 
 import annotationlib
+import asyncio
 import functools
 import importlib
 import inspect
@@ -11,12 +12,12 @@ import sys
 import threading
 import typing
 import warnings
+import weakref
 from collections import UserDict, defaultdict, deque
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from operator import attrgetter
 
-from asgiref.sync import async_to_sync
 from click.exceptions import Exit
 from dateutil.parser import isoparse
 from kombu import Exchange
@@ -64,6 +65,7 @@ from celery.local import PromiseProxy, maybe_evaluate
 from celery.utils import abstract
 from celery.utils.collections import AttributeDictMixin
 from celery.utils.dispatch import Signal
+from celery.utils.eventloop import current_loop, default_loop_runner
 from celery.utils.functional import first, head_from_fun, maybe_list
 from celery.utils.imports import gen_task_name, instantiate, symbol_by_name
 from celery.utils.log import get_logger
@@ -433,7 +435,11 @@ class Celery:
         self._local = threading.local()
         self._backend_cache = None
         self._pool = None
-        self._async_connection = None
+        # One broker connection per event loop, since a connection's transport
+        # belongs to the loop that opened it. Weakly keyed so a loop that goes
+        # away takes its connection with it.
+        self._async_connections = weakref.WeakKeyDictionary()
+        self._async_connections_lock = threading.Lock()
 
         self.clock = LamportClock()
         self.main = main
@@ -548,8 +554,35 @@ class Celery:
             ...         pass
         """
         self._pool = None
-        self._async_connection = None
+        self._close_async_connections()
         _deregister_app(self)
+
+    def _close_async_connections(self):
+        # Closing is a coroutine and has to run on the loop that owns the
+        # transport, which is rarely the one `close()` was called from. An
+        # unconnected connection has nothing to hand back and is left to the
+        # garbage collector.
+        running = current_loop()
+        for loop, connection in list(self._async_connections.items()):
+            if not connection.is_connected or loop.is_closed():
+                continue
+            closing = connection.close()
+            if not inspect.isawaitable(closing):
+                # A stand-in transport whose `close()` is synchronous, which
+                # calling it has already done.
+                continue
+            try:
+                if loop is running:
+                    # Cannot wait for the loop we are standing on.
+                    asyncio.ensure_future(closing)
+                else:
+                    # Waited for rather than fired off: a `close()` still in
+                    # flight when the interpreter exits leaves the socket open
+                    # and prints "Task was destroyed but it is pending".
+                    asyncio.run_coroutine_threadsafe(closing, loop).result(timeout=self.conf.broker_connection_timeout)
+            except RuntimeError, TimeoutError:
+                pass
+        self._async_connections.clear()
 
     def start(self, argv=None):
         """Run :program:`celery` using `argv`.
@@ -1101,12 +1134,13 @@ class Celery:
         """
         amqp = self.amqp
 
-        # Get or create async connection
         if connection is None:
-            connection = self.connection_for_write()
-
-        # Connect if needed
-        await connection.connect()
+            # This loop's shared connection, not a new one. `connect()` on an
+            # already-connected connection is a no-op, so the first send opens
+            # it and later ones reuse it.
+            connection = await self.ensure_async_connection()
+        else:
+            await connection.connect()
 
         # Create async producer
         async with connection.Producer() as producer:
@@ -1117,9 +1151,6 @@ class Celery:
     def _send_task_message(self, producer, name, message, task_id, ignore_result, **options):
         """Send the prepared task message to the broker (sync wrapper).
 
-        This wraps the async implementation with async_to_sync for
-        backward compatibility with sync code.
-
         Arguments:
             producer: Optional producer to use (ignored in async impl, kept for compat).
             name: Task name.
@@ -1128,7 +1159,10 @@ class Celery:
             ignore_result: Whether to ignore the result.
             **options: Additional options for send_task_message.
         """
-        async_to_sync(self._asend_task_message)(name, message, task_id, ignore_result, **options)
+        # On the process-wide background loop rather than `async_to_sync`,
+        # which would build a throwaway loop per call and so a throwaway
+        # broker connection with it. See `celery.utils.eventloop`.
+        default_loop_runner().run(self._asend_task_message(name, message, task_id, ignore_result, **options))
 
     def send_task(
         self,
@@ -1751,22 +1785,25 @@ class Celery:
 
     @property
     def async_connection(self):
-        """Shared async connection for this app.
-
-        This connection is lazily created and shared across all async operations.
-        It is the primary connection mechanism in celery-asyncio.
-        """
-        if self._async_connection is None:
-            self._async_connection = self.connection_for_write()
-        return self._async_connection
+        """The app's broker connection for the loop this runs on."""
+        # A connection's transport is bound to the loop that opened it, so
+        # "shared" can only ever mean shared per loop. Off a loop entirely,
+        # the answer is the one belonging to the loop sync sends run on:
+        # `send_task` reads this and then publishes there.
+        loop = current_loop() or default_loop_runner().loop
+        connection = self._async_connections.get(loop)
+        if connection is None:
+            with self._async_connections_lock:
+                connection = self._async_connections.get(loop)
+                if connection is None:
+                    connection = self._async_connections[loop] = self.connection_for_write()
+        return connection
 
     async def ensure_async_connection(self):
-        """Ensure the async connection is established.
-
-        Returns the connected async connection.
-        """
+        """Return this loop's broker connection, connected."""
         conn = self.async_connection
-        await conn.connect()
+        if not conn.is_connected:
+            await conn.connect()
         return conn
 
     @property
