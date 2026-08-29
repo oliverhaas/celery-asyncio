@@ -59,6 +59,10 @@ Then drop anything touching only the subsystems listed above.
 | `8b4b29c93` Stop leaking exceptions, cancel stale Heart timers | `1f32bb270` | Verbatim, including `Events._close()` calling `disable()` rather than `close()`. |
 | `10f24ce07` Preserve re-buffered events during flush | `1f32bb270` | Verbatim. |
 | `97ed017c0` + `f85031f61` Group-buffered events across a flush | `1f32bb270` | Adapted, and much worse here than upstream. See "Found along the way". |
+| `066e96e01` `_default_consume_from` so routing-only queues stay out of consumers | `a5af881a0` | Verbatim. |
+| `ece686299` `deselect` no longer promotes the routing table to a selection | `a5af881a0` | Verbatim. Depends on `066e96e01`. |
+| `2e150f833` `select` keys `consume_from` by the real queue name, not the alias | `a5af881a0` | Verbatim. |
+| `1a4768959` Defer the default queue lookup in the task sender | `a5af881a0` | Adapted: applied to `_create_async_task_sender` as well, which upstream does not have. |
 
 ### Found along the way
 
@@ -125,13 +129,6 @@ leak, reverted and re-landed upstream · `6b1fad369` deprecated `get_connection`
 
 Triaged as real and missing but not yet checked line by line, let alone ported. Roughly ordered
 by how much they matter. **Every one of these is (unverified).**
-
-### Queue selection and routing, `celery/app/amqp.py`
-
-`1a4768959` defer the default queue lookup so an explicitly routed task does not need one ·
-`2e150f833` store the real queue name when a queue is selected by alias, or reconnect consumes it
-twice · `ece686299` + `066e96e01` a `_default_consume_from` so `deselect` and post-reconnect
-`select_add` stop leaking routing-only queues into consumers. The last two are one change.
 
 ### Worker
 
