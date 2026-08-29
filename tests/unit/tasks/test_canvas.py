@@ -667,6 +667,44 @@ class test_chain(CanvasCase):
         )
         assert len(c.tasks) == 6
 
+    def test_chain_of_chords_stays_flat(self):
+        c = chain(
+            chord([signature("h1"), signature("h2")], signature("b1"), app=self.app),
+            chord([signature("h3"), signature("h4")], signature("b2"), app=self.app),
+            chord([signature("h5"), signature("h6")], signature("b3"), app=self.app),
+        )
+        assert isinstance(c, _chain)
+        assert len(c.tasks) == 3
+        for task in c.tasks:
+            assert isinstance(task, chord)
+            assert not isinstance(task.body, _chain)
+
+    def test_chain_of_chords_serialized_size_constant(self):
+        # Folding each chord into the previous one's body nested them, so
+        # chord i carried a copy of chords 1..i-1 and the serialized chain grew
+        # quadratically in the number of chords.
+        chords = [chord([signature(f"h{i}_{j}") for j in range(3)], signature(f"b{i}"), app=self.app) for i in range(6)]
+        c = chain(*chords)
+
+        assert isinstance(c, _chain)
+        # Without the length assertion this is vacuous: pre-fix the six chords
+        # collapse into a single nested task, so there is one size and it is
+        # trivially both the max and the min.
+        assert len(c.tasks) == len(chords)
+        sizes = [len(json.dumps(task.__json__())) for task in c.tasks]
+        assert max(sizes) == min(sizes), f"Chord sizes not constant across chain: {sizes}"
+
+    def test_chord_or_task_still_nests(self):
+        # A plain task appended to the last chord's body stays flat, so that
+        # case keeps the old behaviour.
+        c = chord([signature("h1")], signature("b1"), app=self.app)
+        t = signature("t1")
+
+        result = chain(c) | t
+
+        assert isinstance(result, _chain)
+        assert isinstance(result.tasks[0].body, _chain)
+
     def test_apply_options(self):
 
         class static(Signature):

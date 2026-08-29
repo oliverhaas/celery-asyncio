@@ -1054,12 +1054,19 @@ class _chain(Signature):
                     sig.tasks[-2].body = sig.tasks[-2].body | sig.tasks[-1]
                     sig.tasks = sig.tasks[:-1]
                 return sig
-            if self.tasks and isinstance(self.tasks[-1], chord):
-                # CHAIN [last item is chord] -> chain with chord body.
+            if self.tasks and isinstance(self.tasks[-1], chord) and not isinstance(other, chord):
+                # CHAIN [last item is chord] | TASK -> chain with chord body.
+                #
+                # Not for a chord: folding chord K into chord K-1's body nests
+                # every earlier chord inside the next one, so chord i carries
+                # a copy of chords 1..i-1 and the serialized chain grows
+                # O(K^2) in the number of chords (upstream df57d9ab9). A plain
+                # task appended to the last body stays flat, so that case is
+                # unchanged.
                 sig = self.clone()
                 sig.tasks[-1].body = sig.tasks[-1].body | other
                 return sig
-            # chain | task -> chain
+            # chain | task/chord -> chain
             # use type(self) for _chain subclasses
             return type(self)(seq_concat_item(self.unchain_tasks(), other), app=self._app)
         return NotImplemented
