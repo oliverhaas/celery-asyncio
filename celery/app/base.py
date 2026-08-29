@@ -134,6 +134,21 @@ __all__ = ("Celery",)
 
 logger = get_logger(__name__)
 
+#: Distinguishes "the caller did not pass this" from "the caller passed None".
+#: `send_task` needs the difference so that an explicit ``expires=None`` can
+#: clear a default merged in from the task's own options (upstream fbd01579c).
+_OMITTED = object()
+
+
+def _resolve_exec_option(explicit, options, key):
+    """Take `key` out of `options`, preferring an explicitly passed value."""
+    # These arrive twice: as a named argument of `send_task` and, once the
+    # registered task's own options have been merged, as a key in `options`.
+    # `create_task_message` takes them by name, so leaving the key behind
+    # would be "got multiple values for argument".
+    merged = options.pop(key, None)
+    return merged if explicit is _OMITTED else explicit
+
 
 def _get_annotations(fun):
     """Read a function's annotations without insisting they resolve.
@@ -889,7 +904,7 @@ class Celery:
         connection=None,
         router=None,
         result_cls=None,
-        expires=None,
+        expires=_OMITTED,
         publisher=None,
         link=None,
         link_error=None,
@@ -899,8 +914,8 @@ class Celery:
         retries=0,
         chord=None,
         reply_to=None,
-        time_limit=None,
-        soft_time_limit=None,
+        time_limit=_OMITTED,
+        soft_time_limit=_OMITTED,
         root_id=None,
         parent_id=None,
         route_name=None,
@@ -931,6 +946,34 @@ class Celery:
                 ),
                 stacklevel=2,
             )
+
+        # A plain `send_task("name")` used to ignore everything the task
+        # declares about itself, its serializer, queue and compression
+        # included. Those only took effect through `apply_async` (upstream
+        # fbd01579c). Look the name up locally and use the task's own options
+        # as defaults, so both call paths route the same way.
+        #
+        # `self._tasks`, not `self.tasks`: sending to a name this process does
+        # not know about must not finalize the app, nor raise under
+        # `autofinalize=False`.
+        #
+        # Skipped when the caller supplied `task_type`, which means
+        # `apply_async` and means these are already merged.
+        if task_type is None:
+            task_type = self._tasks.get(name)
+            if task_type is not None:
+                # A bound method, so an unbound one from a class left in the
+                # registry is left alone rather than called and crashed on.
+                get_exec_options = getattr(task_type, "_get_exec_options", None)
+                if inspect.ismethod(get_exec_options):
+                    # `is not None`, so that a task-level option that happens
+                    # to be unset does not downgrade an app-level default.
+                    defaults = {k: v for k, v in get_exec_options().items() if v is not None}
+                    options = dict(defaults, **options)
+
+        time_limit = _resolve_exec_option(time_limit, options, "time_limit")
+        soft_time_limit = _resolve_exec_option(soft_time_limit, options, "soft_time_limit")
+        expires = _resolve_exec_option(expires, options, "expires")
 
         ignore_result = options.pop("ignore_result", False)
         options = router.route(options, route_name or name, args, kwargs, task_type)
@@ -1099,7 +1142,7 @@ class Celery:
         connection=None,
         router=None,
         result_cls=None,
-        expires=None,
+        expires=_OMITTED,
         publisher=None,
         link=None,
         link_error=None,
@@ -1109,8 +1152,8 @@ class Celery:
         retries=0,
         chord=None,
         reply_to=None,
-        time_limit=None,
-        soft_time_limit=None,
+        time_limit=_OMITTED,
+        soft_time_limit=_OMITTED,
         root_id=None,
         parent_id=None,
         route_name=None,
@@ -1185,7 +1228,7 @@ class Celery:
         connection=None,
         router=None,
         result_cls=None,
-        expires=None,
+        expires=_OMITTED,
         publisher=None,
         link=None,
         link_error=None,
@@ -1195,8 +1238,8 @@ class Celery:
         retries=0,
         chord=None,
         reply_to=None,
-        time_limit=None,
-        soft_time_limit=None,
+        time_limit=_OMITTED,
+        soft_time_limit=_OMITTED,
         root_id=None,
         parent_id=None,
         route_name=None,

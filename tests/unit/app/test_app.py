@@ -1,5 +1,6 @@
 import gc
 import importlib
+import inspect
 import os
 import ssl
 import typing
@@ -15,9 +16,10 @@ import pytest
 pydantic = pytest.importorskip("pydantic")
 from pydantic import BaseModel, ValidationInfo, model_validator
 
-from celery import Celery, _state, current_app, shared_task
+from celery import Celery, Task, _state, current_app, shared_task
 from celery import app as _app
 from celery.app import defaults
+from celery.app.amqp import AMQP
 from celery.backends.base import Backend
 from celery.exceptions import ImproperlyConfigured
 from celery.loaders.base import unconfigured
@@ -1321,6 +1323,119 @@ class test_App:
             self.app.send_task("foo", (1, 2), expires="2023-03-16T17:21:20.663973")
         except TypeError as e:
             pytest.fail(f"raise unexcepted error {e}")
+
+
+class test_send_task_exec_options:
+    """`send_task("name")` picks up the options the task declares for itself.
+
+    Until upstream fbd01579c the task's own serializer, queue, compression and
+    so on only applied through `apply_async`; calling the same task by name
+    silently fell back to the app defaults (upstream #8542).
+    """
+
+    def _send(self, name, **kwargs):
+        """Send by name with the broker stubbed out, and report what was built."""
+        self.app.finalize()
+        router = Mock(name="router")
+        router.route.side_effect = lambda options, *args, **kw: options
+        self.app.amqp = Mock(name="amqp")
+        with patch.object(self.app, "_send_task_message") as send_message:
+            self.app.send_task(name, (1,), router=router, **kwargs)
+        message = self.app.amqp.create_task_message
+        message.assert_called_once()
+        # Named parameters rather than positional indexes, so this does not
+        # break the next time a field is inserted into as_task_v2.
+        bound = inspect.signature(AMQP.as_task_v2).bind(None, *message.call_args.args, **message.call_args.kwargs)
+        return bound.arguments, message.call_args.kwargs, send_message.call_args.kwargs
+
+    def test_serializer_comes_from_the_task(self):
+        @self.app.task(name="t.serializer", serializer="json", shared=False)
+        def t():
+            pass
+
+        self.app.conf.task_serializer = "msgpack"
+        _, _, published = self._send("t.serializer")
+        assert published["serializer"] == "json"
+
+    def test_explicit_serializer_beats_the_task(self):
+        @self.app.task(name="t.serializer2", serializer="json", shared=False)
+        def t():
+            pass
+
+        _, _, published = self._send("t.serializer2", serializer="pickle")
+        assert published["serializer"] == "pickle"
+
+    def test_a_name_this_process_does_not_know_still_sends(self):
+        # The whole point of send_task is naming a task that lives elsewhere.
+        _, _, published = self._send("not.registered.anywhere")
+        assert "serializer" not in published
+
+    def test_it_does_not_finalize_the_app(self):
+        # Looking the name up must not force finalization, which would raise
+        # under autofinalize=False.
+        app = self.Celery(set_as_current=False, autofinalize=False)
+        app.conf.broker_url = "memory://"
+        app.amqp = Mock(name="amqp")
+        router = Mock(name="router")
+        router.route.side_effect = lambda options, *args, **kw: options
+        with patch.object(app, "_send_task_message"):
+            app.send_task("not.registered.anywhere", (1,), router=router)
+        assert not app.finalized
+
+    @pytest.mark.parametrize("option", ["time_limit", "soft_time_limit", "expires"])
+    def test_task_level_value_is_used_and_not_duplicated(self, option):
+        # These three are named parameters of as_task_v2 *and* keys in
+        # _get_exec_options(), so before the fix this was "got multiple values
+        # for argument".
+        @self.app.task(name=f"t.{option}", shared=False, **{option: 300})
+        def t():
+            pass
+
+        arguments, as_kwargs, _ = self._send(f"t.{option}")
+        assert arguments[option] == 300
+        assert option not in as_kwargs
+
+    @pytest.mark.parametrize("option", ["time_limit", "soft_time_limit", "expires"])
+    def test_explicit_value_beats_the_task(self, option):
+        @self.app.task(name=f"t.{option}.override", shared=False, **{option: 300})
+        def t():
+            pass
+
+        arguments, _, _ = self._send(f"t.{option}.override", **{option: 60})
+        assert arguments[option] == 60
+
+    @pytest.mark.parametrize("option", ["time_limit", "soft_time_limit", "expires"])
+    def test_explicit_none_clears_the_task_value(self, option):
+        # This is why the defaults are a sentinel and not None: otherwise
+        # "clear the task's 300" is indistinguishable from "did not say".
+        @self.app.task(name=f"t.{option}.clear", shared=False, **{option: 300})
+        def t():
+            pass
+
+        arguments, _, _ = self._send(f"t.{option}.clear", **{option: None})
+        assert arguments[option] is None
+
+    def test_apply_async_is_left_alone(self):
+        # apply_async merges exec options itself and then passes task_type, so
+        # merging again here would clobber whatever it just decided.
+        @self.app.task(name="t.viaapply", shared=False, time_limit=300)
+        def t(x):
+            pass
+
+        self.app.finalize()
+        with patch.object(self.app, "send_task") as send_task:
+            t.apply_async((1,), time_limit=60)
+        assert send_task.call_args.kwargs["time_limit"] == 60
+        # Non-None task_type is what tells _prepare_task_message to skip.
+        assert send_task.call_args.kwargs["task_type"].name == "t.viaapply"
+
+    def test_a_class_left_in_the_registry_is_skipped(self):
+        # `_get_exec_options` is an unbound function on a class, so calling it
+        # would raise. Registered names normally hold instances.
+        self.app.finalize()
+        with patch.dict(self.app._tasks, {"t.raw.class": Task}):
+            _, _, published = self._send("t.raw.class")
+        assert "serializer" not in published
 
 
 class test_defaults:
