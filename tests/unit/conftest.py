@@ -219,8 +219,18 @@ def sanity_logging_side_effects(request):
     root = logging.getLogger()
     rootlevel = root.level
     roothandlers = [x for x in root.handlers if not isinstance(x, LogCaptureHandler)]
+    showwarning = warnings.showwarning
 
     yield
+
+    # `Logging.setup()` calls `logging.captureWarnings(True)`, which swaps out
+    # `warnings.showwarning` and is never switched back off. From Python 3.14,
+    # `catch_warnings(record=True)` only records while `showwarning` is the
+    # stock one, so every `pytest.warns` for the rest of the session silently
+    # sees nothing. Any test that runs the worker or beat CLI trips this.
+    if warnings.showwarning is not showwarning:
+        logging.captureWarnings(False)
+        warnings.showwarning = showwarning
 
     this = request.node.name
     root_now = logging.getLogger()
