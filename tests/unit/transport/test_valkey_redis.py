@@ -553,7 +553,9 @@ class TestAckReject:
         await ch.basic_ack("tag1")
         ack_script.assert_called_once()
         keys = ack_script.call_args[1]["keys"]
-        assert len(keys) == 2  # index key, message key
+        # index key, message key, queue key. The queue key cancels a copy the
+        # sweep restored while this consumer was still working (PORT-PLAN fix 1).
+        assert keys == ["messages_index:q1", "message:tag1", "queue:q1"]
         assert "tag1" not in ch._delivered
 
     async def test_basic_ack_fanout_skips_redis(self):

@@ -1166,12 +1166,13 @@ class Channel:
         entry = self._delivered.pop(delivery_tag, None)
         if entry:
             queue, _ = entry
-            # Atomic ack via Lua script (ZREM + DEL in one round-trip)
+            # Atomic ack via Lua script (ZREM + ZREM + DEL in one round-trip)
             script = await self._get_ack_script()
             await script(
                 keys=[
                     self._messages_index_key(queue),
                     self._message_key(delivery_tag),
+                    self._queue_key(queue),
                 ],
                 args=[delivery_tag],
             )
@@ -1198,6 +1199,7 @@ class Channel:
                     keys=[
                         self._messages_index_key(queue),
                         self._message_key(delivery_tag),
+                        self._queue_key(queue),
                     ],
                     args=[delivery_tag],
                 )

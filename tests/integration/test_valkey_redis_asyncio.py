@@ -317,5 +317,75 @@ class TestExchangeTypes:
         assert _topic_match("user.profile.updated", "user.*") is False
 
 
+JSON_MESSAGE = (
+    b'{"body": {"v": "x"}, "content-type": "application/json", '
+    b'"content-encoding": "utf-8", "properties": {}, "headers": {}}'
+)
+
+
+async def run_sweep(channel, queue):
+    """Run one enqueue_due_messages pass over ``queue``.
+
+    The sweep only visits queues that have a consumer, so register one. Its
+    callback is never invoked: the sweep moves tags between keys and does not
+    deliver.
+    """
+    channel._consumers["sweep-probe"] = (queue, lambda *args: None, False)
+    try:
+        return await channel._enqueue_due_messages()
+    finally:
+        del channel._consumers["sweep-probe"]
+
+
+async def expire_visibility(channel, queue, delivery_tag):
+    """Backdate a delivery's visibility deadline so the next sweep restores it."""
+    await channel.client.zadd(channel._messages_index_key(queue), {delivery_tag: 0})
+
+
+class TestDeliveryTracking:
+    """Regressions for the fixes ported from celery-redis-plus (see PORT-PLAN.md)."""
+
+    async def test_acking_after_a_restore_cancels_the_restored_copy(self, channel):
+        """PORT-PLAN fix 1."""
+        queue_name = "test_ack_cancels_restore"
+        await channel.queue_purge(queue_name)
+        await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+
+        msg = await channel.get(queue_name, no_ack=False)
+        assert msg is not None
+        assert await channel.client.zcard(channel._queue_key(queue_name)) == 0
+
+        # The consumer is still working on it when the deadline passes, so the
+        # sweep puts a second poppable copy back in the queue.
+        await expire_visibility(channel, queue_name, msg.delivery_tag)
+        enqueued, _dropped = await run_sweep(channel, queue_name)
+        assert enqueued == 1
+        assert await channel.client.zcard(channel._queue_key(queue_name)) == 1
+
+        # The ack has to cancel that copy, or a second worker runs the task.
+        await msg.ack()
+        assert await channel.client.zcard(channel._queue_key(queue_name)) == 0
+
+        await channel.queue_purge(queue_name)
+
+    async def test_rejecting_without_requeue_cancels_the_restored_copy(self, channel):
+        """PORT-PLAN fix 1, the other caller of the ack script."""
+        queue_name = "test_reject_cancels_restore"
+        await channel.queue_purge(queue_name)
+        await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+
+        msg = await channel.get(queue_name, no_ack=False)
+        assert msg is not None
+
+        await expire_visibility(channel, queue_name, msg.delivery_tag)
+        await run_sweep(channel, queue_name)
+        assert await channel.client.zcard(channel._queue_key(queue_name)) == 1
+
+        await msg.reject(requeue=False)
+        assert await channel.client.zcard(channel._queue_key(queue_name)) == 0
+
+        await channel.queue_purge(queue_name)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
