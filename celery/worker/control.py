@@ -232,11 +232,52 @@ def revoke_by_stamped_headers(state, headers, terminate=False, signal=None, **kw
     return ok(f"headers {terminated_scheme_to_stamps_mapping} revoked")
 
 
+#: Strong references to the tasks _schedule() hands to the loop. Without
+#: these the loop only holds a weak reference and a task can be collected
+#: mid-flight, which here would mean silently not marking anything revoked.
+_pending_control_tasks = set()
+
+
+def _schedule(coro):
+    """Run a coroutine from a synchronous control command handler.
+
+    Control commands arrive on the pidbox handler, which already runs on the
+    worker's event loop, so the coroutine is scheduled there rather than
+    awaited: blocking would stall every other message the loop is serving.
+    Outside a loop (tests, direct calls) it is simply run to completion.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(coro)
+        return
+
+    task = loop.create_task(coro)
+    _pending_control_tasks.add(task)
+    task.add_done_callback(_pending_control_tasks.discard)
+
+
+async def _amark_revoked(backend, task_ids):
+    for task_id in task_ids:
+        try:
+            await backend.amark_as_revoked(task_id, reason="revoked", store_result=True)
+        except Exception as exc:
+            logger.warning("Failed to mark task %s as revoked in backend: %s", task_id, exc)
+
+
 def _revoke(state, task_ids, terminate=False, signal=None, **kwargs):
     size = len(task_ids)
     terminated = set()
 
     worker_state.revoked.update(task_ids)
+
+    # A revoked task that was never delivered has no worker to fail it, so
+    # without this its result sits at PENDING and anything waiting on it waits
+    # forever (upstream 333a82f74). The async backend call is used rather than
+    # the sync one because this runs on the event loop, where a blocking Redis
+    # round trip per id would stall the worker.
+    _schedule(_amark_revoked(state.app.backend, list(task_ids)))
+
     if terminate:
         signum = _signals.signum(signal or TERM_SIGNAME)
         for request in _find_requests_by_id(task_ids):
@@ -620,10 +661,7 @@ def add_consumer(state, queue, exchange=None, exchange_type=None, routing_key=No
     """Tell worker(s) to consume from task queue by name."""
     result = state.consumer.add_task_queue(queue, exchange, exchange_type or "direct", routing_key, **options)
     if asyncio.iscoroutine(result):
-        try:
-            asyncio.get_running_loop().create_task(result)
-        except RuntimeError:
-            asyncio.run(result)
+        _schedule(result)
     return ok(f"add consumer {queue}")
 
 
@@ -635,10 +673,7 @@ def cancel_consumer(state, queue, **_):
     """Tell worker(s) to stop consuming from task queue by name."""
     result = state.consumer.cancel_task_queue(queue)
     if asyncio.iscoroutine(result):
-        try:
-            asyncio.get_running_loop().create_task(result)
-        except RuntimeError:
-            asyncio.run(result)
+        _schedule(result)
     return ok(f"no longer consuming from {queue}")
 
 

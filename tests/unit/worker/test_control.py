@@ -1,3 +1,4 @@
+import asyncio
 import socket
 import sys
 import time
@@ -508,6 +509,43 @@ class test_ControlPanel:
         }
         await self.panel.handle_message(m, None)
         assert tid + "xxx" not in revoked
+
+    async def test_revoke_marks_the_task_revoked_in_the_backend(self):
+        # A task revoked before it was ever delivered has no worker to fail
+        # it, so its result would otherwise sit at PENDING forever and anyone
+        # waiting on it would wait forever.
+        tid = uuid()
+        self.app.backend.amark_as_revoked = AsyncMock()
+
+        m = {"method": "revoke", "destination": hostname, "arguments": {"task_id": tid}}
+        await self.panel.handle_message(m, None)
+        await asyncio.gather(*tuple(control._pending_control_tasks))
+
+        self.app.backend.amark_as_revoked.assert_awaited_once_with(tid, reason="revoked", store_result=True)
+
+    async def test_revoke_still_revokes_when_the_backend_is_unreachable(self):
+        tid = uuid()
+        self.app.backend.amark_as_revoked = AsyncMock(side_effect=OSError("redis down"))
+
+        m = {"method": "revoke", "destination": hostname, "arguments": {"task_id": tid}}
+        await self.panel.handle_message(m, None)
+        await asyncio.gather(*tuple(control._pending_control_tasks))
+
+        # The local flag is what stops the worker running it, and that must
+        # not depend on the backend being up.
+        assert tid in revoked
+
+    def test_revoke_marks_the_backend_without_a_running_loop(self):
+        # Called directly rather than through the pidbox: there is no loop to
+        # schedule on, so the coroutine has to be run to completion instead.
+        tid = uuid()
+        state = self.create_state()
+        state.app = Mock()
+        state.app.backend.amark_as_revoked = AsyncMock()
+
+        control.revoke(state, tid)
+
+        state.app.backend.amark_as_revoked.assert_awaited_once_with(tid, reason="revoked", store_result=True)
 
     def test_revoke_terminate(self):
         request = Mock()
