@@ -9,6 +9,7 @@ the preferred library (with automatic fallback if only one is installed):
 """
 
 import asyncio
+from collections.abc import Iterable
 from functools import partial
 from ssl import CERT_NONE, CERT_OPTIONAL, CERT_REQUIRED
 from urllib.parse import unquote
@@ -314,7 +315,9 @@ return false
 
         self.url = url
 
-        self.connection_errors = get_all_connection_errors()
+        self._add_driver_info()
+
+        self.connection_errors = get_all_connection_errors() + self._additional_connection_errors()
         self.channel_errors = get_all_channel_errors()
         self.result_consumer = self.ResultConsumer(
             self,
@@ -323,6 +326,67 @@ return false
             self._pending_results,
             self._pending_messages,
         )
+
+    def _add_driver_info(self):
+        """Identify celery to the server via ``CLIENT SETINFO``.
+
+        Makes this backend's connections distinguishable in ``CLIENT LIST``
+        and in server-side telemetry (upstream 22a03fa13).
+
+        redis-py >= 7 takes a ``DriverInfo``; valkey-py and older redis-py
+        take the deprecated ``lib_name``/``lib_version`` pair instead, so
+        which client library was resolved from the URL decides the form.
+        """
+        from celery import __version__
+
+        try:
+            driver_info = self.redis.DriverInfo().add_upstream_driver("celery", __version__)
+        except ImportError, AttributeError:
+            # The formatted name redis-py itself would produce for an
+            # upstream driver, spelled out for clients that cannot build it.
+            self.connparams["lib_name"] = f"redis-py(celery_v{__version__})"
+            self.connparams["lib_version"] = getattr(self.redis, "__version__", "unknown")
+        else:
+            self.connparams["driver_info"] = driver_info
+
+    def _additional_connection_errors(self):
+        """Resolve the ``additional_connection_errors`` transport option.
+
+        A proxy or a managed Valkey/Redis service sitting in front of the
+        server raises its own exception type when it drops a connection, and
+        the retry machinery only knows the client library's. Listing those
+        types here lets them be retried instead of surfacing as a hard
+        failure (upstream 0472aaccb).
+
+        Entries are exception classes or dotted paths to them. An entry that
+        is neither is skipped with a warning rather than taking the whole
+        backend down at construction time.
+        """
+        # Read the conf directly rather than through `_transport_options`:
+        # that is a cached_property and this runs from `__init__`, so going
+        # through it would freeze the options at construction time.
+        transport_options = self.app.conf.get("result_backend_transport_options") or {}
+        additional = transport_options.get("additional_connection_errors") or ()
+        if isinstance(additional, (str, type)) or not isinstance(additional, Iterable):
+            additional = (additional,)
+
+        extra = []
+        for entry in additional:
+            try:
+                resolved = symbol_by_name(entry) if isinstance(entry, str) else entry
+            except (ImportError, AttributeError) as exc:
+                logger.warning("Ignoring unresolvable additional_connection_errors entry %r: %r", entry, exc)
+                continue
+            if isinstance(resolved, type) and issubclass(resolved, Exception):
+                extra.append(resolved)
+            else:
+                logger.warning(
+                    "Ignoring invalid additional_connection_errors entry %r (resolved to %r): "
+                    "expected an exception class or a dotted path to one.",
+                    entry,
+                    resolved,
+                )
+        return tuple(extra)
 
     def _params_from_url(self, url, defaults):
         scheme, host, port, username, password, path, query = _parse_url(url)

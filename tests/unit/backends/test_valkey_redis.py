@@ -753,6 +753,102 @@ class test_RedisBackend(basetest_RedisBackend):
         assert b.exception_safe_to_retry(exceptions.ConnectionError("service unavailable"))
         assert b.exception_safe_to_retry(exceptions.TimeoutError("timeout"))
 
+    @pytest.mark.parametrize(
+        "additional",
+        [
+            (ConnectionError,),
+            ConnectionError,
+            ("tests.unit.backends.test_valkey_redis.ConnectionError",),
+            "tests.unit.backends.test_valkey_redis.ConnectionError",
+        ],
+        ids=["tuple-of-classes", "bare-class", "tuple-of-paths", "bare-path"],
+    )
+    def test_additional_connection_errors(self, additional):
+        # A proxy in front of the server raises its own exception type on a
+        # dropped connection, which the retry machinery does not know about
+        # (upstream 0472aaccb). Both a bare entry and a sequence are accepted,
+        # and both a class and a dotted path to one.
+        pytest.importorskip("redis")
+        self.app.conf.result_backend_transport_options = {"additional_connection_errors": additional}
+
+        b = self.Backend(app=self.app)
+
+        assert ConnectionError in b.connection_errors
+        assert b.exception_safe_to_retry(ConnectionError("proxy dropped the connection"))
+
+    @pytest.mark.parametrize(
+        "additional",
+        [None, (), {}, {"additional_connection_errors": ()}],
+        ids=["none", "empty-tuple", "no-options", "empty-option"],
+    )
+    def test_additional_connection_errors_absent(self, additional):
+        pytest.importorskip("redis")
+        self.app.conf.result_backend_transport_options = (
+            additional if isinstance(additional, dict) else {"additional_connection_errors": additional}
+        )
+
+        b = self.Backend(app=self.app)
+
+        assert ConnectionError not in b.connection_errors
+
+    @pytest.mark.parametrize("bad", [int, 42, "no.such.module.Error"], ids=["non-exception", "non-type", "bad-import"])
+    def test_additional_connection_errors_bad_entry_is_skipped(self, bad):
+        # A typo in the setting must not stop the backend from being built --
+        # it is only ever additive, so a bad entry costs that one retry rule
+        # and nothing else.
+        pytest.importorskip("redis")
+        self.app.conf.result_backend_transport_options = {"additional_connection_errors": (ConnectionError, bad)}
+
+        b = self.Backend(app=self.app)
+
+        assert ConnectionError in b.connection_errors
+        assert bad not in b.connection_errors
+
+    def test_transport_options_are_not_frozen_at_construction(self):
+        # Resolving the option above happens in __init__, so it must read the
+        # conf directly. Going through the `_transport_options` cached_property
+        # would materialise it there and freeze every other transport option at
+        # whatever the conf held at construction time.
+        pytest.importorskip("redis")
+        b = self.Backend(app=self.app)
+
+        self.app.conf.result_backend_transport_options = {"result_chord_ordered": False}
+
+        assert b._transport_options == {"result_chord_ordered": False}
+
+    def test_driver_info_uses_DriverInfo_when_the_client_supports_it(self):
+        # Identifies celery to the server through CLIENT SETINFO, so this
+        # backend's connections are visible as such in CLIENT LIST (upstream
+        # 22a03fa13).
+        from celery import __version__
+
+        DriverInfo = Mock(name="DriverInfo")
+        with patch.object(redis, "DriverInfo", DriverInfo, create=True):
+            x = self.Backend(app=self.app)
+
+        DriverInfo.return_value.add_upstream_driver.assert_called_once_with("celery", __version__)
+        assert x.connparams["driver_info"] is DriverInfo.return_value.add_upstream_driver.return_value
+        assert "lib_name" not in x.connparams
+
+    def test_driver_info_falls_back_to_lib_name(self):
+        # valkey-py and redis-py before 7 have no DriverInfo, only the
+        # deprecated lib_name/lib_version pair. Which client library the URL
+        # resolved to therefore decides the form.
+        from celery import __version__
+
+        assert not hasattr(redis, "DriverInfo")
+        with patch.object(redis, "__version__", "6.1.1", create=True):
+            x = self.Backend(app=self.app)
+
+        assert x.connparams["lib_name"] == f"redis-py(celery_v{__version__})"
+        assert x.connparams["lib_version"] == "6.1.1"
+        assert "driver_info" not in x.connparams
+
+    def test_driver_info_fallback_without_a_client_version(self):
+        x = self.Backend(app=self.app)
+
+        assert x.connparams["lib_version"] == "unknown"
+
     def test_incr(self):
         self.b.client = Mock(name="client")
         self.b.incr("foo")
