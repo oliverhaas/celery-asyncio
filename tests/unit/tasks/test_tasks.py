@@ -1,5 +1,6 @@
 import socket
 import tempfile
+import warnings
 from datetime import datetime
 from unittest.mock import ANY, MagicMock, Mock, patch, sentinel
 
@@ -7,10 +8,10 @@ import pytest
 from kombu.exceptions import EncodeError
 
 from celery import Task, chain, group, uuid
-from celery.app.task import _reprtask
+from celery.app.task import _DEPRECATED_ROUTING_ATTRS, _reprtask
 from celery.canvas import StampingVisitor, signature
 from celery.contrib.testing.mocks import ContextMock
-from celery.exceptions import Ignore, ImproperlyConfigured, Retry
+from celery.exceptions import CDeprecationWarning, Ignore, ImproperlyConfigured, Retry
 from celery.result import AsyncResult, EagerResult
 from celery.utils.serialization import UnpickleableExceptionWrapper
 
@@ -1375,6 +1376,45 @@ class test_tasks(TasksCase):
             assert yyy_result.state == "FAILURE"
         except ValueError as e:
             assert str(e) == "soft_time_limit must be less than or equal to time_limit"
+
+
+class test_routing_attribute_deprecation(TasksCase):
+    @pytest.mark.parametrize("attr", _DEPRECATED_ROUTING_ATTRS)
+    def test_warns_when_declared_on_the_task(self, attr):
+        with pytest.warns(CDeprecationWarning, match=f"The {attr!r} task attribute is deprecated"):
+
+            @self.app.task(shared=False, lazy=False, **{attr: "foo"})
+            def task_with_routing_attr():
+                pass
+
+    def test_a_task_that_declares_none_of_them_does_not_warn(self):
+        # The check is `attr in cls.__dict__`, not `getattr(cls, attr)`.
+        # `priority` is both a Task class attribute and a from_config entry, so
+        # a getattr check would warn on every task ever bound.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", CDeprecationWarning)
+
+            @self.app.task(shared=False, lazy=False)
+            def plain_task():
+                pass
+
+        # bind() has since put the configured default on the class. The
+        # warning must not come back on a later bind either.
+        assert "priority" in type(plain_task).__dict__
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", CDeprecationWarning)
+            type(plain_task).bind(self.app)
+
+    def test_the_attribute_still_routes(self):
+        # Deprecated, not disabled. Until it is actually removed the value has
+        # to keep reaching the publisher, or the warning would be a lie.
+        with pytest.warns(CDeprecationWarning):
+
+            @self.app.task(shared=False, lazy=False, queue="some-queue")
+            def routed_task():
+                pass
+
+        assert routed_task._get_exec_options()["queue"] == "some-queue"
 
 
 class test_apply_task(TasksCase):

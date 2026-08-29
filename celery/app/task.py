@@ -25,7 +25,7 @@ from celery.exceptions import (
 )
 from celery.local import class_property
 from celery.result import EagerResult, denied_join_result
-from celery.utils import abstract
+from celery.utils import abstract, deprecated
 from celery.utils.functional import mattrgetter, maybe_list
 from celery.utils.imports import instantiate
 from celery.utils.nodenames import gethostname
@@ -39,6 +39,12 @@ __all__ = ("Context", "Task")
 
 # Sentinel used by Context.update() to detect whether 'timelimit' was changed.
 _UNSET = object()
+
+#: Routing declared on the task class still works, but `task_routes` is the
+#: supported place for it: it is one table you can read, it can be changed
+#: without touching task code, and it does not silently lose to a route on the
+#: call. These warn on bind (upstream 571efe812).
+_DEPRECATED_ROUTING_ATTRS = ("queue", "exchange", "exchange_type", "routing_key", "delivery_mode", "priority")
 
 #: extracts attributes related to publishing a message from an object.
 extract_exec_options = mattrgetter(
@@ -421,6 +427,17 @@ class Task:
         cls._app = app
         conf = app.conf
         cls._exec_options = None  # clear option cache
+
+        if not was_bound:
+            for attr in _DEPRECATED_ROUTING_ATTRS:
+                # `cls.__dict__`, not `getattr`: only a value declared on this
+                # task counts. Every task inherits these from Task itself.
+                if attr in cls.__dict__:
+                    deprecated.warn(
+                        description=f"The {attr!r} task attribute",
+                        removal="7.0",
+                        alternative="Use the task_routes setting instead.",
+                    )
 
         if cls.typing is None:
             cls.typing = app.strict_typing
