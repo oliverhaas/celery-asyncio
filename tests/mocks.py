@@ -310,6 +310,14 @@ class MockChannel(BaseChannel):
             queue_name, data = entry
             await self._get_queue(queue_name).put(data)
 
+    async def basic_recover(self, requeue: bool = True) -> None:
+        self._track("basic_recover", requeue)
+        if not requeue:
+            return
+        for queue_name, data in self._unacked.values():
+            await self._get_queue(queue_name).put(data)
+        self._unacked.clear()
+
 
 class MockTransport(BaseTransport):
     """Async mock transport for testing."""

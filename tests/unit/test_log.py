@@ -62,7 +62,7 @@ class test_LogMixin:
         self.logger.log.assert_called_with(
             logging.ERROR,
             "Log - error",
-            exc_info="exc",
+            exc_info=True,
         )
 
     def test_critical(self):
@@ -70,7 +70,7 @@ class test_LogMixin:
         self.logger.log.assert_called_with(
             logging.CRITICAL,
             "Log - crit",
-            exc_info="exc",
+            exc_info=True,
         )
 
     def test_error_when_DISABLE_TRACEBACKS(self):

@@ -57,14 +57,14 @@ class test_cached_property:
 
         x = X()
 
-        # Getting the value acquires the lock, and may do so recursively
-        # on Python < 3.12 because the superclass acquires it.
+        # Getting does not take the lock: functools.cached_property dropped
+        # its own in 3.12, and the documented consequence is that a racing
+        # first access may compute the value twice, not that it corrupts.
         with mock.patch.object(X.foo, "lock") as mock_lock:
             assert x.foo == 42
-        mock_lock.__enter__.assert_called()
-        mock_lock.__exit__.assert_called()
+        mock_lock.__enter__.assert_not_called()
 
-        # Setting a value also acquires the lock.
+        # Setting a value does acquire the lock.
         with mock.patch.object(X.foo, "lock") as mock_lock:
             x.foo = 314
         assert x.foo == 314

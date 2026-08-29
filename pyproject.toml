@@ -172,6 +172,9 @@ python-version = "3.14"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Upstream kombu names its test classes `test_Thing`, which pytest's default
+# `Test*` does not collect. Both conventions are in this suite.
+python_classes = ["Test*", "test_*"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--cov=kombu --cov-report=term-missing --cov-report=xml --no-cov-on-fail"
