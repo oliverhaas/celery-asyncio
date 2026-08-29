@@ -8,6 +8,12 @@ This file records what was decided for each one, so the next sweep starts from `
 nothing gets re-triaged from scratch. The kombu half of the same exercise lives in
 `kombu-asyncio/UPSTREAM-PLAN.md`.
 
+**Status: the sweep is done.** Every commit that applies here has been ported and each one is
+pinned by a test that fails without it. One verdict is still unwritten (`cb08d5042`, under "Still
+open"), and the ports turned up ten fork-only defects and gaps along the way, listed under "Found
+along the way". The last of those, one broker connection per published task, is the biggest thing
+this exercise found and is not fixed yet.
+
 ## How to read a verdict
 
 | Verdict | Meaning |
@@ -102,6 +108,10 @@ Then drop anything touching only the subsystems listed above.
 | `fbd01579c` honour the task's own options in `send_task` | `f2a35cf1c` | Adapted, and placed in `_prepare_task_message` rather than `send_task`, so `asend_task` gets it too. Lookup goes through `self._tasks`, not `self.tasks`, so sending to a name this process does not know neither finalizes the app nor raises under `autofinalize=False`. Upstream's `getattr(registry, "get")` fallback is dropped, since `TaskRegistry` is a dict, but the `inspect.ismethod` guard is kept so a class left in the registry is skipped rather than called and crashed on. An `_OMITTED` sentinel keeps an explicit `expires=None` able to clear a merged-in default. |
 | `cc3350ef9` avoid creating Django DB connections during cleanup | `74df3e7e4` | Verbatim as `connections.all(initialized_only=True)`. Upstream's Django < 4.1 `except TypeError` fallback is dropped; the django extra here requires 6.0. |
 | `a4f9beb41` close DB pools only in prefork mode | `74df3e7e4` | Adapted to "never", by removing the `close_pool()` call outright rather than gating it on a `worker_pool` setting this fork does not have. Upstream closes the pool because each prefork child owns one and has to hand it back. This worker is a single process with one shared pool, and `_close_database` runs on every task prerun *and* postrun, so closing it here would tear the pool down between tasks and leave pooling doing nothing but adding a layer. A test pins that. |
+| `c30f42ad2` handle DST gaps in `make_aware` | `40fa9525e` | Adapted. A wall clock time a spring-forward skipped over now resolves to the instant it would have been, via `dateutil.tz.resolve_imaginary`, instead of naming an hour that never existed. The gap check is a separate `_is_imaginary` helper called *before* `_is_ambiguous`, not nested inside it as upstream does: dateutil reports a gap as ambiguous too, but that is an artefact of how it compares the two folds rather than something to build on. A `ValueError` from a tz that answers `is_ambiguous` but cannot do transition arithmetic is treated as "not imaginary". Five tests, including a gap of other than an hour (Lord Howe shifts 30 minutes). |
+| `1fcbf6fa4` normalize aware datetimes into the schedule timezone | `40fa9525e` | Verbatim in effect. `crontab.remaining_delta` now converts both `last_run_at` and `now` into the timezone the crontab fields are written in before matching any hour or weekday against them, and returns `last_run_at` in that frame rather than converting back. An aware `last_run_at` in another timezone is what django-celery-beat hands over; before this, the next run landed a full day out in the tests added here. |
+| `f52429cfd` reheap entries that ask to wait | `7e79f7bec` | Adapted. When the heap says an entry is ready but `is_due()` says not yet, it is popped and repushed at the time it asked for, so it stops sitting on top and starving everything behind it (celery#7649). Upstream's "someone mutated the heap under us" branch is restructured as an early return. Three existing tests asserted the old `tick()` return values and were tightened rather than dropped, since the new code returns the real remaining interval where the old one returned `max_interval`. |
+| `fe9457327` mark messages sent by beat | `7e79f7bec` | Adapted. `Scheduler.apply_async` adds a `celery_beat_task: True` header, which is the only way a consumer can tell a scheduled message from a hand-sent one. Written into a fresh dict rather than upstream's `options.setdefault("headers", {})[...] = ...`: `entry.options.copy()` is shallow, so mutating in place reaches through into the headers dict the schedule entry is holding and permanently marks it. Upstream has that latent bug; a test here pins that we do not. |
 
 ### Found along the way
 
@@ -171,6 +181,26 @@ consequence: `ResultSet.then()` and `GroupResult.then()` do not fire. Any upstre
 drainers, barriers or `on_ready` is a no-op here until that is either removed or made real -- see
 `7eb644e52` under "Not applicable".
 
+**Beat carried a broker connection it never used.** `Scheduler.producer` was
+`self.Producer(self._ensure_connected(), auto_declare=False)`, but kombu-asyncio's
+`ensure_connection` is a coroutine, so the Producer wrapped an un-awaited coroutine object and
+every due task cost a RuntimeWarning. `_reset_producer` had the same problem with `close()`.
+Nothing downstream ever read the producer: `app._send_task_message` is
+`async_to_sync(self._asend_task_message)`, which opens its own connection and ignores the one it
+is handed. The whole chain was removed in `7ba68d3ca` rather than repaired. Where upstream's
+scheduler owns a connection, this one owns nothing, so a port that reaches for `self.producer`
+has to be rethought rather than translated.
+
+**One broker connection per published task, never closed.** Instrumenting `kombu.Connection` over
+five `.delay()` calls gives `{'init': 7, 'connect': 5, 'close': 0}`, and the `.adelay()` path is
+identical. `app._asend_task_message` calls `self.connection_for_write()` when it is passed no
+connection, instead of the shared `app.async_connection` that `_prepare_task_message` already uses
+and that `ensure_async_connection()` exists to hand out. Not fixed yet, and not an upstream port:
+`asgiref.async_to_sync` builds a fresh event loop per call from a purely-sync caller and asyncio
+transports are loop-bound, so the shared connection has to be keyed by loop rather than by app.
+This is the largest single finding of the sweep, and it should land before any benchmark against
+upstream celery, since connection setup would otherwise dominate what the numbers measure.
+
 ## Not applicable
 
 Grouped by what is missing, so a future sweep can classify most commits by inspection.
@@ -239,14 +269,8 @@ machinery described in "Found along the way".
 
 ## Still open
 
-Triaged as real and missing but not yet checked line by line, let alone ported. Roughly ordered
-by how much they matter. **Every one of these is (unverified).**
-
-### Beat and time
-
-`fe9457327` a `celery_beat_task` header on tasks sent by beat · `f52429cfd` reheap entries that
-ask to retry later · `1fcbf6fa4` normalize aware datetimes into the schedule timezone in
-`crontab.remaining_delta` · `c30f42ad2` handle DST gaps in `make_aware`
+Every commit triaged as applicable has now been ported. What is left is one verdict nobody has
+written down.
 
 ### Ambiguous
 
