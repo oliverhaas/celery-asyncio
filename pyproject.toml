@@ -129,6 +129,11 @@ override-dependencies = ["celery ; python_version < '0'"]
 line-length = 120
 target-version = "py314"
 fix = true
+# Ruff 0.16 added "*.md" to the default `include` and formats fenced code
+# blocks in it. Docs snippets are written to read well, not to survive a
+# formatter: it collapses the blank lines that group related config keys and
+# explodes short dict literals across five lines. Keep prose out of its reach.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["ALL"]

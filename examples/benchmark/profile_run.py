@@ -131,19 +131,21 @@ def main() -> None:
         publish = [
             str(venv / "bin" / "python"),
             "-c",
-            "import json, sys, time\n"
-            "sys.path.insert(0, '.')\n"
-            "from celeryapp import app\n"
-            "from tasks import mixed_async\n"
-            f"doc = json.load(open({str(args.workload)!r}))\n"
-            "results = [mixed_async.apply_async(kwargs=t['kwargs'], queue='bench') for t in doc['tasks']]\n"
-            "n = len(results); t0 = time.monotonic()\n"
-            "deadline = t0 + 60\n"
-            "while time.monotonic() < deadline:\n"
-            "    done = sum(1 for r in results if r.ready())\n"
-            "    if done >= n: break\n"
-            "    time.sleep(0.2)\n"
-            "print(f'published {n} in {time.monotonic() - t0:.1f}s, done={done}/{n}', flush=True)\n",
+            (
+                "import json, sys, time\n"
+                "sys.path.insert(0, '.')\n"
+                "from celeryapp import app\n"
+                "from tasks import mixed_async\n"
+                f"doc = json.load(open({str(args.workload)!r}))\n"
+                "results = [mixed_async.apply_async(kwargs=t['kwargs'], queue='bench') for t in doc['tasks']]\n"
+                "n = len(results); t0 = time.monotonic()\n"
+                "deadline = t0 + 60\n"
+                "while time.monotonic() < deadline:\n"
+                "    done = sum(1 for r in results if r.ready())\n"
+                "    if done >= n: break\n"
+                "    time.sleep(0.2)\n"
+                "print(f'published {n} in {time.monotonic() - t0:.1f}s, done={done}/{n}', flush=True)\n"
+            ),
         ]
         subprocess.run(publish, env=env, cwd=str(HERE), check=False)
 
