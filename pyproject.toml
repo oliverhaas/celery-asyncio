@@ -251,6 +251,10 @@ suppress-none-returning = true
 "examples/benchmark/_render_results.py" = [
   "RUF001",  # The × in the config labels is a multiplication sign on purpose
 ]
+"examples/benchmark/render_results.py" = [
+  "ISC004",  # Markdown paragraphs are wrapped across source lines
+  "RUF001",  # The × in the config labels is a multiplication sign on purpose
+]
 
 [tool.mypy]
 python_version = "3.14"
