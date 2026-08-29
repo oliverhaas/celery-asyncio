@@ -601,11 +601,17 @@ class crontab(BaseSchedule):
         super().__init__(**state)
 
     def remaining_delta(
-        self, last_run_at: datetime, tz: tzinfo | None = None, ffwd: type = ffwd
+        self, last_run_at: datetime, tz: str | tzinfo | None = None, ffwd: type = ffwd
     ) -> tuple[datetime, Any, datetime]:
         # caching global ffwd
-        last_run_at = self.maybe_make_aware(last_run_at)
-        now = self.maybe_make_aware(self.now())
+        # Both datetimes go into the frame the crontab fields are defined in
+        # before anything below matches an hour or a weekday against them. An
+        # aware `last_run_at` can arrive in a different timezone, which is what
+        # django-celery-beat hands over, and mixing the two frames puts the next
+        # run hours out in either direction (upstream 1fcbf6fa4).
+        schedule_tz: tzinfo = timezone.get_timezone(tz or self.tz)
+        last_run_at = self.maybe_make_aware(last_run_at).astimezone(schedule_tz)
+        now = self.maybe_make_aware(self.now()).astimezone(schedule_tz)
         dow_num = last_run_at.isoweekday() % 7  # Sunday is day 0, not day 7
 
         execute_this_date = (
@@ -650,7 +656,10 @@ class crontab(BaseSchedule):
                     )
                 else:
                     delta = self._delta_to_next(last_run_at, next_hour, next_minute)
-        return self.to_local(last_run_at), delta, self.to_local(now)
+        # Returned in `schedule_tz`, not converted back to local: `delta` is an
+        # ffwd computed against that frame, and handing it a datetime in another
+        # one reintroduces the same mismatch at the point the caller adds them.
+        return last_run_at, delta, now
 
     def remaining_estimate(self, last_run_at: datetime, ffwd: type = ffwd) -> timedelta:
         """Estimate of next run time.

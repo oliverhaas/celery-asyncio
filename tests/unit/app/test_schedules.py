@@ -547,6 +547,40 @@ class test_crontab_remaining_estimate:
 
         assert next == datetime(2023, 1, 29, 0, 0, tzinfo=tz)
 
+    def test_aware_last_run_at_in_another_timezone(self):
+        # The crontab fields are defined in the schedule's timezone, UTC here,
+        # but an aware last_run_at can arrive in a different one, which is what
+        # django-celery-beat hands over. Matching `last_run_at.hour` against
+        # `self.hour` then compares two different frames (upstream 1fcbf6fa4).
+        vilnius = ZoneInfo("Europe/Vilnius")
+        crontab = self.crontab(minute=40, hour=8)
+
+        # 09:25 in Vilnius is 06:25 UTC, so 08:40 UTC is still ahead.
+        last_run_at = datetime(2025, 5, 20, 9, 25, 8, tzinfo=vilnius)
+        now = datetime(2025, 5, 20, 9, 26, 8, tzinfo=vilnius)
+        crontab.nowfun = lambda: now
+
+        next = now + crontab.remaining_estimate(last_run_at)
+
+        assert next == datetime(2025, 5, 20, 8, 40, tzinfo=ZoneInfo("UTC"))
+
+    def test_aware_last_run_at_in_another_timezone_without_utc(self):
+        # Same, with enable_utc off. The returned datetimes have to stay in the
+        # frame the delta was computed in; converting them back to local time
+        # discards it and the estimate comes out wrong by the difference.
+        self.app.conf.enable_utc = False
+        self.app.conf.timezone = "UTC"
+        vilnius = ZoneInfo("Europe/Vilnius")
+        crontab = self.crontab(minute=40, hour=8)
+
+        last_run_at = datetime(2025, 5, 20, 9, 25, 8, tzinfo=vilnius)
+        now = datetime(2025, 5, 20, 9, 26, 8, tzinfo=vilnius)
+        crontab.nowfun = lambda: now
+
+        next = now + crontab.remaining_estimate(last_run_at)
+
+        assert next == datetime(2025, 5, 20, 8, 40, tzinfo=ZoneInfo("UTC"))
+
 
 class test_crontab_is_due:
     def setup_method(self):

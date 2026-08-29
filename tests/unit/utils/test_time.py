@@ -8,6 +8,7 @@ import pytest
 from celery.utils.iso8601 import parse_iso8601
 from celery.utils.time import (
     LocalTimezone,
+    _is_imaginary,
     delta_resolution,
     ffwd,
     get_exponential_backoff_interval,
@@ -243,6 +244,44 @@ class test_make_aware:
         tz = ZoneInfo("US/Eastern")
         wtz = make_aware(datetime.now(UTC), tz)
         assert wtz.tzinfo == tz
+
+    def test_tz_when_the_wall_clock_time_never_happens(self):
+        # 02:30 does not exist on the day the US springs forward. Naming the
+        # instant it would have been keeps the hour and minute matchable by a
+        # crontab; leaving 02:30 in place does not (upstream c30f42ad2).
+        tz = ZoneInfo("US/Eastern")
+        wtz = make_aware(datetime(2024, 3, 10, 2, 30), tz)
+
+        assert wtz == datetime(2024, 3, 10, 3, 30, tzinfo=tz)
+        assert wtz.utcoffset() == timedelta(hours=-4)
+
+    def test_a_gap_of_other_than_an_hour(self):
+        # Lord Howe springs forward by 30 minutes, not 60.
+        tz = ZoneInfo("Australia/Lord_Howe")
+        wtz = make_aware(datetime(2024, 10, 6, 2, 15), tz)
+
+        assert wtz == datetime(2024, 10, 6, 2, 45, tzinfo=tz)
+
+    def test_an_ambiguous_time_still_takes_the_earlier_offset(self):
+        # 01:30 happens twice on the day the US falls back, and that is a
+        # different problem from a gap. dateutil calls both "ambiguous".
+        tz = ZoneInfo("US/Eastern")
+        wtz = make_aware(datetime(2024, 11, 3, 1, 30), tz)
+
+        assert wtz == datetime(2024, 11, 3, 1, 30, tzinfo=tz)
+        assert wtz.utcoffset() == timedelta(hours=-4)
+
+    def test_imaginary_detection_ignores_unsupported_timezones(self):
+        assert not _is_imaginary(datetime.now(UTC), tzinfo())
+
+    @patch("dateutil.tz.datetime_exists")
+    def test_imaginary_detection_handles_dateutil_value_error(self, datetime_exists_mock):
+        datetime_exists_mock.side_effect = ValueError
+        tz = ZoneInfo("US/Eastern")
+        dt = datetime(2024, 3, 10, 2, 30, tzinfo=tz)
+
+        assert not _is_imaginary(dt, tz)
+        datetime_exists_mock.assert_called_once_with(dt, tz)
 
     def test_maybe_make_aware(self):
         aware = datetime.now(UTC).replace(tzinfo=timezone.utc)

@@ -343,10 +343,31 @@ def _is_ambiguous(dt: datetime, tz: tzinfo) -> bool:
     return _can_detect_ambiguous(tz) and dateutil_tz.datetime_ambiguous(dt)
 
 
+def _is_imaginary(dt: datetime, tz: tzinfo) -> bool:
+    """Return True if `dt` names a wall clock time that a DST gap skipped over."""
+
+    if not _can_detect_ambiguous(tz):
+        return False
+
+    try:
+        return not dateutil_tz.datetime_exists(dt, tz)
+    except ValueError:
+        # A tz that answers `is_ambiguous` but cannot do transition arithmetic.
+        return False
+
+
 def make_aware(dt: datetime, tz: tzinfo) -> datetime:
     """Set timezone for a :class:`~datetime.datetime` object."""
 
     dt = dt.replace(tzinfo=tz)
+    if _is_imaginary(dt, tz):
+        # Spring forward: nothing ever happened at this wall clock time, so name
+        # the instant it would have been rather than an hour that does not exist
+        # (upstream c30f42ad2). Checked before ambiguity rather than nested
+        # inside it as upstream does: dateutil reports a gap as "ambiguous" too,
+        # but that is an accident of how it compares the two folds, not
+        # something to build on.
+        return dateutil_tz.resolve_imaginary(dt)
     if _is_ambiguous(dt, tz):
         dt = min(dt.replace(fold=0), dt.replace(fold=1))
     return dt
