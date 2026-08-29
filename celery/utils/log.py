@@ -137,8 +137,11 @@ class ColorFormatter(logging.Formatter):
         "CRITICAL": COLORS["magenta"],
     }
 
-    def __init__(self, fmt=None, use_color=True):
-        super().__init__(fmt)
+    def __init__(self, fmt=None, use_color=True, datefmt=None):
+        # `datefmt` goes last rather than in logging.Formatter's position, so
+        # the existing positional call `ColorFormatter(fmt, False)` still means
+        # "no colour" and not "no date format" (upstream e7c4454f8).
+        super().__init__(fmt, datefmt)
         self.use_color = use_color
 
     def formatException(self, ei):

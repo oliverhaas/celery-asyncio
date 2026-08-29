@@ -15,6 +15,7 @@ from celery.app.base import _detect_quorum_queues as detect_quorum_queues
 from celery.contrib.testing.mocks import ContextMock
 from celery.exceptions import RestartFreqExceeded, WorkerShutdown, WorkerTerminate
 from celery.utils.collections import LimitedSet
+from celery.worker.consumer.connection import Connection
 from celery.worker.consumer.consumer import CANCEL_TASKS_BY_DEFAULT, CLOSE, TERMINATE, Consumer
 from celery.worker.consumer.gossip import Gossip
 from celery.worker.consumer.heart import Heart
@@ -1044,3 +1045,64 @@ class test_Gossip:
         message.headers = {"hostname": g.hostname}
         g.on_message(prepare, message)
         g.clock.forward.assert_called_with()
+
+
+class test_Connection:
+    def _step_and_consumer(self, info):
+        c = Mock(name="consumer")
+        # Connection.__init__ resets c.connection to None, so the connection
+        # has to be attached after the step is built.
+        step = Connection(c)
+        c.connection = Mock(name="conn")
+        c.connection.info.return_value = info
+        return step, c
+
+    def test_info_censors_password_and_alternates(self):
+        # `alternates` are whole failover URLs, so popping the top-level
+        # password left the same credential readable in userinfo form. It ends
+        # up in `inspect stats`, which is routinely pasted into bug reports
+        # (upstream 56d80409a).
+        step, c = self._step_and_consumer(
+            {
+                "transport": "amqp",
+                "password": "supersecret",
+                "alternates": [
+                    "amqp://user:secret1@host-1:5672//",
+                    "amqp://user:secret2@host-2:5672//",
+                ],
+            }
+        )
+
+        broker = step.info(c)["broker"]
+
+        assert "password" not in broker
+        assert "secret1" not in broker["alternates"][0]
+        assert "secret2" not in broker["alternates"][1]
+        assert "**" in broker["alternates"][0]
+        assert "**" in broker["alternates"][1]
+
+    def test_info_censors_alternates_string(self):
+        step, c = self._step_and_consumer({"alternates": "amqp://user:secret@host:5672//"})
+
+        broker = step.info(c)["broker"]
+
+        assert "secret" not in broker["alternates"]
+        assert "**" in broker["alternates"]
+
+    @pytest.mark.parametrize(
+        "alternates",
+        [None, [], ["amqp://host:5672//"], [None], 42],
+        ids=["absent", "empty", "no-credentials", "non-string-entry", "not-a-sequence"],
+    )
+    def test_info_leaves_everything_else_alone(self, alternates):
+        step, c = self._step_and_consumer({"transport": "amqp", "alternates": alternates})
+
+        broker = step.info(c)["broker"]
+
+        assert broker["alternates"] == alternates
+
+    def test_info_without_a_connection(self):
+        c = Mock(name="consumer")
+        c.connection = None
+
+        assert Connection(c).info(c) == {"broker": "N/A"}

@@ -39,6 +39,19 @@ class test_TaskFormatter:
         assert record.task_name == "???"
         assert record.task_id == "???"
 
+    def test_datefmt(self):
+        # TaskFormatter is the one people configure through dictConfig, where
+        # `datefmt` is an ordinary key. It used to be a TypeError (upstream
+        # e7c4454f8).
+        record = logging.LogRecord("name", logging.INFO, "path", 1, "hello world", None, None)
+        x = TaskFormatter(fmt="[%(asctime)s] %(task_name)s %(message)s", datefmt="%Y%m%d-%H%M%S", use_color=False)
+
+        assert x.datefmt == "%Y%m%d-%H%M%S"
+        asctime = x.format(record).split("]")[0].lstrip("[")
+        # The default asctime has "-" and ":" separators and a "," before msecs.
+        assert ":" not in asctime
+        assert "," not in asctime
+
 
 class test_logger_isa:
     def test_isa(self):
@@ -87,6 +100,23 @@ class test_logger_isa:
 
 
 class test_ColorFormatter:
+    def test_datefmt_defaults_to_none(self):
+        assert ColorFormatter().datefmt is None
+
+    def test_use_color_is_still_the_second_positional_arg(self):
+        # datefmt is appended last, not put where logging.Formatter has it, so
+        # that ColorFormatter(fmt, False) keeps meaning "no color".
+        x = ColorFormatter("%(message)s", False)
+
+        assert x.use_color is False
+        assert x.datefmt is None
+
+    def test_datefmt(self):
+        record = logging.LogRecord("name", logging.INFO, "path", 1, "hello world", None, None)
+        x = ColorFormatter(fmt="[%(asctime)s] %(message)s", datefmt="%H:%M:%S", use_color=False)
+
+        assert x.format(record).split("]")[0].count(":") == 2
+
     @patch("celery.utils.log.safe_str")
     @patch("logging.Formatter.formatException")
     def test_formatException_not_string(self, fe, safe_str):
@@ -187,6 +217,34 @@ class test_default_logger:
     def test_setup_logging_subsystem_colorize(self, restore_logging):
         self.app.log.setup_logging_subsystem(colorize=None)
         self.app.log.setup_logging_subsystem(colorize=True)
+
+    def test_setup_handlers_datefmt(self):
+        logger = logging.getLogger("celery.test_setup_handlers_datefmt")
+        try:
+            self.app.log.setup_handlers(logger, sys.stderr, "%(asctime)s", False, datefmt="%Y%m%d")
+            assert logger.handlers[0].formatter.datefmt == "%Y%m%d"
+        finally:
+            logger.handlers[:] = []
+
+    def test_worker_log_datefmt_setting(self, restore_logging):
+        self.app.conf.worker_log_datefmt = "%Y%m%d"
+        self.app.conf.worker_task_log_datefmt = "%H%M%S"
+
+        log = self.app.log.__class__(self.app)
+
+        assert log.datefmt == "%Y%m%d"
+        assert log.task_datefmt == "%H%M%S"
+
+    def test_empty_datefmt_overrides_the_configured_one(self, restore_logging):
+        # "" is a valid datefmt for logging.Formatter, so it must not fall back
+        # to the configured default the way `datefmt or self.datefmt` would.
+        self.app.conf.worker_task_log_datefmt = "%Y%m%d"
+        log = self.app.log.__class__(self.app)
+
+        with patch.object(log, "setup_handlers") as setup_handlers:
+            log.setup_task_loggers(datefmt="")
+
+        assert setup_handlers.call_args.kwargs["datefmt"] == ""
 
     def test_setup_logger(self, restore_logging):
         logger = self.setup_logger(loglevel=logging.ERROR, logfile=None, root=False, colorize=True)

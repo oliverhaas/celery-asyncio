@@ -59,7 +59,9 @@ class Logging:
         self.app = app
         self.loglevel = mlevel(logging.WARNING)
         self.format = self.app.conf.worker_log_format
+        self.datefmt = self.app.conf.worker_log_datefmt
         self.task_format = self.app.conf.worker_task_log_format
+        self.task_datefmt = self.app.conf.worker_task_log_datefmt
         self.colorize = self.app.conf.worker_log_color
 
     def setup(
@@ -96,7 +98,9 @@ class Logging:
             CELERY_LOG_REDIRECT_LEVEL=str(loglevel or ""),
         )
 
-    def setup_logging_subsystem(self, loglevel=None, logfile=None, format=None, colorize=None, hostname=None, **kwargs):
+    def setup_logging_subsystem(
+        self, loglevel=None, logfile=None, format=None, colorize=None, hostname=None, datefmt=None, **kwargs
+    ):
         if self.already_setup:
             return None
         if logfile and hostname:
@@ -104,6 +108,9 @@ class Logging:
         Logging._setup = True
         loglevel = mlevel(loglevel or self.loglevel)
         format = format or self.format
+        # Not `datefmt or self.datefmt`: an explicit "" is a valid date format
+        # to logging.Formatter and must not fall back to the configured one.
+        datefmt = self.datefmt if datefmt is None else datefmt
         colorize = self.supports_color(colorize, logfile)
         receivers = signals.setup_logging.send(
             sender=None,
@@ -123,7 +130,7 @@ class Logging:
                 get_logger("celery.redirected").handlers = []
 
             # Configure root logger
-            self._configure_logger(root, logfile, loglevel, format, colorize, **kwargs)
+            self._configure_logger(root, logfile, loglevel, format, colorize, datefmt=datefmt, **kwargs)
 
             signals.after_setup_logger.send(
                 sender=None,
@@ -152,7 +159,9 @@ class Logging:
             if loglevel:
                 logger.setLevel(loglevel)
 
-    def setup_task_loggers(self, loglevel=None, logfile=None, format=None, colorize=None, propagate=False, **kwargs):
+    def setup_task_loggers(
+        self, loglevel=None, logfile=None, format=None, colorize=None, propagate=False, datefmt=None, **kwargs
+    ):
         """Setup the task logger.
 
         If `logfile` is not specified, then `sys.stderr` is used.
@@ -161,10 +170,11 @@ class Logging:
         """
         loglevel = mlevel(loglevel or self.loglevel)
         format = format or self.task_format
+        datefmt = self.task_datefmt if datefmt is None else datefmt
         colorize = self.supports_color(colorize, logfile)
 
         logger = self.setup_handlers(
-            get_logger("celery.task"), logfile, format, colorize, formatter=TaskFormatter, **kwargs
+            get_logger("celery.task"), logfile, format, colorize, formatter=TaskFormatter, datefmt=datefmt, **kwargs
         )
         logger.setLevel(loglevel)
         # this is an int for some reason, better to not question why.
@@ -208,11 +218,11 @@ class Logging:
     def colored(self, logfile=None, enabled=None):
         return colored(enabled=self.supports_color(enabled, logfile))
 
-    def setup_handlers(self, logger, logfile, format, colorize, formatter=ColorFormatter, **kwargs):
+    def setup_handlers(self, logger, logfile, format, colorize, formatter=ColorFormatter, datefmt=None, **kwargs):
         if self._is_configured(logger):
             return logger
         handler = self._detect_handler(logfile)
-        handler.setFormatter(formatter(format, use_color=colorize))
+        handler.setFormatter(formatter(format, datefmt=datefmt, use_color=colorize))
         logger.addHandler(handler)
         return logger
 
