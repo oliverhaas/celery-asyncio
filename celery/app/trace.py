@@ -555,6 +555,46 @@ def build_tracer(
         )
         return I, R, I.state, I.retval
 
+    def _dispatch_callbacks_and_chain(retval, callbacks, chain, parent_id, root_id, priority):
+        """Send the link callbacks and the next chain step for a finished task.
+
+        Only the dispatch. No lifecycle signals, no ``mark_as_done``: callers
+        do those themselves.
+
+        Dispatch is not atomic. If the callbacks go out and the chain step
+        then fails, a requeue re-sends the callbacks, which is what
+        at-least-once delivery already means everywhere else.
+        """
+        # groups are called inline and will store trail separately, so need
+        # to call them separately so that the trail's not added multiple
+        # times :( (Issue #1936)
+        if callbacks:
+            if len(callbacks) > 1:
+                sigs, groups = [], []
+                for sig in callbacks:
+                    sig = signature(sig, app=app)
+                    if isinstance(sig, group):
+                        groups.append(sig)
+                    else:
+                        sigs.append(sig)
+                for group_ in groups:
+                    group_.apply_async((retval,), parent_id=parent_id, root_id=root_id, priority=priority)
+                if sigs:
+                    group(sigs, app=app).apply_async((retval,), parent_id=parent_id, root_id=root_id, priority=priority)
+            else:
+                signature(callbacks[0], app=app).apply_async(
+                    (retval,), parent_id=parent_id, root_id=root_id, priority=priority
+                )
+
+        # execute first task in chain
+        if chain:
+            # Indexing, not pop(): the list belongs to task_request, and a
+            # retry or a redelivery traces the same request again. Popping
+            # would hand the second attempt a chain one step short
+            # (upstream 865922abd).
+            _chsig = signature(chain[-1], app=app)
+            _chsig.apply_async((retval,), chain=chain[:-1], parent_id=parent_id, root_id=root_id, priority=priority)
+
     def trace_task(uuid, args, kwargs, request=None):
         # R      - is the possibly prepared return value.
         # I      - is the Info object.
@@ -609,6 +649,47 @@ def build_tracer(
                                 "description": "Task already completed successfully.",
                             },
                         )
+                        # The result was stored but the ack never reached the
+                        # broker, so the previous worker may have died between
+                        # dispatching nothing and storing this. Skipping the
+                        # dispatch here loses the rest of the chain for good
+                        # (upstream 865922abd).
+                        _root_id = task_request.root_id or uuid
+                        _priority = task_request.delivery_info.get("priority") if inherit_parent_priority else None
+                        try:
+                            # Cached: reading r.state above already fetched it.
+                            _meta = r._get_task_meta()
+                            # mark_as_done fills in children on the original
+                            # run, so their presence means the callbacks did go
+                            # out and re-sending them would duplicate. Needs a
+                            # backend storing extended metadata to be visible.
+                            _children = _meta.get("children")
+                            _callbacks = task_request.callbacks
+                            _chain = task_request.chain
+                            if (_callbacks or _chain) and not _children:
+                                _dispatch_callbacks_and_chain(
+                                    _meta.get("result"),
+                                    _callbacks,
+                                    _chain,
+                                    parent_id=uuid,
+                                    root_id=_root_id,
+                                    priority=_priority,
+                                )
+                            successful_requests.add(task_request.id)
+                        except MemoryError:
+                            raise
+                        except Exception as exc:
+                            # Requeue rather than ack: the result is stored but
+                            # the chain is not out yet, so acking here strands
+                            # it. A permanently broken signature will requeue
+                            # forever, which is what the broker's dead-letter
+                            # and max-delivery policies are for.
+                            logger.error(
+                                "Failed to dispatch chain/callbacks for deduplicated task %s",
+                                task_request.id,
+                                exc_info=True,
+                            )
+                            raise Reject(exc, requeue=True)
                         return trace_ok_t(R, I, T, Rstr)
 
             push_task(task)
@@ -676,41 +757,14 @@ def build_tracer(
                     try:
                         # callback tasks must be applied before the result is
                         # stored, so that result.children is populated.
-
-                        # groups are called inline and will store trail
-                        # separately, so need to call them separately
-                        # so that the trail's not added multiple times :(
-                        # (Issue #1936)
-                        callbacks = task.request.callbacks
-                        if callbacks:
-                            if len(task.request.callbacks) > 1:
-                                sigs, groups = [], []
-                                for sig in callbacks:
-                                    sig = signature(sig, app=app)
-                                    if isinstance(sig, group):
-                                        groups.append(sig)
-                                    else:
-                                        sigs.append(sig)
-                                for group_ in groups:
-                                    group_.apply_async(
-                                        (retval,), parent_id=uuid, root_id=root_id, priority=task_priority
-                                    )
-                                if sigs:
-                                    group(sigs, app=app).apply_async(
-                                        (retval,), parent_id=uuid, root_id=root_id, priority=task_priority
-                                    )
-                            else:
-                                signature(callbacks[0], app=app).apply_async(
-                                    (retval,), parent_id=uuid, root_id=root_id, priority=task_priority
-                                )
-
-                        # execute first task in chain
-                        chain = task_request.chain
-                        if chain:
-                            _chsig = signature(chain.pop(), app=app)
-                            _chsig.apply_async(
-                                (retval,), chain=chain, parent_id=uuid, root_id=root_id, priority=task_priority
-                            )
+                        _dispatch_callbacks_and_chain(
+                            retval,
+                            task.request.callbacks,
+                            task_request.chain,
+                            parent_id=uuid,
+                            root_id=root_id,
+                            priority=task_priority,
+                        )
                         task.backend.mark_as_done(
                             uuid,
                             retval,
@@ -770,6 +824,12 @@ def build_tracer(
                         except Exception as exc:
                             logger.error("Process cleanup failed: %r", exc, exc_info=True)
         except MemoryError:
+            raise
+        except Reject:
+            # A control-flow signal for the consumer, not an internal error: it
+            # has to reach the caller so the message gets requeued. A Reject
+            # raised by the task body is handled further in and never arrives
+            # here (upstream 865922abd).
             raise
         except Exception as exc:
             _signal_internal_error(task, uuid, args, kwargs, request, exc)
@@ -862,6 +922,42 @@ def build_async_tracer(
         )
         return I, R, I.state, I.retval
 
+    async def _adispatch_callbacks_and_chain(retval, callbacks, chain, parent_id, root_id, priority):
+        """Async version of ``_dispatch_callbacks_and_chain``."""
+        # groups are called inline and will store trail separately, so need
+        # to call them separately so that the trail's not added multiple
+        # times :( (Issue #1936)
+        if callbacks:
+            if len(callbacks) > 1:
+                sigs, groups = [], []
+                for sig in callbacks:
+                    sig = signature(sig, app=app)
+                    if isinstance(sig, group):
+                        groups.append(sig)
+                    else:
+                        sigs.append(sig)
+                for group_ in groups:
+                    await group_.aapply_async((retval,), parent_id=parent_id, root_id=root_id, priority=priority)
+                if sigs:
+                    await group(sigs, app=app).aapply_async(
+                        (retval,), parent_id=parent_id, root_id=root_id, priority=priority
+                    )
+            else:
+                await signature(callbacks[0], app=app).aapply_async(
+                    (retval,), parent_id=parent_id, root_id=root_id, priority=priority
+                )
+
+        # execute first task in chain
+        if chain:
+            # Indexing, not pop(): the list belongs to task_request, and a
+            # retry or a redelivery traces the same request again. Popping
+            # would hand the second attempt a chain one step short
+            # (upstream 865922abd).
+            _chsig = signature(chain[-1], app=app)
+            await _chsig.aapply_async(
+                (retval,), chain=chain[:-1], parent_id=parent_id, root_id=root_id, priority=priority
+            )
+
     async def trace_task_async(uuid, args, kwargs, request=None):
         """Async version of trace_task."""
         R = I = T = Rstr = retval = state = None
@@ -906,6 +1002,47 @@ def build_async_tracer(
                                 "description": "Task already completed successfully.",
                             },
                         )
+                        # The result was stored but the ack never reached the
+                        # broker, so the previous worker may have died between
+                        # dispatching nothing and storing this. Skipping the
+                        # dispatch here loses the rest of the chain for good
+                        # (upstream 865922abd).
+                        _root_id = task_request.root_id or uuid
+                        _priority = task_request.delivery_info.get("priority") if inherit_parent_priority else None
+                        try:
+                            # Cached: reading r.state above already fetched it.
+                            _meta = r._get_task_meta()
+                            # mark_as_done fills in children on the original
+                            # run, so their presence means the callbacks did go
+                            # out and re-sending them would duplicate. Needs a
+                            # backend storing extended metadata to be visible.
+                            _children = _meta.get("children")
+                            _callbacks = task_request.callbacks
+                            _chain = task_request.chain
+                            if (_callbacks or _chain) and not _children:
+                                await _adispatch_callbacks_and_chain(
+                                    _meta.get("result"),
+                                    _callbacks,
+                                    _chain,
+                                    parent_id=uuid,
+                                    root_id=_root_id,
+                                    priority=_priority,
+                                )
+                            successful_requests.add(task_request.id)
+                        except MemoryError:
+                            raise
+                        except Exception as exc:
+                            # Requeue rather than ack: the result is stored but
+                            # the chain is not out yet, so acking here strands
+                            # it. A permanently broken signature will requeue
+                            # forever, which is what the broker's dead-letter
+                            # and max-delivery policies are for.
+                            logger.error(
+                                "Failed to dispatch chain/callbacks for deduplicated task %s",
+                                task_request.id,
+                                exc_info=True,
+                            )
+                            raise Reject(exc, requeue=True)
                         return trace_ok_t(R, I, T, Rstr)
 
             push_task(task)
@@ -957,36 +1094,14 @@ def build_async_tracer(
                     try:
                         # callback tasks must be applied before the result is
                         # stored, so that result.children is populated.
-                        callbacks = task.request.callbacks
-                        if callbacks:
-                            if len(task.request.callbacks) > 1:
-                                sigs, groups = [], []
-                                for sig in callbacks:
-                                    sig = signature(sig, app=app)
-                                    if isinstance(sig, group):
-                                        groups.append(sig)
-                                    else:
-                                        sigs.append(sig)
-                                for group_ in groups:
-                                    await group_.aapply_async(
-                                        (retval,), parent_id=uuid, root_id=root_id, priority=task_priority
-                                    )
-                                if sigs:
-                                    await group(sigs, app=app).aapply_async(
-                                        (retval,), parent_id=uuid, root_id=root_id, priority=task_priority
-                                    )
-                            else:
-                                await signature(callbacks[0], app=app).aapply_async(
-                                    (retval,), parent_id=uuid, root_id=root_id, priority=task_priority
-                                )
-
-                        # execute first task in chain
-                        chain = task_request.chain
-                        if chain:
-                            _chsig = signature(chain.pop(), app=app)
-                            await _chsig.aapply_async(
-                                (retval,), chain=chain, parent_id=uuid, root_id=root_id, priority=task_priority
-                            )
+                        await _adispatch_callbacks_and_chain(
+                            retval,
+                            task.request.callbacks,
+                            task_request.chain,
+                            parent_id=uuid,
+                            root_id=root_id,
+                            priority=task_priority,
+                        )
                         await task.backend.amark_as_done(
                             uuid,
                             retval,
@@ -1046,6 +1161,12 @@ def build_async_tracer(
                             logger.error("Process cleanup failed: %r", exc, exc_info=True)
         except MemoryError:
             raise
+        except Reject:
+            # A control-flow signal for the consumer, not an internal error: it
+            # has to reach the caller so the message gets requeued. A Reject
+            # raised by the task body is handled further in and never arrives
+            # here (upstream 865922abd).
+            raise
         except Exception as exc:
             _signal_internal_error(task, uuid, args, kwargs, request, exc)
             if eager:
@@ -1065,6 +1186,10 @@ def trace_task(task, uuid, args, kwargs, request=None, **opts):
         if task.__trace__ is None:
             task.__trace__ = build_tracer(task.name, task, **opts)
         return task.__trace__(uuid, args, kwargs, request)
+    except Reject:
+        # A control-flow signal for the consumer, not an internal error: it has
+        # to reach the caller so the message gets requeued (upstream 865922abd).
+        raise
     except Exception as exc:
         _signal_internal_error(task, uuid, args, kwargs, request, exc)
         return trace_ok_t(report_internal_error(task, exc), TraceInfo(FAILURE, exc), 0.0, None)

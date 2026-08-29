@@ -1,4 +1,4 @@
-from unittest.mock import ANY, Mock, PropertyMock, patch
+from unittest.mock import ANY, AsyncMock, Mock, PropertyMock, patch
 from uuid import uuid4
 
 import pytest
@@ -8,6 +8,7 @@ from celery import group, signals, states, uuid
 from celery.app.task import Context
 from celery.app.trace import (
     TraceInfo,
+    build_async_tracer,
     build_tracer,
     fast_trace_task,
     get_actual_ignore_result,
@@ -39,6 +40,15 @@ def trace(app, task, args=(), kwargs=None, propagate=False, eager=True, request=
     return ret.retval, ret.info
 
 
+async def atrace(app, task, args=(), kwargs=None, propagate=False, eager=True, request=None, task_id="id-1", **opts):
+    """``trace``, but through the async tracer the aio pool actually runs."""
+    if kwargs is None:
+        kwargs = {}
+    t = build_async_tracer(task.name, task, eager=eager, propagate=propagate, app=app, **opts)
+    ret = await t(task_id, args, kwargs, request)
+    return ret.retval, ret.info
+
+
 class TraceCase:
     def setup_method(self):
         @self.app.task(shared=False)
@@ -64,6 +74,12 @@ class TraceCase:
 
 
 class test_trace(TraceCase):
+    def teardown_method(self):
+        # successful_requests is module-global, and the dedup fast path now
+        # writes to it, so a test that takes that path would leak its id.
+        successful_requests.clear()
+        self.app.conf.worker_deduplicate_successful_tasks = False
+
     def test_trace_successful(self):
         retval, info = self.trace(self.add, (2, 2), {})
         assert info is None
@@ -590,6 +606,268 @@ class test_trace(TraceCase):
 
         successful_requests.clear()
         self.app.conf.worker_deduplicate_successful_tasks = False
+
+    # -- dedup fast path: chain and callback dispatch (upstream 865922abd) --
+
+    def _redelivered_after_success(self):
+        """A task whose result is already stored, as a redelivery finds it.
+
+        Returns the task and its id. The id is dropped from
+        ``successful_requests`` again: a real redelivery is picked up by a
+        worker that has never seen the message, so only the backend knows.
+        """
+
+        @self.app.task(shared=False)
+        def add(x, y):
+            return x + y
+
+        add.backend = CacheBackend(app=self.app, backend="memory")
+        add.store_eager_result = True
+        add.ignore_result = False
+        add.acks_late = True
+
+        self.app.conf.worker_deduplicate_successful_tasks = True
+        task_id = str(uuid4())
+        request = {"id": task_id, "delivery_info": {"redelivered": True}}
+
+        trace(self.app, add, (1, 1), task_id=task_id, request=request)
+        successful_requests.discard(task_id)
+        return add, task_id
+
+    def _redelivery(self, task_id, **extra):
+        return dict({"id": task_id, "delivery_info": {"redelivered": True}}, **extra)
+
+    def test_dedup_dispatches_the_chain(self):
+        # The first worker stored the result and died before the ack, so the
+        # rest of the chain never went out. Returning early here strands it.
+        add, task_id = self._redelivered_after_success()
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            apply_async = signature.return_value.apply_async = Mock()
+            trace(self.app, add, (1, 1), task_id=task_id, request=self._redelivery(task_id, chain=[self.add.s(10)]))
+
+        apply_async.assert_called_once()
+        args, kwargs = apply_async.call_args
+        # The stored result, not a fresh one: the task did not run again.
+        assert args == ((2,),)
+        assert kwargs["parent_id"] == task_id
+        assert kwargs["root_id"] == task_id
+
+    def test_dedup_chain_dispatch_keeps_the_remaining_steps(self):
+        add, task_id = self._redelivered_after_success()
+        step2, step3 = self.add.s(20), self.add.s(30)
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            apply_async = signature.return_value.apply_async = Mock()
+            trace(self.app, add, (1, 1), task_id=task_id, request=self._redelivery(task_id, chain=[step3, step2]))
+
+        assert apply_async.call_args[1]["chain"] == [step3]
+
+    def test_dedup_dispatches_the_callbacks(self):
+        add, task_id = self._redelivered_after_success()
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            apply_async = signature.return_value.apply_async = Mock()
+            trace(self.app, add, (1, 1), task_id=task_id, request=self._redelivery(task_id, callbacks=[self.add.s(99)]))
+
+        apply_async.assert_called_once()
+        assert apply_async.call_args[0] == ((2,),)
+        assert apply_async.call_args[1]["parent_id"] == task_id
+
+    def test_dedup_dispatches_the_callbacks_and_the_chain(self):
+        add, task_id = self._redelivered_after_success()
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            apply_async = signature.return_value.apply_async = Mock()
+            trace(
+                self.app,
+                add,
+                (1, 1),
+                task_id=task_id,
+                request=self._redelivery(task_id, chain=[self.add.s(10)], callbacks=[self.add.s(99)]),
+            )
+
+        assert apply_async.call_count == 2
+
+    def test_dedup_marks_the_request_successful(self):
+        add, task_id = self._redelivered_after_success()
+
+        with patch("celery.canvas.maybe_signature"):
+            trace(self.app, add, (1, 1), task_id=task_id, request=self._redelivery(task_id))
+
+        assert task_id in successful_requests
+
+    def test_dedup_skips_dispatch_when_the_result_has_children(self):
+        # Children mean the first worker did get the callbacks out before it
+        # stored the result, so sending them again would duplicate them.
+        add, task_id = self._redelivered_after_success()
+        meta = {"status": "SUCCESS", "result": 2, "children": [("some-child-id", None)]}
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            apply_async = signature.return_value.apply_async = Mock()
+            with patch("celery.result.AsyncResult._get_task_meta", return_value=meta):
+                trace(self.app, add, (1, 1), task_id=task_id, request=self._redelivery(task_id, chain=[self.add.s(10)]))
+
+        apply_async.assert_not_called()
+
+    def test_dedup_skips_dispatch_when_there_is_nothing_to_dispatch(self):
+        add, task_id = self._redelivered_after_success()
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            apply_async = signature.return_value.apply_async = Mock()
+            trace(self.app, add, (1, 1), task_id=task_id, request=self._redelivery(task_id, chain=[], callbacks=[]))
+
+        apply_async.assert_not_called()
+
+    def test_dedup_dispatch_failure_requeues_instead_of_acking(self):
+        # Acking here would strand the chain: the result is stored, so the
+        # next delivery is the only chance left to send it.
+        add, task_id = self._redelivered_after_success()
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            signature.return_value.apply_async.side_effect = RuntimeError("broker down")
+            with patch("celery.app.trace.logger") as logger:
+                with pytest.raises(Reject) as exc_info:
+                    trace(
+                        self.app,
+                        add,
+                        (1, 1),
+                        task_id=task_id,
+                        request=self._redelivery(task_id, chain=[self.add.s(10)]),
+                    )
+
+        assert exc_info.value.requeue is True
+        logger.error.assert_called_once()
+        assert "deduplicated task" in logger.error.call_args[0][0]
+        # Not marked successful, or the redelivery would take the early return
+        # and never retry the dispatch.
+        assert task_id not in successful_requests
+
+    def test_dedup_dispatch_memory_error_is_not_turned_into_a_reject(self):
+        add, task_id = self._redelivered_after_success()
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            signature.return_value.apply_async.side_effect = MemoryError()
+            with pytest.raises(MemoryError):
+                trace(self.app, add, (1, 1), task_id=task_id, request=self._redelivery(task_id, chain=[self.add.s(10)]))
+
+    def test_dedup_reject_survives_the_trace_task_wrapper(self):
+        # trace_task() turns stray exceptions into a failure result. A Reject
+        # is control flow for the consumer and has to get past it.
+        add, task_id = self._redelivered_after_success()
+        add.__trace__ = None
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            signature.return_value.apply_async.side_effect = RuntimeError("broker down")
+            with patch("celery.app.trace.logger"):
+                with pytest.raises(Reject):
+                    trace_task(
+                        add,
+                        task_id,
+                        (1, 1),
+                        {},
+                        request=self._redelivery(task_id, chain=[self.add.s(10)]),
+                        app=self.app,
+                    )
+
+    def test_dedup_from_memory_skips_dispatch(self):
+        # This worker ran the task itself, so it already sent the chain.
+        add, task_id = self._redelivered_after_success()
+        successful_requests.add(task_id)
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            apply_async = signature.return_value.apply_async = Mock()
+            trace(self.app, add, (1, 1), task_id=task_id, request=self._redelivery(task_id, chain=[self.add.s(10)]))
+
+        apply_async.assert_not_called()
+
+    def test_chain_dispatch_does_not_mutate_the_request_chain(self):
+        # pop() emptied the caller's list, so a retry or a redelivery traced
+        # the same request with a chain one step short.
+        @self.app.task(shared=False)
+        def add(x, y):
+            return x + y
+
+        add.backend = CacheBackend(app=self.app, backend="memory")
+        add.store_eager_result = True
+        add.ignore_result = False
+
+        chain = [self.add.s(10), self.add.s(20)]
+        task_id = str(uuid4())
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            signature.return_value.apply_async = Mock()
+            trace(
+                self.app,
+                add,
+                (1, 1),
+                task_id=task_id,
+                request={"id": task_id, "delivery_info": {"redelivered": False}, "chain": chain},
+            )
+            assert signature.return_value.apply_async.call_args[1]["chain"] == chain[:-1]
+
+        assert len(chain) == 2
+
+    @pytest.mark.asyncio
+    async def test_async_dedup_dispatches_the_chain(self):
+        add, task_id = self._redelivered_after_success()
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            aapply_async = signature.return_value.aapply_async = AsyncMock()
+            await atrace(
+                self.app, add, (1, 1), task_id=task_id, request=self._redelivery(task_id, chain=[self.add.s(10)])
+            )
+
+        aapply_async.assert_awaited_once()
+        args, kwargs = aapply_async.call_args
+        assert args == ((2,),)
+        assert kwargs["parent_id"] == task_id
+        assert kwargs["root_id"] == task_id
+
+    @pytest.mark.asyncio
+    async def test_async_dedup_dispatch_failure_requeues_instead_of_acking(self):
+        add, task_id = self._redelivered_after_success()
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            signature.return_value.aapply_async = AsyncMock(side_effect=RuntimeError("broker down"))
+            with patch("celery.app.trace.logger"):
+                with pytest.raises(Reject) as exc_info:
+                    await atrace(
+                        self.app,
+                        add,
+                        (1, 1),
+                        task_id=task_id,
+                        request=self._redelivery(task_id, chain=[self.add.s(10)]),
+                    )
+
+        assert exc_info.value.requeue is True
+        assert task_id not in successful_requests
+
+    @pytest.mark.asyncio
+    async def test_async_chain_dispatch_does_not_mutate_the_request_chain(self):
+        @self.app.task(shared=False)
+        def add(x, y):
+            return x + y
+
+        add.backend = CacheBackend(app=self.app, backend="memory")
+        add.store_eager_result = True
+        add.ignore_result = False
+
+        chain = [self.add.s(10), self.add.s(20)]
+        task_id = str(uuid4())
+
+        with patch("celery.canvas.maybe_signature") as signature:
+            signature.return_value.aapply_async = AsyncMock()
+            await atrace(
+                self.app,
+                add,
+                (1, 1),
+                task_id=task_id,
+                request={"id": task_id, "delivery_info": {"redelivered": False}, "chain": chain},
+            )
+            assert signature.return_value.aapply_async.call_args[1]["chain"] == chain[:-1]
+
+        assert len(chain) == 2
 
 
 class test_TraceInfo(TraceCase):
