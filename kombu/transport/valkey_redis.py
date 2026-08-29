@@ -31,6 +31,11 @@ Transport Options
 =================
 * ``global_keyprefix``: Global prefix for all keys (multi-tenant)
 * ``visibility_timeout``: Seconds before unacked messages are restored (default: 300)
+* ``requeue_check_interval``: Seconds between sweeps that restore timed-out and delayed
+  messages (default: 60). It is also the grace margin added to each visibility deadline,
+  so the worst-case restore delay is roughly ``visibility_timeout + 2 *
+  requeue_check_interval``. Lower it alongside a low ``visibility_timeout``, which on its
+  own cannot make restores happen sooner than the sweep.
 * ``message_ttl``: TTL for per-message hashes in seconds (-1 = no TTL)
 * ``stream_maxlen``: Maximum stream length for fanout streams (default: 10000)
 * ``fanout_prefix``: Prefix for fanout stream keys (default: '/{db}.')
@@ -183,6 +188,29 @@ def _parse_db_from_url(url: str) -> str:
     return path or "0"
 
 
+def _resolve_requeue_check_interval(opts: dict) -> float:
+    """Return the sweep cadence, in seconds.
+
+    This is both how often timed-out and delayed messages are restored and the
+    grace margin added to every visibility deadline, so nothing becomes
+    eligible for restore before the sweep that would pick it up has run. It is
+    configurable because a low ``visibility_timeout`` otherwise looks ignored:
+    the real wait is bounded by the sweep, not by the timeout (upstream kombu
+    9ee8595b).
+    """
+    interval = opts.get("requeue_check_interval", DEFAULT_REQUEUE_CHECK_INTERVAL)
+    if interval <= 0:
+        # Zero turns the sweep into a busy loop and a negative value puts every
+        # visibility deadline in the past.
+        logger.warning(
+            "requeue_check_interval must be positive, got %r; using %s seconds instead.",
+            interval,
+            DEFAULT_REQUEUE_CHECK_INTERVAL,
+        )
+        return DEFAULT_REQUEUE_CHECK_INTERVAL
+    return interval
+
+
 # ---------------------------------------------------------------------------
 # Channel
 # ---------------------------------------------------------------------------
@@ -241,6 +269,7 @@ class Channel:
             "visibility_timeout",
             DEFAULT_VISIBILITY_TIMEOUT,
         )
+        self._requeue_check_interval: float = _resolve_requeue_check_interval(opts)
         self._message_ttl: int = opts.get("message_ttl", DEFAULT_MESSAGE_TTL)
         self._stream_maxlen: int = opts.get("stream_maxlen", DEFAULT_STREAM_MAXLEN)
         self._delivery_limit: int | None = opts.get(
@@ -649,7 +678,7 @@ class Channel:
 
         # Native delayed delivery (only for delays > requeue interval)
         eta_timestamp: float | None = props.get("eta")
-        is_native_delayed = eta_timestamp is not None and (float(eta_timestamp) - now) > DEFAULT_REQUEUE_CHECK_INTERVAL
+        is_native_delayed = eta_timestamp is not None and (float(eta_timestamp) - now) > self._requeue_check_interval
         if is_native_delayed:
             eta_timestamp = float(eta_timestamp)
         visible_at = eta_timestamp if is_native_delayed else now
@@ -658,9 +687,7 @@ class Channel:
         # queue_at = time when enqueue_due_messages will pick up this message.
         # Adding RCI ensures the message won't be restored prematurely before
         # the next enqueue cycle runs.
-        queue_at = (
-            eta_timestamp if is_native_delayed else now + self._visibility_timeout + DEFAULT_REQUEUE_CHECK_INTERVAL
-        )
+        queue_at = eta_timestamp if is_native_delayed else now + self._visibility_timeout + self._requeue_check_interval
 
         message_key = self._message_key(delivery_tag)
         index_key = self._messages_index_key(queue)
@@ -900,7 +927,7 @@ class Channel:
     async def _fast_consume(self, queues: list[str]) -> bool:
         """FAST mode: atomic Lua script for non-blocking consume."""
         queue_keys = [self._queue_key(q) for q in queues]
-        new_queue_at = time() + self._visibility_timeout + DEFAULT_REQUEUE_CHECK_INTERVAL
+        new_queue_at = time() + self._visibility_timeout + self._requeue_check_interval
 
         try:
             script = await self._get_consume_script()
@@ -1023,7 +1050,7 @@ class Channel:
         # stuck in messages_index for the visibility-timeout window.
         message_key = self._message_key(delivery_tag)
         index_key = self._messages_index_key(queue)
-        new_queue_at = time() + self._visibility_timeout + DEFAULT_REQUEUE_CHECK_INTERVAL
+        new_queue_at = time() + self._visibility_timeout + self._requeue_check_interval
 
         no_ack = queue in self._no_ack_queues
 
@@ -1374,7 +1401,7 @@ class Channel:
         """Periodically enqueue delayed / timed-out messages."""
         while not self._closed:
             try:
-                await asyncio.sleep(DEFAULT_REQUEUE_CHECK_INTERVAL)
+                await asyncio.sleep(self._requeue_check_interval)
                 if self._closed:
                     break
                 await self._enqueue_due_messages()
@@ -1437,7 +1464,7 @@ class Channel:
             return 0, 0
 
         now = time()
-        threshold = now + DEFAULT_REQUEUE_CHECK_INTERVAL
+        threshold = now + self._requeue_check_interval
         total_enqueued = 0
         total_dropped = 0
         script = await self._get_enqueue_script()
@@ -1481,7 +1508,7 @@ class Channel:
         """Update scores of delivered messages to prevent premature requeue."""
         if not self._delivered:
             return
-        queue_at = time() + self._visibility_timeout + DEFAULT_REQUEUE_CHECK_INTERVAL
+        queue_at = time() + self._visibility_timeout + self._requeue_check_interval
         async with self.client.pipeline(transaction=False) as pipe:
             for tag, (queue, _) in list(self._delivered.items()):
                 if tag not in self._fanout_tags:
@@ -1510,7 +1537,7 @@ class Channel:
     ) -> Message | None:
         """Non-blocking single message fetch via atomic consume Lua script."""
         queue_key = self._queue_key(queue)
-        new_queue_at = time() + self._visibility_timeout + DEFAULT_REQUEUE_CHECK_INTERVAL
+        new_queue_at = time() + self._visibility_timeout + self._requeue_check_interval
 
         try:
             script = await self._get_consume_script()

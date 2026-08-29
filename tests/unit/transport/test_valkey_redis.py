@@ -12,6 +12,7 @@ from kombu.entity import Exchange, Queue
 from kombu.transport.valkey_redis import (
     BINDING_SEP,
     DEFAULT_DELIVERY_LIMIT,
+    DEFAULT_REQUEUE_CHECK_INTERVAL,
     DEFAULT_VISIBILITY_TIMEOUT,
     MESSAGE_KEY_PREFIX,
     MESSAGES_INDEX_PREFIX,
@@ -177,6 +178,16 @@ class TestChannelInit:
         assert ch._message_ttl == 3600
         assert ch._delivery_limit == 5
         assert ch._global_keyprefix == "test:"
+
+    def test_requeue_check_interval_defaults_and_is_configurable(self):
+        assert _make_channel()._requeue_check_interval == DEFAULT_REQUEUE_CHECK_INTERVAL
+        assert _make_channel(requeue_check_interval=5)._requeue_check_interval == 5
+
+    @pytest.mark.parametrize("bad", [0, -1])
+    def test_a_non_positive_requeue_check_interval_falls_back(self, bad):
+        # Zero would turn the sweep into a busy loop and a negative value would
+        # put every visibility deadline in the past.
+        assert _make_channel(requeue_check_interval=bad)._requeue_check_interval == DEFAULT_REQUEUE_CHECK_INTERVAL
 
     def test_fanout_prefix_default(self):
         ch = _make_channel()
@@ -1703,7 +1714,7 @@ class TestPeriodicTasks:
                     pass
 
     async def test_periodic_enqueue_due_runs_and_cancels(self):
-        ch = _make_channel()
+        ch = _make_channel(requeue_check_interval=0.01)
         call_count = 0
 
         async def mock_enqueue():
@@ -1713,15 +1724,14 @@ class TestPeriodicTasks:
 
         ch._enqueue_due_messages = mock_enqueue
 
-        with patch("kombu.transport.valkey_redis.DEFAULT_REQUEUE_CHECK_INTERVAL", 0.01):
-            task = asyncio.ensure_future(ch._periodic_enqueue_due())
-            await asyncio.sleep(0.05)
-            ch._closed = True
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        task = asyncio.ensure_future(ch._periodic_enqueue_due())
+        await asyncio.sleep(0.05)
+        ch._closed = True
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
         assert call_count >= 1
 
@@ -1747,7 +1757,7 @@ class TestPeriodicTasks:
         assert call_count >= 1
 
     async def test_periodic_enqueue_due_handles_exception(self):
-        ch = _make_channel()
+        ch = _make_channel(requeue_check_interval=0.01)
         call_count = 0
 
         async def mock_enqueue():
@@ -1759,15 +1769,14 @@ class TestPeriodicTasks:
 
         ch._enqueue_due_messages = mock_enqueue
 
-        with patch("kombu.transport.valkey_redis.DEFAULT_REQUEUE_CHECK_INTERVAL", 0.01):
-            task = asyncio.ensure_future(ch._periodic_enqueue_due())
-            await asyncio.sleep(0.05)
-            ch._closed = True
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        task = asyncio.ensure_future(ch._periodic_enqueue_due())
+        await asyncio.sleep(0.05)
+        ch._closed = True
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
         # Should have retried after exception
         assert call_count >= 2
