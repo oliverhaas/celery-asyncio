@@ -1402,6 +1402,25 @@ class EagerResult(AsyncResult):
                 raise self.result if isinstance(self.result, Exception) else Exception(self.result)
             return self.result
 
+    async def aget(self, timeout=None, propagate=True, disable_sync_subtasks=True, **kwargs):
+        """Async version of :meth:`get`.
+
+        Arguments and return value are the same as :meth:`get`.
+
+        An eager result is already computed and held in memory, so there is
+        nothing to await. This override exists because without it ``aget()``
+        would fall through to :meth:`AsyncResult.aget`, which reads the value
+        straight out of the cache and so returns the ``Ignore``/``Reject``
+        instance for a task that produced no result, where :meth:`get` returns
+        ``None``.
+        """
+        return self.get(
+            timeout=timeout,
+            propagate=propagate,
+            disable_sync_subtasks=disable_sync_subtasks,
+            **kwargs,
+        )
+
     def forget(self):
         pass
 

@@ -9,7 +9,7 @@ import pytest
 from celery import states, uuid
 from celery.app.task import Context
 from celery.backends.base import Backend, SyncBackendMixin
-from celery.exceptions import ImproperlyConfigured, IncompleteStream, TimeoutError
+from celery.exceptions import Ignore, ImproperlyConfigured, IncompleteStream, TimeoutError
 from celery.result import AsyncResult, EagerResult, GroupResult, ResultSet, assert_will_not_block, result_from_tuple
 from celery.utils.serialization import pickle
 
@@ -960,6 +960,27 @@ class test_EagerResult:
         res.get()
         assert res.state == states.RETRY
         assert res.status == states.RETRY
+
+    @pytest.mark.parametrize("state", [states.IGNORED, states.REJECTED])
+    async def test_aget_agrees_with_get_for_a_task_that_produced_no_result(self, state):
+        # EagerResult overrides get() but inherited aget() from AsyncResult,
+        # which reads the cache directly -- so the two disagreed on exactly the
+        # states where the stored "result" is the control-flow exception rather
+        # than a return value.
+        res = EagerResult("x", Ignore(), state)
+
+        assert res.get() is None
+        assert await res.aget() is None
+
+    async def test_aget_raises(self):
+        res = self.raising.apply(args=[3, 3])
+        with pytest.raises(KeyError):
+            await res.aget()
+        assert await res.aget(propagate=False)
+
+    async def test_aget_returns_the_result(self):
+        res = EagerResult("x", 42, states.SUCCESS)
+        assert await res.aget() == 42
 
     def test_forget(self):
         res = EagerResult("x", "x", states.RETRY)
