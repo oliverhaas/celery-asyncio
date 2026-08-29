@@ -26,7 +26,7 @@ Correctness fixes that change no public API go first. Item 5 depends on 3; item 
 | 3 | yes | Backlog counted as a redelivery | wrong counter, feeds 5 and 6 | none |
 | 4 | yes | `no_ack` deliveries stay in the index | spurious redelivery of pidbox/reply | ARGV arity |
 | 5 | yes | `redelivered` written but never read | celery never sees redeliveries | hash field, headers |
-| 6 | no | RabbitMQ naming and `delivery_limit` semantics | reject loops never stop | option, header, default |
+| 6 | yes | RabbitMQ naming and `delivery_limit` semantics | reject loops never stop | option, header, default |
 | 7 | no | Direct exchange with no bindings loses the message | silent drop | raises to publishers |
 
 Features, deferred until the seven land: 8 to 12.
@@ -116,11 +116,11 @@ policy: RabbitMQ increments on a message returned to the queue because its consu
 and on `basic.nack`/`reject` with `requeue=true`. Those are exactly the two Lua scripts here, and
 after item 5 both increment.
 
-Three corrections come with the rename:
+Corrections that come with the rename:
 
-- **Header placement.** `valkey_redis.py:897` and `:986` write `x-restore-count` into
-  `properties["headers"]`. kombu rebuilds `Message.headers` from the payload's top-level
-  `headers`, so nothing ever sees it. It has to move.
+- **Header placement.** Does not apply here, unlike in celery-redis-plus. Both consume paths
+  already wrote into the payload's top-level `headers`, which is what `_create_message` builds
+  `Message.headers` from, so the header did reach consumers.
 - **Off by one.** `transport_enqueue_due_messages.lua:68` compares `restore_count >
   max_restore_count`, so a limit of 3 allows four attempts. Move to `>=` so the limit counts
   attempts, as in RabbitMQ.

@@ -8,7 +8,7 @@ This transport uses valkey.asyncio or redis.asyncio for all operations and provi
 5. Global key prefixing — multi-tenant support
 6. FAST/SLOW consume mode — atomic Lua script with BZMPOP fallback
 7. Atomic ack — Lua script for ZREM+DEL atomicity
-8. Restore count tracking — max_restore_count enforcement
+8. Delivery count tracking — delivery_limit enforcement
 
 Supports both valkey-py and redis-py client libraries. The URL scheme selects the
 preferred library (with automatic fallback if only one is installed):
@@ -34,7 +34,8 @@ Transport Options
 * ``message_ttl``: TTL for per-message hashes in seconds (-1 = no TTL)
 * ``stream_maxlen``: Maximum stream length for fanout streams (default: 10000)
 * ``fanout_prefix``: Prefix for fanout stream keys (default: '/{db}.')
-* ``max_restore_count``: Max times a message can be restored before being dropped (None = no limit)
+* ``delivery_limit``: Max times a message may be delivered before it is dropped, as in
+  RabbitMQ's quorum-queue ``delivery-limit`` policy (default: 20, None = no limit)
 * ``block_timeout``: Server-side BZMPOP/XREAD BLOCK duration per consumer iteration in seconds (default: 10)
 * ``credential_provider``: A CredentialProvider instance or dotted import path
 * ``socket_timeout``: Socket timeout in seconds
@@ -97,7 +98,9 @@ DEFAULT_REQUEUE_CHECK_INTERVAL = 60
 DEFAULT_REQUEUE_BATCH_LIMIT = 1000
 DEFAULT_MESSAGE_TTL = -1
 MIN_QUEUE_EXPIRES = 10_000
-DEFAULT_MAX_RESTORE_COUNT: int | None = None
+# Matches RabbitMQ, which has applied a delivery-limit of 20 to quorum queues
+# since 4.0. None disables the limit and lets a poison message redeliver forever.
+DEFAULT_DELIVERY_LIMIT: int | None = 20
 
 # Default server-side block duration for BZMPOP/XREAD inside a single consumer
 # iteration. Overridable via the `block_timeout` transport option.
@@ -239,9 +242,9 @@ class Channel:
         )
         self._message_ttl: int = opts.get("message_ttl", DEFAULT_MESSAGE_TTL)
         self._stream_maxlen: int = opts.get("stream_maxlen", DEFAULT_STREAM_MAXLEN)
-        self._max_restore_count: int | None = opts.get(
-            "max_restore_count",
-            DEFAULT_MAX_RESTORE_COUNT,
+        self._delivery_limit: int | None = opts.get(
+            "delivery_limit",
+            DEFAULT_DELIVERY_LIMIT,
         )
 
         # Fanout prefix: True → default, False → none, str → custom
@@ -651,7 +654,7 @@ class Channel:
                     "priority": priority,
                     "native_delayed": 1 if is_native_delayed else 0,
                     "eta": eta_timestamp or 0,
-                    "restore_count": 0,
+                    "delivery_count": 0,
                 },
             )
 
@@ -897,9 +900,9 @@ class Channel:
         if not result:
             return False
 
-        queue_name, delivery_tag, payload_json, restore_count = self._parse_consume_result(result)
+        queue_name, delivery_tag, payload_json, delivery_count = self._parse_consume_result(result)
         payload = json_loads(payload_json)
-        message = self._create_message(queue_name, payload, delivery_tag, restore_count)
+        message = self._create_message(queue_name, payload, delivery_tag, delivery_count)
         try:
             await self._deliver_to_consumer(queue_name, message)
         except BaseException:
@@ -983,7 +986,7 @@ class Channel:
                     # message acked a moment ago; the empty-payload branch below
                     # ZREMs it again.
                     await pipe.zadd(index_key, {delivery_tag: new_queue_at})
-                await pipe.hmget(message_key, "payload", "restore_count")
+                await pipe.hmget(message_key, "payload", "delivery_count")
                 if no_ack:
                     await pipe.delete(message_key)
                 results = await pipe.execute()
@@ -998,8 +1001,8 @@ class Channel:
             return await self._drain_expired_and_deliver(queue)
 
         payload = json_loads(payload_json)
-        restore_count = int(results[1][1] or 0)
-        message = self._create_message(queue, payload, delivery_tag, restore_count)
+        delivery_count = int(results[1][1] or 0)
+        message = self._create_message(queue, payload, delivery_tag, delivery_count)
         try:
             await self._deliver_to_consumer(queue, message)
         except BaseException:
@@ -1011,13 +1014,13 @@ class Channel:
     def _parse_consume_result(self, result: list) -> tuple[str, str, str, int]:
         """Parse the result from consume_message Lua script.
 
-        Returns (queue_name, delivery_tag, payload_json, restore_count).
+        Returns (queue_name, delivery_tag, payload_json, delivery_count).
         """
         queue_name = result[0].decode() if isinstance(result[0], bytes) else result[0]
         delivery_tag = result[1].decode() if isinstance(result[1], bytes) else result[1]
         payload_json = result[2].decode() if isinstance(result[2], bytes) else result[2]
-        restore_count = int(result[3] or 0)
-        return queue_name, delivery_tag, payload_json, restore_count
+        delivery_count = int(result[3] or 0)
+        return queue_name, delivery_tag, payload_json, delivery_count
 
     async def _drain_expired_and_deliver(self, queue: str) -> bool:
         """Pop messages until a valid one is found or queue is empty."""
@@ -1030,11 +1033,11 @@ class Channel:
             delivery_tag = delivery_tag_raw.decode() if isinstance(delivery_tag_raw, bytes) else delivery_tag_raw
             message_key = self._message_key(delivery_tag)
 
-            fields = await self.client.hmget(message_key, "payload", "restore_count")
+            fields = await self.client.hmget(message_key, "payload", "delivery_count")
             if fields[0]:
                 payload = json_loads(fields[0])
-                restore_count = int(fields[1] or 0)
-                message = self._create_message(queue, payload, delivery_tag, restore_count)
+                delivery_count = int(fields[1] or 0)
+                message = self._create_message(queue, payload, delivery_tag, delivery_count)
                 await self._deliver_to_consumer(queue, message)
                 return True
             # Expired — clean up index entry
@@ -1116,11 +1119,11 @@ class Channel:
         queue: str,
         payload: dict,
         delivery_tag: str,
-        restore_count: int = 0,
+        delivery_count: int = 0,
     ) -> Message:
         """Create a Message from decoded payload dict.
 
-        The AMQP redelivery flags are derived from ``restore_count`` rather than
+        The AMQP redelivery flags are derived from ``delivery_count`` rather than
         a stored field of their own, so every path that can redeliver moves one
         counter. ``delivery_info['redelivered']`` is where kombu's own redis
         transport puts the flag and the only place celery looks for it when
@@ -1142,8 +1145,8 @@ class Channel:
         elif isinstance(body, (dict, list)):
             body = json_dumps(body).encode("utf-8")
 
-        if restore_count > 0:
-            headers["x-restore-count"] = restore_count
+        if delivery_count > 0:
+            headers["x-delivery-count"] = delivery_count
 
         return Message(
             body=body,
@@ -1153,7 +1156,7 @@ class Channel:
             delivery_info={
                 "exchange": "",
                 "routing_key": queue,
-                "redelivered": restore_count > 0,
+                "redelivered": delivery_count > 0,
             },
             properties=properties,
             headers=headers,
@@ -1247,7 +1250,12 @@ class Channel:
 
         The Lua script atomically reads the routing_key (queue) from the message
         hash, adds the message back to that queue with NX flag, and updates
-        the messages_index with a new queue_at score.
+        the messages_index with a new queue_at score. It also enforces
+        ``delivery_limit``, since a consumer rejecting in a tight loop never
+        lets the sweep see the message come due.
+
+        Returns False when the message was not found or was dropped at the
+        delivery limit.
         """
         message_key = self._message_key(delivery_tag)
 
@@ -1263,8 +1271,16 @@ class Channel:
                 MESSAGE_KEY_PREFIX,
                 self._visibility_timeout,
                 MESSAGES_INDEX_PREFIX,
+                -1 if self._delivery_limit is None else self._delivery_limit,
             ],
         )
+        if result == -1:
+            logger.warning(
+                "Dropped message %s: requeue would exceed delivery_limit=%s.",
+                delivery_tag,
+                self._delivery_limit,
+            )
+            return False
         return bool(result)
 
     # ---- periodic background tasks ----------------------------------------
@@ -1348,8 +1364,8 @@ class Channel:
         total_dropped = 0
         script = await self._get_enqueue_script()
 
-        # Compute max_restore_count arg (-1 = no limit)
-        max_rc = -1 if self._max_restore_count is None else self._max_restore_count
+        # Compute delivery_limit arg (-1 = no limit)
+        limit = -1 if self._delivery_limit is None else self._delivery_limit
 
         for queue in active_queues:
             index_key = self._messages_index_key(queue)
@@ -1363,7 +1379,7 @@ class Channel:
                     MESSAGE_KEY_PREFIX,
                     self._global_keyprefix,
                     QUEUE_KEY_PREFIX,
-                    max_rc,
+                    limit,
                 ],
             )
             if result:
@@ -1377,9 +1393,9 @@ class Channel:
             )
         if total_dropped > 0:
             logger.warning(
-                "Dropped %d messages exceeding max_restore_count=%s.",
+                "Dropped %d messages exceeding delivery_limit=%s.",
                 total_dropped,
-                self._max_restore_count,
+                self._delivery_limit,
             )
         return total_enqueued, total_dropped
 
@@ -1438,9 +1454,9 @@ class Channel:
         if not result:
             return None
 
-        queue_name, delivery_tag, payload_json, restore_count = self._parse_consume_result(result)
+        queue_name, delivery_tag, payload_json, delivery_count = self._parse_consume_result(result)
         payload = json_loads(payload_json)
-        message = self._create_message(queue_name, payload, delivery_tag, restore_count)
+        message = self._create_message(queue_name, payload, delivery_tag, delivery_count)
         if not no_ack:
             self._delivered[delivery_tag] = (queue_name, message)
         return message
@@ -1583,7 +1599,7 @@ class Transport(BaseTransport):
             "message_ttl",
             "stream_maxlen",
             "fanout_prefix",
-            "max_restore_count",
+            "delivery_limit",
             "credential_provider",
         },
     )

@@ -12,7 +12,7 @@
 --       [4] = messages_index_prefix,
 --       [5..4+N] = queue_name_1, queue_name_2, ... (raw names, in KEYS order)
 --       [5+N..4+2N] = no_ack flag ('1'/'0') per queue, same order as KEYS
--- Returns: {queue_name, delivery_tag, payload, restore_count} or nil
+-- Returns: {queue_name, delivery_tag, payload, delivery_count} or nil
 
 local global_keyprefix = ARGV[1]
 local message_key_prefix = ARGV[2]
@@ -51,7 +51,7 @@ for _attempt = 1, max_attempts do
 
     -- Fetch message data
     local message_key = global_keyprefix .. message_key_prefix .. tag
-    local fields = redis.call('HMGET', message_key, 'payload', 'restore_count')
+    local fields = redis.call('HMGET', message_key, 'payload', 'delivery_count')
 
     if fields[1] then
         local index_key = global_keyprefix .. messages_index_prefix .. queue_name

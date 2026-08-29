@@ -421,7 +421,7 @@ class TestDeliveryTracking:
         enqueued, _dropped = await run_sweep(channel, queue_name)
 
         assert enqueued == 0
-        counter = await channel.client.hget(channel._message_key(tag), "restore_count")
+        counter = await channel.client.hget(channel._message_key(tag), "delivery_count")
         assert int(counter or 0) == 0
 
         # The deadline still moves forward, or every cycle re-checks the tag.
@@ -453,7 +453,7 @@ class TestDeliveryTracking:
 
         msg = await channel.get(queue_name, no_ack=False)
         assert msg.delivery_info["redelivered"] is False
-        assert "x-restore-count" not in msg.headers
+        assert "x-delivery-count" not in msg.headers
 
         await msg.ack()
         await channel.queue_purge(queue_name)
@@ -474,7 +474,7 @@ class TestDeliveryTracking:
 
         second = await channel.get(queue_name, no_ack=False)
         assert second.delivery_info["redelivered"] is True
-        assert second.headers["x-restore-count"] == 1
+        assert second.headers["x-delivery-count"] == 1
 
         await second.ack()
         await channel.queue_purge(queue_name)
@@ -494,10 +494,55 @@ class TestDeliveryTracking:
 
         second = await channel.get(queue_name, no_ack=False)
         assert second.delivery_info["redelivered"] is True
-        assert second.headers["x-restore-count"] == 1
+        assert second.headers["x-delivery-count"] == 1
 
         await second.ack()
         await channel.queue_purge(queue_name)
+
+    async def test_the_delivery_limit_counts_attempts(self):
+        """PORT-PLAN fix 6.
+
+        RabbitMQ's delivery-limit is the number of attempts allowed, so a limit
+        of 1 means the message is delivered once and then dropped.
+        """
+        queue_name = "test_delivery_limit_counts_attempts"
+        async with Connection(REDIS_URL, transport_options={"delivery_limit": 1}) as conn:
+            channel = await conn.channel()
+            await channel.queue_purge(queue_name)
+            await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+
+            msg = await channel.get(queue_name, no_ack=False)
+            await expire_visibility(channel, queue_name, msg.delivery_tag)
+            enqueued, dropped = await run_sweep(channel, queue_name)
+
+            assert (enqueued, dropped) == (0, 1)
+            assert await channel.client.exists(channel._message_key(msg.delivery_tag)) == 0
+            assert await channel.client.zcard(channel._queue_key(queue_name)) == 0
+
+    async def test_a_reject_loop_stops_at_the_delivery_limit(self):
+        """PORT-PLAN fix 6.
+
+        The sweep cannot catch a live reject loop, because every consume
+        re-stamps the index deadline and the entry never comes due there. So the
+        requeue script enforces the limit itself.
+        """
+        queue_name = "test_reject_loop_stops"
+        async with Connection(REDIS_URL, transport_options={"delivery_limit": 2}) as conn:
+            channel = await conn.channel()
+            await channel.queue_purge(queue_name)
+            await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+
+            first = await channel.get(queue_name, no_ack=False)
+            await first.reject(requeue=True)
+
+            second = await channel.get(queue_name, no_ack=False)
+            assert second.headers["x-delivery-count"] == 1
+            await second.reject(requeue=True)
+
+            # A third attempt would exceed a limit of 2, so this requeue drops.
+            assert await channel.client.zcard(channel._queue_key(queue_name)) == 0
+            assert await channel.client.exists(channel._message_key(second.delivery_tag)) == 0
+            assert await channel.get(queue_name, no_ack=False) is None
 
 
 if __name__ == "__main__":

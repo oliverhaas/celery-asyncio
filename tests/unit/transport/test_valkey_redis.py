@@ -11,7 +11,7 @@ import pytest
 from kombu.entity import Exchange, Queue
 from kombu.transport.valkey_redis import (
     BINDING_SEP,
-    DEFAULT_MAX_RESTORE_COUNT,
+    DEFAULT_DELIVERY_LIMIT,
     DEFAULT_VISIBILITY_TIMEOUT,
     MESSAGE_KEY_PREFIX,
     MESSAGES_INDEX_PREFIX,
@@ -162,7 +162,7 @@ class TestChannelInit:
         ch = _make_channel()
         assert ch._visibility_timeout == DEFAULT_VISIBILITY_TIMEOUT
         assert ch._message_ttl == -1
-        assert ch._max_restore_count is None
+        assert ch._delivery_limit == DEFAULT_DELIVERY_LIMIT
         assert ch._consume_fast_mode is True
         assert ch._global_keyprefix == ""
 
@@ -170,12 +170,12 @@ class TestChannelInit:
         ch = _make_channel(
             visibility_timeout=120,
             message_ttl=3600,
-            max_restore_count=5,
+            delivery_limit=5,
             global_keyprefix="test:",
         )
         assert ch._visibility_timeout == 120
         assert ch._message_ttl == 3600
-        assert ch._max_restore_count == 5
+        assert ch._delivery_limit == 5
         assert ch._global_keyprefix == "test:"
 
     def test_fanout_prefix_default(self):
@@ -387,8 +387,8 @@ class TestPublish:
                     assert score == 1360.0, f"Expected 1360.0, got {score}"
                 break
 
-    async def test_put_message_stores_restore_count(self):
-        """New messages should have restore_count=0."""
+    async def test_put_message_stores_delivery_count(self):
+        """New messages should have delivery_count=0."""
         ch = _make_channel()
 
         mock_pipe = AsyncMock()
@@ -406,10 +406,10 @@ class TestPublish:
         ch.client.pipeline = MagicMock(return_value=PipeCtx())
         await ch._put_message("q1", b'{"body": "test", "properties": {}, "headers": {}}')
 
-        # Check hset mapping includes restore_count=0
+        # Check hset mapping includes delivery_count=0
         hset_call = mock_pipe.hset.call_args
         mapping = hset_call[1]["mapping"]
-        assert mapping["restore_count"] == 0
+        assert mapping["delivery_count"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -508,8 +508,8 @@ class TestFastSlowConsume:
         # After successful SLOW, _consume_regular should switch back to FAST
         # (this happens in _consume_regular, not _slow_consume itself)
 
-    async def test_fast_consume_with_restore_count(self):
-        """FAST consume should inject x-restore-count header."""
+    async def test_fast_consume_with_delivery_count(self):
+        """FAST consume should inject x-delivery-count header."""
         ch = _make_channel()
         ch._consume_fast_mode = True
 
@@ -521,17 +521,17 @@ class TestFastSlowConsume:
                 b"q1",
                 b"tag-1",
                 b'{"body": "hello", "properties": {}, "headers": {}}',
-                b"3",  # restore_count = 3
+                b"3",  # delivery_count = 3
             ],
         )
         ch._consume_script = consume_script
 
         result = await ch._fast_consume(["q1"])
         assert result is True
-        # Check the message passed to callback has x-restore-count
+        # Check the message passed to callback has x-delivery-count
         call_args = cb.call_args
         msg = call_args[0][1]
-        assert msg.headers.get("x-restore-count") == 3
+        assert msg.headers.get("x-delivery-count") == 3
 
 
 # ---------------------------------------------------------------------------
@@ -639,8 +639,8 @@ class TestEnqueueDueMessages:
         assert enqueued == 5
         assert dropped == 2
 
-    async def test_enqueue_passes_max_restore_count(self):
-        ch = _make_channel(max_restore_count=10)
+    async def test_enqueue_passes_delivery_limit(self):
+        ch = _make_channel(delivery_limit=10)
         ch._consumers["tag1"] = ("q1", MagicMock(), False)
 
         enqueue_script = AsyncMock(return_value=[1, 0])
@@ -649,10 +649,10 @@ class TestEnqueueDueMessages:
         await ch._enqueue_due_messages()
         call_args = enqueue_script.call_args
         args = call_args[1]["args"]
-        assert args[7] == 10  # max_restore_count
+        assert args[7] == 10  # delivery_limit
 
     async def test_enqueue_no_limit(self):
-        ch = _make_channel()  # max_restore_count=None (default)
+        ch = _make_channel(delivery_limit=None)
         ch._consumers["tag1"] = ("q1", MagicMock(), False)
 
         enqueue_script = AsyncMock(return_value=[1, 0])
@@ -754,7 +754,7 @@ class TestGet:
         msg = await ch.get("q1")
         assert msg is None
 
-    async def test_get_with_restore_count(self):
+    async def test_get_with_delivery_count(self):
         ch = _make_channel()
 
         consume_script = AsyncMock(
@@ -762,13 +762,13 @@ class TestGet:
                 b"q1",
                 b"tag-1",
                 b'{"body": "hello", "properties": {}, "headers": {}}',
-                b"7",  # restore_count=7
+                b"7",  # delivery_count=7
             ],
         )
         ch._consume_script = consume_script
 
         msg = await ch.get("q1", no_ack=True)
-        assert msg.headers["x-restore-count"] == 7
+        assert msg.headers["x-delivery-count"] == 7
 
 
 # ---------------------------------------------------------------------------
@@ -836,14 +836,14 @@ class TestTransport:
             url="redis://localhost:6379",
             global_keyprefix="p:",
             visibility_timeout=120,
-            max_restore_count=5,
+            delivery_limit=5,
             credential_provider="some.module.Provider",
             socket_timeout=10,
         )
         kw = t._client_kwargs()
         assert "global_keyprefix" not in kw
         assert "visibility_timeout" not in kw
-        assert "max_restore_count" not in kw
+        assert "delivery_limit" not in kw
         assert "credential_provider" not in kw
         assert kw["socket_timeout"] == 10
 
@@ -937,8 +937,9 @@ class TestConstants:
     def test_min_queue_expires(self):
         assert MIN_QUEUE_EXPIRES == 10_000
 
-    def test_default_max_restore_count(self):
-        assert DEFAULT_MAX_RESTORE_COUNT is None
+    def test_default_delivery_limit(self):
+        # RabbitMQ has applied this to quorum queues since 4.0.
+        assert DEFAULT_DELIVERY_LIMIT == 20
 
 
 # ---------------------------------------------------------------------------
@@ -986,7 +987,7 @@ class TestParseConsumeResult:
         assert tag == "tag1"
         assert rc == 0
 
-    async def test_none_restore_count(self):
+    async def test_none_delivery_count(self):
         ch = _make_channel()
         result = [b"q1", b"tag1", b'{"body": "hi"}', None]
         _, _, _, rc = ch._parse_consume_result(result)
@@ -1337,7 +1338,7 @@ class TestDrainExpiredAndDeliver:
         ch.client.hmget = AsyncMock(
             side_effect=[
                 [None, None],  # expired
-                [b'{"body": "ok", "properties": {}, "headers": {}}', b"2"],  # valid with restore_count=2
+                [b'{"body": "ok", "properties": {}, "headers": {}}', b"2"],  # valid with delivery_count=2
             ],
         )
         ch.client.zrem = AsyncMock()
@@ -1346,9 +1347,9 @@ class TestDrainExpiredAndDeliver:
         assert result is True
         # Should have cleaned up the expired tag from index
         ch.client.zrem.assert_called_once()
-        # Callback should have the message with x-restore-count
+        # Callback should have the message with x-delivery-count
         msg = cb.call_args[0][1]
-        assert msg.headers.get("x-restore-count") == 2
+        assert msg.headers.get("x-delivery-count") == 2
 
     async def test_all_expired(self):
         ch = _make_channel()
@@ -1923,7 +1924,7 @@ class TestSlowConsumeErrors:
         # Should have called drain_expired_and_deliver
         ch._drain_expired_and_deliver.assert_called_once_with("q1")
 
-    async def test_slow_consume_restore_count_injected(self):
+    async def test_slow_consume_delivery_count_injected(self):
         ch = _make_channel()
         cb = MagicMock()
         ch._consumers["tag1"] = ("q1", cb, True)
@@ -1957,7 +1958,7 @@ class TestSlowConsumeErrors:
         result = await ch._slow_consume(["q1"], timeout=1.0)
         assert result is True
         msg = cb.call_args[0][1]
-        assert msg.headers["x-restore-count"] == 5
+        assert msg.headers["x-delivery-count"] == 5
 
     async def test_slow_consume_with_global_prefix(self):
         ch = _make_channel(global_keyprefix="app:")
@@ -2435,7 +2436,7 @@ class TestEnqueueBatchLimit:
             mock_logger.warning.assert_called()
 
     async def test_enqueue_dropped_warning(self):
-        ch = _make_channel(max_restore_count=3)
+        ch = _make_channel(delivery_limit=3)
         ch._consumers["tag1"] = ("q1", MagicMock(), False)
 
         enqueue_script = AsyncMock(return_value=[2, 5])
