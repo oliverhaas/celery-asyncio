@@ -368,12 +368,12 @@ def render() -> str:
     for profile in PROFILES:
         rows = load_profile(profile)
         notes = profile_notes(profile)
+        n_tasks = f"{rows[0]['n_tasks']:,}".replace(",", " ") if rows else ""
         parts += [
             "",
             f"## Full results, {profile} workload",
             "",
-            f"{len(rows)} of {len(CANONICAL_CONFIGS)} configs, {rows[0]['n_tasks']:,}".replace(",", " ")
-            + " tasks each, sorted by wall-clock."
+            f"{len(rows)} of {len(CANONICAL_CONFIGS)} configs, {n_tasks} tasks each, sorted by wall-clock."
             if rows
             else "No results yet.",
             "",
