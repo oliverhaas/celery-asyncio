@@ -641,8 +641,11 @@ class Request:
                         del einfo
                     exc.__traceback__ = None
 
-            if self.task.acks_late and self.task.acks_on_failure_or_timeout:
-                self.acknowledge()
+            if self.task.acks_late:
+                if self.task.acks_on_timeout:
+                    self.acknowledge()
+                else:
+                    self.reject(requeue=True)
 
     def on_success(self, failed__retval__runtime, **kwargs):
         """Handler called if the task was successfully processed."""
@@ -707,15 +710,14 @@ class Request:
         requeue = False
         is_worker_lost = isinstance(exc, WorkerLostError)
         if self.task.acks_late:
-            reject = (self.task.reject_on_worker_lost and is_worker_lost) or (
-                isinstance(exc, TimeLimitExceeded) and not self.task.acks_on_failure_or_timeout
-            )
-            ack = self.task.acks_on_failure_or_timeout
+            is_timeout = isinstance(exc, TimeLimitExceeded)
+            ack_flag = self.task.acks_on_timeout if is_timeout else self.task.acks_on_failure
+            reject = (self.task.reject_on_worker_lost and is_worker_lost) or (is_timeout and not ack_flag)
             if reject:
                 requeue = True
                 self.reject(requeue=requeue)
                 send_failed_event = False
-            elif ack:
+            elif ack_flag:
                 self.acknowledge()
             else:
                 # supporting the behaviour where a task failed and

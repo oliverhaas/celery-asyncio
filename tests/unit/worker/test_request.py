@@ -416,6 +416,8 @@ class test_Request(RequestCase):
         req = self.get_request(self.add.s(2, 2))
         req.task.acks_late = True
         req.task.acks_on_failure_or_timeout = True
+        req.task.acks_on_failure = True
+        req.task.acks_on_timeout = True
         req.delivery_info["redelivered"] = False
         req.task.backend = Mock()
 
@@ -435,6 +437,8 @@ class test_Request(RequestCase):
         req = self.get_request(self.add.s(2, 2))
         req.task.acks_late = True
         req.task.acks_on_failure_or_timeout = False
+        req.task.acks_on_failure = False
+        req.task.acks_on_timeout = False
         req.delivery_info["redelivered"] = False
         req.task.backend = Mock()
 
@@ -826,6 +830,8 @@ class test_Request(RequestCase):
         job._on_reject = Mock()
         self.mytask.acks_late = True
         self.mytask.acks_on_failure_or_timeout = False
+        self.mytask.acks_on_failure = False  # as bind() would set
+        self.mytask.acks_on_timeout = False  # as bind() would set
         try:
             raise KeyError("foo")
         except KeyError:
@@ -840,6 +846,8 @@ class test_Request(RequestCase):
         job.time_start = 1
         self.mytask.acks_late = True
         self.mytask.acks_on_failure_or_timeout = True
+        self.mytask.acks_on_failure = True  # as bind() would set
+        self.mytask.acks_on_timeout = True  # as bind() would set
         try:
             raise KeyError("foo")
         except KeyError:
@@ -853,6 +861,8 @@ class test_Request(RequestCase):
         job.time_start = 1
         self.mytask.acks_late = True
         self.mytask.acks_on_failure_or_timeout = False
+        self.mytask.acks_on_failure = False  # as bind() would set
+        self.mytask.acks_on_timeout = False  # as bind() would set
         try:
             raise KeyError("foo")
         except KeyError:
@@ -902,6 +912,7 @@ class test_Request(RequestCase):
         job = self.xRequest()
         job.acknowledge = Mock(name="ack")
         job.task.acks_late = True
+        job.task.acks_on_timeout = True
         job.on_timeout(soft=False, timeout=1337)
         assert "Hard time limit" in error.call_args[0][0]
         assert self.mytask.backend.get_state(job.id) == states.FAILURE
@@ -920,6 +931,7 @@ class test_Request(RequestCase):
         job.acknowledge = Mock(name="ack")
         job.task.acks_late = True
         job.task.acks_on_failure_or_timeout = True
+        job.task.acks_on_timeout = True
         job.on_timeout(soft=False, timeout=1337)
         assert "Hard time limit" in error.call_args[0][0]
         assert self.mytask.backend.get_state(job.id) == states.FAILURE
@@ -927,19 +939,100 @@ class test_Request(RequestCase):
 
         job = self.xRequest()
         job.acknowledge = Mock(name="ack")
+        job.reject = Mock(name="reject")
         job.task.acks_late = True
         job.task.acks_on_failure_or_timeout = False
+        job.task.acks_on_timeout = False
         job.on_timeout(soft=False, timeout=1337)
         assert "Hard time limit" in error.call_args[0][0]
         assert self.mytask.backend.get_state(job.id) == states.FAILURE
         job.acknowledge.assert_not_called()
+        job.reject.assert_called_once_with(requeue=True)
 
         job = self.xRequest()
         job.acknowledge = Mock(name="ack")
         job.task.acks_late = False
         job.task.acks_on_failure_or_timeout = True
+        job.task.acks_on_timeout = True
         job.on_timeout(soft=False, timeout=1335)
         job.acknowledge.assert_not_called()
+
+    def test_on_hard_timeout_acks_on_timeout_is_independent_of_acks_on_failure(self, patching):
+        # The two flags used to be one, so a task that wanted failures acked
+        # but timeouts requeued had no way to say so.
+        patching("celery.worker.request.error")
+
+        job = self.xRequest()
+        job.acknowledge = Mock(name="ack")
+        job.reject = Mock(name="reject")
+        job.task.acks_late = True
+        job.task.acks_on_timeout = True
+        job.task.acks_on_failure = False
+        job.on_timeout(soft=False, timeout=1337)
+        job.acknowledge.assert_called_with()
+        job.reject.assert_not_called()
+
+        job = self.xRequest()
+        job.acknowledge = Mock(name="ack")
+        job.reject = Mock(name="reject")
+        job.task.acks_late = True
+        job.task.acks_on_timeout = False
+        job.task.acks_on_failure = True
+        job.on_timeout(soft=False, timeout=1337)
+        job.acknowledge.assert_not_called()
+        job.reject.assert_called_once_with(requeue=True)
+
+    def test_on_failure_timelimit_reads_acks_on_timeout_not_acks_on_failure(self):
+        try:
+            raise TimeLimitExceeded()
+        except TimeLimitExceeded:
+            einfo = ExceptionInfo(internal=True)
+
+        req = self.get_request(self.add.s(2, 2))
+        req.task.acks_late = True
+        req.task.acks_on_failure = True
+        req.task.acks_on_timeout = False
+        req.delivery_info["redelivered"] = False
+        req.task.backend = Mock()
+
+        req.on_failure(einfo)
+
+        req.on_reject.assert_called_with(req_logger, req.connection_errors, True)
+        req.on_ack.assert_not_called()
+
+    def test_on_failure_reads_acks_on_failure_not_acks_on_timeout(self):
+        try:
+            raise KeyError("foo")
+        except KeyError:
+            einfo = ExceptionInfo(internal=True)
+
+        req = self.get_request(self.add.s(2, 2))
+        req.task.acks_late = True
+        req.task.acks_on_failure = True
+        req.task.acks_on_timeout = False
+        req.delivery_info["redelivered"] = False
+        req.task.backend = Mock()
+
+        req.on_failure(einfo)
+
+        req.on_ack.assert_called_with(req_logger, req.connection_errors)
+
+    def test_bind_derives_the_new_ack_flags_from_the_old_one(self):
+        # An app that only knows the combined setting must keep behaving the
+        # same way once the split lands.
+        @self.app.task(shared=False, acks_on_failure_or_timeout=False)
+        def combined_off():
+            pass
+
+        assert combined_off.acks_on_failure is False
+        assert combined_off.acks_on_timeout is False
+
+        @self.app.task(shared=False)
+        def unset():
+            pass
+
+        assert unset.acks_on_failure is True
+        assert unset.acks_on_timeout is True
 
     def test_on_hard_timeout_during_cold_shutdown(self, patching):
         # A cold shutdown terminates running tasks on purpose and the broker
