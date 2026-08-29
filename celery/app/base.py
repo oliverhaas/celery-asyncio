@@ -980,18 +980,10 @@ class Celery:
                 stacklevel=2,
             )
 
-        # A plain `send_task("name")` used to ignore everything the task
-        # declares about itself, its serializer, queue and compression
-        # included. Those only took effect through `apply_async` (upstream
-        # fbd01579c). Look the name up locally and use the task's own options
-        # as defaults, so both call paths route the same way.
-        #
-        # `self._tasks`, not `self.tasks`: sending to a name this process does
-        # not know about must not finalize the app, nor raise under
-        # `autofinalize=False`.
-        #
-        # Skipped when the caller supplied `task_type`, which means
-        # `apply_async` and means these are already merged.
+        # A plain `send_task("name")` used to ignore the task's own serializer,
+        # queue and compression, which only took effect through `apply_async`
+        # (upstream fbd01579c). `self._tasks` rather than `self.tasks`, so that
+        # sending to an unknown name does not finalize the app.
         if task_type is None:
             task_type = self._tasks.get(name)
             if task_type is not None:
