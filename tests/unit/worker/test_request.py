@@ -198,6 +198,18 @@ class test_trace_task(RequestCase):
         assert ret == 256
         assert not self.app.AsyncResult(task_id).ready()
 
+    def test_execute_request_ignore_result_false_overrides_the_task(self):
+        # The task says "never store", the caller says "store this one".
+        # The caller is the more specific instruction.
+        @self.app.task(shared=False, ignore_result=True)
+        def ignores_result(i):
+            return i**i
+
+        task_id = uuid()
+        ret = jail(self.app, task_id, ignores_result.name, {"ignore_result": False}, [4], {})
+        assert ret == 256
+        assert self.app.AsyncResult(task_id).ready()
+
 
 class test_Request(RequestCase):
     def get_request(self, sig, Request=Request, exclude_headers=None, **kwargs):
@@ -509,6 +521,22 @@ class test_Request(RequestCase):
         self.mytask.store_errors_even_if_ignored = True
         job = self.xRequest()
         assert job.store_errors
+
+    def test_store_errors_follows_the_request_not_the_task(self):
+        # store_errors read task.ignore_result directly, so a per-send
+        # ignore_result had no effect on whether errors were stored.
+        self.mytask.ignore_result = True
+        assert self.xRequest(ignore_result=False).store_errors
+
+        self.mytask.ignore_result = False
+        assert not self.xRequest(ignore_result=True).store_errors
+
+    def test_ignore_result_falls_back_to_the_task_when_unset(self):
+        self.mytask.ignore_result = True
+        assert self.xRequest().ignore_result is True
+
+        self.mytask.ignore_result = False
+        assert self.xRequest().ignore_result is False
 
     def test_send_event(self):
         job = self.xRequest()

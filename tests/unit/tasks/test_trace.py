@@ -10,6 +10,7 @@ from celery.app.trace import (
     TraceInfo,
     build_tracer,
     fast_trace_task,
+    get_actual_ignore_result,
     get_log_policy,
     get_task_name,
     log_policy_expected,
@@ -83,6 +84,30 @@ class test_trace(TraceCase):
 
         self.trace(add_with_success, (2, 2), {})
         add_with_success.on_success.assert_called()
+
+    def test_get_actual_ignore_result(self):
+        # Context defaults ignore_result to False at class level, so only an
+        # instance attribute counts as the caller having said anything.
+        self.add.ignore_result = True
+
+        assert get_actual_ignore_result(self.add, None) is True
+        assert get_actual_ignore_result(self.add, Context({})) is True
+        assert get_actual_ignore_result(self.add, Context({"ignore_result": False})) is False
+        assert get_actual_ignore_result(self.add, Context({"ignore_result": True})) is True
+
+        self.add.ignore_result = False
+        assert get_actual_ignore_result(self.add, Context({})) is False
+        assert get_actual_ignore_result(self.add, Context({"ignore_result": True})) is True
+
+    def test_trace_request_ignore_result_beats_the_task(self):
+        # The tracer is built once and reused for every message, so these used
+        # to be frozen from the task definition at build time.
+        self.add.ignore_result = True
+        self.add.backend = Mock(name="backend")
+
+        self.trace(self.add, (2, 2), {}, eager=False, request={"ignore_result": False})
+
+        assert self.add.backend.mark_as_done.called
 
     def test_get_log_policy(self):
         einfo = Mock(name="einfo")

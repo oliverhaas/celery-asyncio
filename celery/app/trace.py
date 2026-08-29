@@ -178,6 +178,26 @@ def get_task_name(request, default):
     return getattr(request, "shadow", None) or default
 
 
+def get_actual_ignore_result(task, req):
+    """Return the effective ``ignore_result``, with the request overriding the task.
+
+    A per-send ``ignore_result`` is the caller's decision about this one
+    invocation, so it beats the task definition's default.
+    """
+    if req is None:
+        return task.ignore_result
+
+    actual = getattr(req, "ignore_result", None)
+
+    # Context sets `ignore_result = False` at class level, so getattr() alone
+    # cannot tell "the sender asked for False" from "the sender said nothing".
+    # Only an instance attribute counts as an explicit choice.
+    if isinstance(req, Context) and "ignore_result" not in req.__dict__:
+        actual = None
+
+    return actual if actual is not None else task.ignore_result
+
+
 class TraceInfo:
     """Information about task execution."""
 
@@ -188,7 +208,7 @@ class TraceInfo:
         self.retval = retval
 
     def handle_error_state(self, task, req, eager=False, call_errbacks=True):
-        if task.ignore_result:
+        if get_actual_ignore_result(task, req):
             store_errors = task.store_errors_even_if_ignored
         elif eager and task.store_eager_result:
             store_errors = True
@@ -292,7 +312,7 @@ class TraceInfo:
 
     async def ahandle_error_state(self, task, req, eager=False, call_errbacks=True):
         """Async version of handle_error_state."""
-        if task.ignore_result:
+        if get_actual_ignore_result(task, req):
             store_errors = task.store_errors_even_if_ignored
         elif eager and task.store_eager_result:
             store_errors = True
@@ -480,16 +500,6 @@ def build_tracer(
     fun = task if task_has_custom(task, "__call__") else task.run
 
     loader = loader or app.loader
-    ignore_result = task.ignore_result
-    track_started = task.track_started
-    track_started = not eager and (task.track_started and not ignore_result)
-
-    # #6476
-    if eager and not ignore_result and task.store_eager_result:
-        publish_result = True
-    else:
-        publish_result = not eager and not ignore_result
-
     deduplicate_successful_tasks = (
         (app.conf.task_acks_late or task.acks_late)
         and app.conf.worker_deduplicate_successful_tasks
@@ -567,6 +577,17 @@ def build_tracer(
                 raise InvalidTaskError("Task keyword arguments is not a mapping")
 
             task_request = Context(request or {}, args=args, called_directly=False, kwargs=kwargs)
+
+            # Per request, not per tracer: the tracer is built once and reused
+            # for every message, so a caller's ignore_result could not be seen
+            # from up there (upstream b8f85213f).
+            ignore_result = get_actual_ignore_result(task, task_request)
+            track_started = not eager and (task.track_started and not ignore_result)
+            # #6476
+            if eager and not ignore_result and task.store_eager_result:
+                publish_result = True
+            else:
+                publish_result = not eager and not ignore_result
 
             redelivered = task_request.delivery_info and task_request.delivery_info.get("redelivered", False)
             if deduplicate_successful_tasks and redelivered:
@@ -786,15 +807,6 @@ def build_async_tracer(
     See build_tracer for full documentation.
     """
     loader = loader or app.loader
-    ignore_result = task.ignore_result
-    track_started = task.track_started
-    track_started = not eager and (task.track_started and not ignore_result)
-
-    if eager and not ignore_result and task.store_eager_result:
-        publish_result = True
-    else:
-        publish_result = not eager and not ignore_result
-
     deduplicate_successful_tasks = (
         (app.conf.task_acks_late or task.acks_late)
         and app.conf.worker_deduplicate_successful_tasks
@@ -862,6 +874,17 @@ def build_async_tracer(
                 raise InvalidTaskError("Task keyword arguments is not a mapping")
 
             task_request = Context(request or {}, args=args, called_directly=False, kwargs=kwargs)
+
+            # Per request, not per tracer: the tracer is built once and reused
+            # for every message, so a caller's ignore_result could not be seen
+            # from up there (upstream b8f85213f).
+            ignore_result = get_actual_ignore_result(task, task_request)
+            track_started = not eager and (task.track_started and not ignore_result)
+            # #6476
+            if eager and not ignore_result and task.store_eager_result:
+                publish_result = True
+            else:
+                publish_result = not eager and not ignore_result
 
             redelivered = task_request.delivery_info and task_request.delivery_info.get("redelivered", False)
             if deduplicate_successful_tasks and redelivered:

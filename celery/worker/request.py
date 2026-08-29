@@ -164,7 +164,13 @@ class Request:
         self._eventer = eventer
         self._connection_errors = connection_errors or ()
         self._task = task or self._app.tasks[self._type]
-        self._ignore_result = self._request_dict.get("ignore_result", False)
+        # None, not False: the message either states a choice or says nothing,
+        # and saying nothing must fall through to the task's own default
+        # rather than silently mean "do not ignore" (upstream b8f85213f).
+        ignore_result = self._request_dict.get("ignore_result", None)
+        if ignore_result is None:
+            ignore_result = self._task.ignore_result
+        self._ignore_result = ignore_result
 
         # timezone means the message is timezone-aware, and the only timezone
         # supported at this point is UTC.
@@ -326,7 +332,7 @@ class Request:
 
     @property
     def store_errors(self):
-        return not self.task.ignore_result or self.task.store_errors_even_if_ignored
+        return not self._ignore_result or self.task.store_errors_even_if_ignored
 
     @property
     def task_id(self):
