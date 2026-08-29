@@ -90,9 +90,18 @@ Then drop anything touching only the subsystems listed above.
 | `9f0a61c61` Sentinel ACL: the username never reached `master_for()` | `00ee290db` | Verbatim. `master_for()` opens a *new* connection to the master, so the sentinel's own credentials do not carry over to it. |
 | `0472aaccb` Configurable additional connection errors | `258a2ffd6` | Adapted, and shortened: upstream's four-branch normalisation collapses to one `isinstance` check. The option is read straight off the conf rather than through the `_transport_options` cached_property -- reading it from `__init__` would materialise the cache there and freeze every other transport option at construction time. Upstream hit the same trap and fixed it inside the PR; a test pins it here. The docs hunk is dropped, there is no `backends-and-brokers/` in this fork. |
 | `22a03fa13` redis-py DriverInfo | `258a2ffd6` | Adapted: upstream reaches for `redis` unconditionally, but this fork resolves the client library from the URL scheme and valkey-py has no `DriverInfo`, so the lookup goes through `self.redis` and falls back to the deprecated `lib_name`/`lib_version` pair. Both forms verified against the sync *and* async connection-pool constructors of both libraries. |
-| `e49270e35` NameError from TYPE_CHECKING-only annotations | `6de44b9e6` | Adapted. Upstream gates its 3.14 branch on `sys.version_info`; this fork requires 3.14, so the gate is dropped and only the new path is kept. `_getfullargspec` asks `inspect.signature` for `Format.STRING`, so lazy annotations are never evaluated, and `_get_annotations` in `app/base.py` tries the real objects first and settles for strings. Upstream fixed only `head_from_fun`; `arity_greater` and `fun_takes_argument` call the same helper here and are covered too. |
-| `66bcdebb4` `fun_accepts_kwargs` evaluates annotations eagerly | `6de44b9e6` | Folded into the same `_getfullargspec` helper. The shape that surfaces it is a signal receiver annotated `sender: Celery` with `Celery` imported under `TYPE_CHECKING`. |
-| `4369baf04` `head_from_fun` must not follow `__wrapped__` | `6de44b9e6` | Adapted as `follow_wrapped=False`, which restores `getfullargspec`'s documented behaviour. Upstream needed this as a follow-up because swapping in `inspect.signature` silently changed which callable gets introspected: a task built with `functools.wraps` over a variadic DI wrapper was validated against the *inner* signature, so `apply_async` rejected arguments the wrapper accepts. Bound methods are unwrapped to `__func__` for the same reason, to keep `self` in `args`. |
+| `e49270e35` NameError from TYPE_CHECKING-only annotations | `79b5f7442` | Adapted. Upstream gates its 3.14 branch on `sys.version_info`; this fork requires 3.14, so the gate is dropped and only the new path is kept. `_getfullargspec` asks `inspect.signature` for `Format.STRING`, so lazy annotations are never evaluated, and `_get_annotations` in `app/base.py` tries the real objects first and settles for strings. Upstream fixed only `head_from_fun`; `arity_greater` and `fun_takes_argument` call the same helper here and are covered too. |
+| `66bcdebb4` `fun_accepts_kwargs` evaluates annotations eagerly | `79b5f7442` | Folded into the same `_getfullargspec` helper. The shape that surfaces it is a signal receiver annotated `sender: Celery` with `Celery` imported under `TYPE_CHECKING`. |
+| `4369baf04` `head_from_fun` must not follow `__wrapped__` | `79b5f7442` | Adapted as `follow_wrapped=False`, which restores `getfullargspec`'s documented behaviour. Upstream needed this as a follow-up because swapping in `inspect.signature` silently changed which callable gets introspected: a task built with `functools.wraps` over a variadic DI wrapper was validated against the *inner* signature, so `apply_async` rejected arguments the wrapper accepts. Bound methods are unwrapped to `__func__` for the same reason, to keep `self` in `args`. |
+| `7ca0e0f18` `__class_getitem__` on the generic classes | `1fe8ed1f4` | Adapted: `Celery`, `Task`, `AsyncResult`, `_LocalStack`, `FallbackContext` and `class_property`. Upstream's list also names `_FastLocalStack`, which this fork does not have. Annotation support only, no runtime behaviour. |
+| `4886d5d0c` preload options for the `control` command | `1fe8ed1f4` | Adapted. `control` was the one remote command whose callback took no `**kwargs`, so an app-registered preload option arrived as an unexpected keyword argument. Upstream's test passes `--workdir`, a global option that never reaches the callback either way; ours uses a real preload option, the `--ini` that `test_preload_cli.py` already exercises. |
+| `7735d2ba9` friendly CLI errors instead of tracebacks | `1fe8ed1f4` | Verbatim. `handle_remote_command_error` turns a dead broker into a one-line message naming it plus `EX_UNAVAILABLE`, and anything else into a summary of the failing command. Wired into `status`, `inspect` and `control`. |
+| `e7c4454f8` `datefmt` on ColorFormatter and TaskFormatter | `5d495a271` | Adapted. `datefmt` goes last in `ColorFormatter.__init__` rather than upstream's second position, so the existing positional call `ColorFormatter(fmt, False)` still means "no colour" and not "no date format". The `worker_log_datefmt` and `worker_task_log_datefmt` settings thread through `setup_logging_subsystem`, `setup_task_loggers` and `setup_handlers` as `self.datefmt if datefmt is None else datefmt`, never `or`: `""` is a valid datefmt. |
+| `56d80409a` mask credentials in the `alternates` from `inspect stats` | `5d495a271` | Verbatim. `params.pop("password")` only covers the primary; the failover URLs in `alternates` still carry theirs in userinfo form. Both the string and the list form are sanitized. |
+| `571efe812` warn when routing is set as a task attribute | `b0fd5dace` | Adapted. `removal="7.0"` rather than upstream's `"6.0"`, since this package *is* `6.0.0a3` and that matches the existing `remove_by` values in `defaults.py`. The check is `attr in cls.__dict__`, not `getattr`: `priority` is a `Task` class attribute *and* a `from_config` entry, so a `getattr` check would warn on every task ever bound, and warn again on every re-bind. |
+| `fbd01579c` honour the task's own options in `send_task` | `f2a35cf1c` | Adapted, and placed in `_prepare_task_message` rather than `send_task`, so `asend_task` gets it too. Lookup goes through `self._tasks`, not `self.tasks`, so sending to a name this process does not know neither finalizes the app nor raises under `autofinalize=False`. Upstream's `getattr(registry, "get")` fallback is dropped, since `TaskRegistry` is a dict, but the `inspect.ismethod` guard is kept so a class left in the registry is skipped rather than called and crashed on. An `_OMITTED` sentinel keeps an explicit `expires=None` able to clear a merged-in default. |
+| `cc3350ef9` avoid creating Django DB connections during cleanup | `74df3e7e4` | Verbatim as `connections.all(initialized_only=True)`. Upstream's Django < 4.1 `except TypeError` fallback is dropped; the django extra here requires 6.0. |
+| `a4f9beb41` close DB pools only in prefork mode | `74df3e7e4` | Adapted to "never", by removing the `close_pool()` call outright rather than gating it on a `worker_pool` setting this fork does not have. Upstream closes the pool because each prefork child owns one and has to hand it back. This worker is a single process with one shared pool, and `_close_database` runs on every task prerun *and* postrun, so closing it here would tear the pool down between tasks and leave pooling doing nothing but adding a layer. A test pins that. |
 
 ### Found along the way
 
@@ -131,7 +140,7 @@ but pydantic was in no dependency group, so the whole module went quiet -- 108 t
 handful about pydantic tasks. The fork does support them (`app/base.py` has `pydantic_wrapper` and
 the `pydantic=` / `pydantic_strict=` / `pydantic_context=` / `pydantic_dump_kwargs=` task options),
 and upstream imports pydantic unconditionally in its test requirements. Adding `pydantic` to the dev
-group in `6de44b9e6` brought all 108 back, passing. Three modules in one sweep: a module-level
+group in `79b5f7442` brought all 108 back, passing. Three modules in one sweep: a module-level
 `importorskip` on something nobody installs is indistinguishable from deleting the file.
 
 **`EagerResult` had no `aget()`.** It overrides `get()` to return `None` for a task that produced no
@@ -140,6 +149,17 @@ and so returned the `Ignore`/`Reject` instance instead. The two halves of the AP
 exactly the states `1d563dafb` is about. Fixed in `2bb2a49b1`. A fork where every sync method has an
 async twin needs the twins audited whenever a sync method is *overridden*, not just when one is
 added.
+
+**One line of leaked global state was hiding 23 test failures.** `Logging.setup()` calls
+`logging.captureWarnings(True)` and never switches it back off, so `warnings.showwarning` stayed
+replaced for the rest of the session. From Python 3.14, `catch_warnings(record=True)` only records
+while `showwarning` is the stock one, which means every `pytest.warns` after the first test that
+runs the worker or beat CLI silently saw nothing. The 23 failures on main looked unrelated to each
+other -- platform privilege checks, an iso8601 deprecation, the consumer's `ensure_connected`,
+`test_trace_catches_exception`, the Django fixup -- and every one of them passed in isolation.
+Restoring `showwarning` in the `sanity_logging_side_effects` fixture in `c5036f2d5` cleared all 23
+at once. Ordering-dependent failures that pass individually are worth one bisect before they are
+worth one triage.
 
 **The barrier / `on_ready` machinery is inert.** The fork dropped vine and replaced it with a
 home-grown `barrier` in `celery/utils/promises.py`. That barrier has no `finalized` gate, `finalize()`
@@ -163,7 +183,10 @@ Grouped by what is missing, so a future sweep can classify most commits by inspe
 `3f0f0fe7e` asynpool return from finally ·
 `d68250e55` warm shutdown, thread pool prefetch ·
 `67b328abd` warm shutdown with eventlet>=0.37.0 ·
-`ab711a0b2` broker heartbeats during graceful shutdown (prefork timer firing)
+`ab711a0b2` broker heartbeats during graceful shutdown (prefork timer firing) ·
+`8ea903b6d` defensive `pool_cls.__module__` checks. Upstream guards against a pool class that has
+no `__module__`, then branches on whether it names prefork. Neither `contrib/testing/worker.py`
+nor `worker/components.py` inspects `pool_cls` at all here -- there is one pool
 
 **No hub / synloop / fd poller**
 `c167ccf4a` `hub.reset()` in synloop on connection error ·
@@ -219,17 +242,6 @@ machinery described in "Found along the way".
 Triaged as real and missing but not yet checked line by line, let alone ported. Roughly ordered
 by how much they matter. **Every one of these is (unverified).**
 
-### App, CLI, Django fixup
-
-`fbd01579c` honour per-task serializer and execution options in `send_task` · `571efe812` warn
-when routing options are set as task attributes · `e7c4454f8` `datefmt` on ColorFormatter and
-TaskFormatter · `56d80409a` mask credentials in the alternates from `inspect stats` ·
-`7ca0e0f18` `__class_getitem__` on the generic classes · `4886d5d0c` preload options for the
-control command · `7735d2ba9` friendly CLI errors instead of tracebacks · `cc3350ef9` avoid
-creating Django DB connections during cleanup · `a4f9beb41` close DB pools only in prefork mode,
-which here means never · `8ea903b6d` defensive `pool_cls.__module__` checks in
-`contrib/testing/worker.py`
-
 ### Beat and time
 
 `fe9457327` a `celery_beat_task` header on tasks sent by beat · `f52429cfd` reheap entries that
@@ -239,5 +251,8 @@ ask to retry later · `1fcbf6fa4` normalize aware datetimes into the schedule ti
 ### Ambiguous
 
 `cb08d5042` reliable prefork detection. It reintroduces the `worker` argument to
-`DjangoWorkerFixup.__init__` that `9d6ab110d` and `8ea903b6d` removed. Read the upstream history
-before deciding which shape is the current one. With no prefork here it may be moot either way.
+`DjangoWorkerFixup.__init__` that `9d6ab110d` and `8ea903b6d` removed, so that the fixup can ask
+the worker which pool it is running. There is one pool here and it is not prefork, so the answer is
+a constant and the argument buys nothing. Almost certainly **not applicable**; left here only
+because the upstream history around it churned three times and is worth reading once before the
+verdict is written down.
