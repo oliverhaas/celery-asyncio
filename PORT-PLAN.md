@@ -29,7 +29,16 @@ Correctness fixes that change no public API go first. Item 5 depends on 3; item 
 | 6 | yes | RabbitMQ naming and `delivery_limit` semantics | reject loops never stop | option, header, default |
 | 7 | yes | Direct exchange with no bindings loses the message | silent drop | raises to publishers |
 
-Features, deferred until the seven land: 8 to 12.
+Features, deferred until the seven land: 8 to 12. Item 8 turned out to be mostly present
+already; what is left of it, plus 9 and 10, are the open items.
+
+| # | Done | Feature |
+|---|---|---|
+| 8 | partly | `queue_expires`: per-queue TTL is in, fanout streams and binding keys are not |
+| 9 | no | Sweep reporting |
+| 10 | no | Fanout binding cleanup |
+| 11 | n/a | Closed after investigation, nothing to port |
+| 12 | n/a | Closed after investigation, nothing to port |
 
 ---
 
@@ -145,7 +154,9 @@ deliberately in PR #1404, because an empty table is the normal AMQP state for an
 queues were all unbound.
 
 That reasoning holds for topic and fanout. It does not hold for direct, where the binding is
-known to exist, and it stops holding entirely once binding keys carry a TTL (item 8).
+known to exist. It would stop holding entirely if binding keys ever carried a TTL, because then
+an empty table would also be what an expired exchange looks like. They do not carry one today,
+see item 8b.
 
 Raise `InconsistencyError` in `_direct_publish`, not in `_load_bindings`: `queue_unbind` and
 `queue_delete` also read the binding set and would throw during teardown. That is the same
@@ -161,14 +172,31 @@ free.
 
 ### 8. `queue_expires`
 
-Global queue TTL: abandoned queues, their index and their fanout streams age out instead of
-accumulating. Needs the binding table moved from a plain SET to a sorted set scored with the
-staleness deadline, which is what celery-redis-plus's fifth Lua script
-(`transport_convert_bindings.lua`) migrates in place. Needs an async refresh timer here.
+The goal: abandoned queues, their index, their fanout streams and their bindings age out instead
+of accumulating forever.
 
-Note the bug celery-redis-plus found in its own version: the refresh timer never started, because
-it no-ops while the loop is unset and nothing re-ran it after `register_with_event_loop`. Do not
-reproduce that.
+**8a. Per-queue TTL. Done, it predates this plan.** `x-expires` is read in `queue_declare`
+(valkey_redis.py:428), clamped to `MIN_QUEUE_EXPIRES` (10s) with a once-per-process warning, and
+`PEXPIRE`d onto both `queue:{name}` and `messages_index:{name}` on every publish (726) and from
+`_periodic_refresh_expires`, which runs at half the smallest configured TTL (1427). `db8b133d`
+fixed the one real defect: a redeclare with a changed or dropped TTL was ignored, so first
+declare won forever.
+
+celery-redis-plus's own version had the refresh timer never start, because it no-ops while the
+loop is unset and nothing re-ran it after `register_with_event_loop`. That cannot happen here.
+`_update_expires_task` (1444) is called from `queue_declare` whenever the value changes, and
+there is a running loop by then.
+
+**8b. Fanout streams and binding keys. Open.** `_fanout_publish` (636) bounds the stream with
+`maxlen` only, so an exchange nobody consumes from keeps a trimmed stream alive indefinitely.
+`_binding_key(exchange)` is a plain SET that only disappears in `exchange_delete` (412).
+celery-redis-plus moves the binding table to a sorted set scored with the staleness deadline, and
+migrates existing keys in place with a fifth Lua script (`transport_convert_bindings.lua`).
+
+Two things to settle before porting that half: a binding table that expires changes what "no
+bindings" means for item 7, which currently reads it as a misconfiguration and raises; and the
+stream TTL has to outlive the longest consumer gap, not the queue TTL, since a fanout consumer
+that reconnects after the stream expired silently loses its offset.
 
 ### 9. Sweep reporting
 
