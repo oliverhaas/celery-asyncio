@@ -326,6 +326,22 @@ class test_EventReceiver:
             channel.close()
             connection.close()
 
+    def test_event_queue_is_exclusive_by_default(self):
+        # RabbitMQ 4.3.0 refuses transient non-exclusive queues.
+        q = self.app.events.Receiver(Mock(name="connection")).queue
+
+        assert q.exclusive is True
+        assert q.durable is False
+
+    def test_asking_only_for_a_durable_event_queue_still_works(self):
+        # The new default must not turn into an ImproperlyConfigured for a
+        # caller that only asked for durability.
+        self.app.conf.update(event_queue_durable=True)
+        q = self.app.events.Receiver(Mock(name="connection")).queue
+
+        assert q.durable is True
+        assert q.exclusive is False
+
     def test_event_queue_exclusive(self):
         self.app.conf.update(event_queue_exclusive=True, event_queue_durable=False)
 

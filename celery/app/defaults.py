@@ -118,7 +118,12 @@ NAMESPACES = Namespace(
     control=Namespace(
         queue_ttl=Option(300.0, type="float"),
         queue_expires=Option(10.0, type="float"),
-        queue_exclusive=Option(False, type="bool"),
+        # Unset means "exclusive unless durability was asked for". RabbitMQ
+        # 4.3.0 refuses transient non-exclusive queues, so the effective
+        # default is now True (upstream celery 323f21d3f); the sentinel keeps
+        # control_queue_durable=True on its own from tripping the check in
+        # Control.__init__.
+        queue_exclusive=Option(None, type="bool"),
         queue_durable=Option(False, type="bool"),
         exchange=Option("celery", type="string"),
     ),
@@ -127,7 +132,8 @@ NAMESPACES = Namespace(
         queue_expires=Option(60.0, type="float"),
         queue_ttl=Option(5.0, type="float"),
         queue_prefix=Option("celeryev"),
-        queue_exclusive=Option(False, type="bool"),
+        # See control_queue_exclusive above.
+        queue_exclusive=Option(None, type="bool"),
         queue_durable=Option(False, type="bool"),
         serializer=Option("json"),
         exchange=Option("celeryev", type="string"),

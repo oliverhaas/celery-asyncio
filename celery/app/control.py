@@ -461,11 +461,18 @@ class Control:
 
     def __init__(self, app=None):
         self.app = app
-        if app.conf.control_queue_durable and app.conf.control_queue_exclusive:
+        queue_durable = app.conf.control_queue_durable
+        queue_exclusive = app.conf.control_queue_exclusive
+        if queue_durable and queue_exclusive:
             raise ImproperlyConfigured(
                 "control_queue_durable and control_queue_exclusive cannot both be True "
                 "(exclusive queues are automatically deleted and cannot be durable).",
             )
+        if queue_exclusive is None:
+            # Nobody asked either way, so be exclusive: RabbitMQ 4.3.0 refuses
+            # transient non-exclusive queues. Resolved here rather than left to
+            # kombu so the setting reads the same on every kombu version.
+            queue_exclusive = not queue_durable
         self.mailbox = self.Mailbox(
             app.conf.control_exchange,
             type="fanout",
@@ -475,8 +482,8 @@ class Control:
             queue_ttl=app.conf.control_queue_ttl,
             reply_queue_ttl=app.conf.control_queue_ttl,
             queue_expires=app.conf.control_queue_expires,
-            queue_exclusive=app.conf.control_queue_exclusive,
-            queue_durable=app.conf.control_queue_durable,
+            queue_exclusive=queue_exclusive,
+            queue_durable=queue_durable,
             reply_queue_expires=app.conf.control_queue_expires,
         )
 

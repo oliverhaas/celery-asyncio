@@ -557,6 +557,19 @@ class test_Control:
         c = control.Control(self.app)
         assert c.mailbox.namespace == "test_exchange"
 
+    def test_control_mailbox_is_exclusive_by_default(self):
+        # RabbitMQ 4.3.0 refuses transient non-exclusive queues.
+        c = control.Control(self.app)
+        assert c.mailbox.queue_exclusive is True
+        assert c.mailbox.queue_durable is False
+
+    def test_asking_only_for_a_durable_control_queue_still_works(self):
+        self.app.conf.control_queue_durable = True
+
+        c = control.Control(self.app)
+        assert c.mailbox.queue_durable is True
+        assert c.mailbox.queue_exclusive is False
+
     def test_control_mailbox_queue_options(self):
         self.app.conf.control_queue_durable = True
         self.app.conf.control_queue_exclusive = False

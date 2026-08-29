@@ -75,6 +75,11 @@ class EventReceiver(ConsumerMixin):
             queue_durable = self.app.conf.event_queue_durable
         if queue_exclusive and queue_durable:
             raise ImproperlyConfigured("Queue cannot be both exclusive and durable, choose one or the other.")
+        if queue_exclusive is None:
+            # Nobody asked either way, so be exclusive: RabbitMQ 4.3.0 refuses
+            # transient non-exclusive queues, and an event receiver owns its
+            # queue anyway. See event_queue_exclusive in app/defaults.py.
+            queue_exclusive = not queue_durable
         self.queue = Queue(
             f"{self.queue_prefix}.{self.node_id}",
             exchange=self.exchange,
