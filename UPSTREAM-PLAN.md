@@ -8,11 +8,11 @@ This file records what was decided for each one, so the next sweep starts from `
 nothing gets re-triaged from scratch. The kombu half of the same exercise lives in
 `kombu-asyncio/UPSTREAM-PLAN.md`.
 
-**Status: the sweep is done.** Every commit that applies here has been ported and each one is
-pinned by a test that fails without it. One verdict is still unwritten (`cb08d5042`, under "Still
-open"), and the ports turned up ten fork-only defects and gaps along the way, listed under "Found
-along the way", all of them fixed. The last of those, one broker connection per published task, is
-the biggest thing this exercise found.
+**Status: the sweep is done.** All 121 commits have a verdict, every one that applies here has been
+ported, and each port is pinned by a test that fails without it. Nothing is left under "Still open".
+The ports also turned up ten fork-only defects and gaps along the way, listed under "Found along
+the way" and all of them fixed. The last of those, one broker connection per published task, is the
+biggest thing this exercise found.
 
 ## How to read a verdict
 
@@ -272,14 +272,23 @@ machinery described in "Found along the way".
 
 ## Still open
 
-Every commit triaged as applicable has now been ported. What is left is one verdict nobody has
-written down.
+Nothing. Every commit has a verdict and every applicable one has been ported.
 
-### Ambiguous
+### Resolved: `cb08d5042` reliable prefork detection
 
-`cb08d5042` reliable prefork detection. It reintroduces the `worker` argument to
-`DjangoWorkerFixup.__init__` that `9d6ab110d` and `8ea903b6d` removed, so that the fixup can ask
-the worker which pool it is running. There is one pool here and it is not prefork, so the answer is
-a constant and the argument buys nothing. Almost certainly **not applicable**; left here only
-because the upstream history around it churned three times and is worth reading once before the
-verdict is written down.
+Read once and closed as **not applicable**. Upstream's `DjangoWorkerFixup._close_database` decides
+whether to hand the Django connection *pool* back based on whether it is running under prefork,
+where each child owns its own pool. That test used to read `app.conf.worker_pool`, which lies when
+the pool is chosen on the command line, so this commit reintroduces the `worker` argument to
+`DjangoWorkerFixup.__init__` that `9d6ab110d` and `8ea903b6d` had removed, and asks
+`worker.pool_cls.__module__` instead.
+
+There is no such test here to make reliable. The fork has one pool, it is not prefork, and there is
+no `worker_pool` setting to read. The question the flag guards was already answered the other way
+when `a4f9beb41` was triaged: this worker is a single process with one shared pool, and
+`_close_database` runs on every task prerun and postrun, so closing the pool there would tear it
+down between tasks and leave pooling as a layer that does nothing. `celery/fixups/django.py:199`
+carries that reasoning in a comment and closes connections only, never the pool.
+
+So porting this would mean adding a `worker` argument, and a `WorkController` fallback to
+construct when nobody passes one, purely to compute a constant that nothing reads.
