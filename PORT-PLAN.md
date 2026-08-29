@@ -29,12 +29,11 @@ Correctness fixes that change no public API go first. Item 5 depends on 3; item 
 | 6 | yes | RabbitMQ naming and `delivery_limit` semantics | reject loops never stop | option, header, default |
 | 7 | yes | Direct exchange with no bindings loses the message | silent drop | raises to publishers |
 
-Features, deferred until the seven land: 8 to 12. Item 8 turned out to be mostly present
-already, and the rest of it is the only thing still open.
+Features, deferred until the seven land: 8 to 12. All of them are settled now.
 
 | # | Done | Feature |
 |---|---|---|
-| 8 | partly | `queue_expires`: per-queue TTL and fanout streams are in, binding key staleness is not |
+| 8 | yes | `queue_expires`: per-queue TTL, fanout stream TTL, and binding key staleness |
 | 9 | yes | Sweep reporting |
 | 10 | yes | Fanout binding cleanup |
 | 11 | n/a | Closed after investigation, nothing to port |
@@ -198,16 +197,34 @@ that reconnects after the stream expired resumes from `$`. It can, because the p
 the TTL on every publish: the stream can only have expired if nobody published for `queue_expires`,
 and then there is nothing for the returning consumer to have missed.
 
-**8c. Binding key staleness. Open.** `_binding_key(exchange)` is a plain SET that only disappears
-in `exchange_delete`. celery-redis-plus moves the binding table to a sorted set scored with each
-member's staleness deadline, prunes on read, and migrates existing keys in place with a fifth Lua
-script (`transport_convert_bindings.lua`).
+**8c. Binding key staleness. Ported.** `_binding_key(exchange)` was a plain SET that only
+disappeared in `exchange_delete`. It is a sorted set now, scored with the unix time each member
+goes stale, and a fifth Lua script (`transport_convert_bindings.lua`) converts a key an older
+deployment or kombu's own Redis transport left behind, scoring inherited members `+inf` because
+this transport did not write them and cannot know when they go stale.
 
-Item 10 removed the fanout half of this problem: fanout no longer writes to the table at all, and
-those were the members that piled up. What is left is a direct or topic exchange whose consumer's
-queue expires while the binding stays. Note that expiry changes what "no bindings" means for item
-7, which reads an empty direct table as a misconfiguration and raises; celery-redis-plus's answer
-is to raise only for a durable direct exchange and to log-and-drop for a transient one.
+Item 10 removed the fanout half of the problem, but the direct half is worse: every celery
+control client binds its own `<uuid>.reply.celery.pidbox` queue to a direct reply exchange and
+exits without unbinding, so the table gains a dead member per control call. Pruning rides the
+read path in `_read_bindings`, because nothing else can reach those members: a binding is only
+ever unbound by the process that declared it, and the ones that pile up are exactly the ones
+whose process is gone. Bind, publish and the refresh timer all rescore with `ZADD ... GT`, so a
+short-lived declarer can never pull back a deadline another channel pushed further out. The
+deadline floors at `MIN_BINDING_LIFETIME` (300s) because the processes that abandon bindings are
+the ones that cannot refresh them, and a control client's reply queue carries a 10s `x-expires`
+that is shorter than the call the binding has to outlive.
+
+Expiry changes what "no bindings" means for item 7, which read an empty direct table as a
+misconfiguration and raised. It now raises only for a durable direct exchange and logs-and-drops
+for a transient one: a pidbox reply exchange empties by design the moment its control client
+leaves, and the publisher redeclaring its own entities could never recreate a binding that
+belonged to someone else, so `Connection.ensure` would only churn.
+
+One deviation from celery-redis-plus. Its `_is_wrongtype` matches `str(exc).startswith(
+"WRONGTYPE")`, but redis-py annotates a pipeline reply as `Command # 1 (ZRANGEBYSCORE ...) of
+pipeline caused error: WRONGTYPE ...`, so the prefix never matches and the read path's fallback
+to `SMEMBERS` cannot fire against an inherited set. Verified against the installed client and
+fixed here with a substring match; celery-redis-plus needs the same fix.
 
 ### 9. Sweep reporting
 

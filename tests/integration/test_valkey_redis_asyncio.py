@@ -1,6 +1,7 @@
 """Integration tests for pure asyncio Redis transport."""
 
 import asyncio
+from time import time
 from unittest.mock import patch
 
 import pytest
@@ -362,6 +363,82 @@ class TestExchangeTypes:
 
         assert await channel.client.exists(binding_key) == 0
         assert "amq.gen-current" in channel._fanout_queues
+
+
+class TestBindingLifetime:
+    """PORT-PLAN feature 8c: bindings carry a staleness deadline."""
+
+    async def test_a_binding_whose_queue_expired_is_pruned_on_read(self, channel):
+        """Celery's control clients each bind a unique reply queue and never unbind it."""
+        exchange_name = "test_binding_prune"
+        await channel.declare_exchange(Exchange(exchange_name, type="direct"))
+        binding_key = channel._binding_key(exchange_name)
+        await channel.client.delete(binding_key)
+
+        await channel.queue_bind(queue="q-live", exchange=exchange_name, routing_key="rk")
+        # What a control client that exited mid-call leaves behind.
+        abandoned = channel._binding_member("rk", "q-abandoned")
+        await channel.client.zadd(binding_key, {abandoned: time() - 1})
+
+        assert await channel._load_bindings(exchange_name) == [("q-live", "rk")]
+        assert await channel.client.zscore(binding_key, abandoned) is None
+
+    async def test_a_queue_without_expires_keeps_its_binding(self, channel):
+        """It has no owner that could refresh it, and no deadline that could drop it."""
+        exchange_name = "test_binding_no_expiry"
+        await channel.declare_exchange(Exchange(exchange_name, type="direct"))
+        binding_key = channel._binding_key(exchange_name)
+        await channel.client.delete(binding_key)
+
+        await channel.queue_bind(queue="q1", exchange=exchange_name, routing_key="rk")
+
+        member = channel._binding_member("rk", "q1")
+        assert await channel.client.zscore(binding_key, member) == float("inf")
+        assert await channel._load_bindings(exchange_name) == [("q1", "rk")]
+
+    async def test_a_legacy_set_table_is_converted_on_bind(self, channel):
+        """Kombu's own Redis transport, and older versions of this one, wrote a plain set."""
+        exchange_name = "test_binding_convert"
+        await channel.declare_exchange(Exchange(exchange_name, type="direct"))
+        binding_key = channel._binding_key(exchange_name)
+        await channel.client.delete(binding_key)
+        inherited = channel._binding_member("old", "q-old")
+        await channel.client.sadd(binding_key, inherited)
+
+        await channel.queue_bind(queue="q-new", exchange=exchange_name, routing_key="new")
+
+        assert await channel.client.type(binding_key) == b"zset"
+        # Inherited members score +inf: this transport did not write them, so it
+        # cannot know when they go stale and must never prune them.
+        assert await channel.client.zscore(binding_key, inherited) == float("inf")
+        assert sorted(await channel._load_bindings(exchange_name)) == [
+            ("q-new", "new"),
+            ("q-old", "old"),
+        ]
+
+    async def test_a_refresh_pushes_the_deadline_out(self, channel):
+        exchange_name = "test_binding_refresh"
+        await channel.declare_exchange(Exchange(exchange_name, type="direct"))
+        binding_key = channel._binding_key(exchange_name)
+        await channel.client.delete(binding_key)
+        queue = Queue("q-refreshed", exchange=Exchange(exchange_name, type="direct"), routing_key="rk")
+        queue.queue_arguments = {"x-expires": 20_000}
+        await channel.declare_queue(queue)
+
+        member = channel._binding_member("rk", "q-refreshed")
+        before = await channel.client.zscore(binding_key, member)
+        await asyncio.sleep(0.05)
+        await channel._refresh_queue_expires()
+
+        assert await channel.client.zscore(binding_key, member) > before
+
+    async def test_a_transient_direct_exchange_drops_instead_of_raising(self, channel):
+        """A pidbox reply exchange loses its binding the moment the control client leaves."""
+        exchange_name = "test_binding_transient"
+        await channel.declare_exchange(Exchange(exchange_name, type="direct", durable=False))
+        await channel.client.delete(channel._binding_key(exchange_name))
+
+        await channel.publish(JSON_MESSAGE, exchange=exchange_name, routing_key="nobody.listens")
 
 
 JSON_MESSAGE = (

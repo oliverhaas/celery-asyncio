@@ -7,8 +7,10 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from redis.exceptions import ResponseError
 
 from kombu.entity import Exchange, Queue
+from kombu.exceptions import InconsistencyError
 from kombu.transport.valkey_redis import (
     BINDING_SEP,
     DEFAULT_DELIVERY_LIMIT,
@@ -17,6 +19,7 @@ from kombu.transport.valkey_redis import (
     DROPPED_REPORT_LIMIT,
     MESSAGE_KEY_PREFIX,
     MESSAGES_INDEX_PREFIX,
+    MIN_BINDING_LIFETIME,
     MIN_QUEUE_EXPIRES,
     QUEUE_KEY_PREFIX,
     Channel,
@@ -51,6 +54,36 @@ def _make_channel(**opts) -> Channel:
     """Create a Channel with a mocked transport."""
     transport = _make_transport(**opts)
     return Channel(transport, "test-conn")
+
+
+def _stub_binding_writes(ch: Channel) -> Channel:
+    """Stub the commands a bind or unbind sends to the binding table."""
+    ch.client.zadd = AsyncMock()
+    ch.client.zrem = AsyncMock()
+    ch.client.pexpire = AsyncMock(return_value=1)
+    ch.client.pttl = AsyncMock(return_value=-1)
+    return ch
+
+
+def _stub_binding_reads(ch: Channel, live=(), stale=()) -> Channel:
+    """Stub the prune-on-read pipeline `_read_bindings` runs."""
+    pipe = AsyncMock()
+    pipe.execute = AsyncMock(return_value=[list(stale), len(stale), list(live)])
+    ch.client.pipeline = MagicMock(return_value=_AsyncContext(pipe))
+    return ch
+
+
+class _AsyncContext:
+    """Yield a fixed object from `async with`."""
+
+    def __init__(self, obj):
+        self._obj = obj
+
+    async def __aenter__(self):
+        return self._obj
+
+    async def __aexit__(self, *args):
+        return False
 
 
 class _MockPipeline:
@@ -236,14 +269,14 @@ class TestExchangeOps:
 class TestQueueOps:
     async def test_declare_queue_auto_name(self):
         ch = _make_channel()
-        ch.client.sadd = AsyncMock()
+        _stub_binding_writes(ch)
         q = Queue("")
         name = await ch.declare_queue(q)
         assert name.startswith("amq.gen-")
 
     async def test_declare_queue_with_expires(self):
         ch = _make_channel()
-        ch.client.sadd = AsyncMock()
+        _stub_binding_writes(ch)
         q = Queue("test_q")
         q.queue_arguments = {"x-expires": 20_000}
         q.exchange = Exchange("ex", type="direct")
@@ -253,7 +286,7 @@ class TestQueueOps:
 
     async def test_declare_queue_expires_clamped(self):
         ch = _make_channel()
-        ch.client.sadd = AsyncMock()
+        _stub_binding_writes(ch)
         q = Queue("test_q")
         q.queue_arguments = {"x-expires": 5_000}  # Below MIN_QUEUE_EXPIRES
         await ch.declare_queue(q)
@@ -262,7 +295,7 @@ class TestQueueOps:
     async def test_redeclaring_a_queue_updates_its_expires(self):
         """A redeclare is how a caller changes a TTL; first-declare-wins kept it stale."""
         ch = _make_channel()
-        ch.client.sadd = AsyncMock()
+        _stub_binding_writes(ch)
         q = Queue("test_q")
         q.queue_arguments = {"x-expires": 20_000, "x-message-ttl": 30_000}
         await ch.declare_queue(q)
@@ -274,7 +307,7 @@ class TestQueueOps:
 
     async def test_redeclaring_a_queue_without_expires_drops_the_ttl(self):
         ch = _make_channel()
-        ch.client.sadd = AsyncMock()
+        _stub_binding_writes(ch)
         q = Queue("test_q")
         q.queue_arguments = {"x-expires": 20_000, "x-message-ttl": 30_000}
         await ch.declare_queue(q)
@@ -286,14 +319,14 @@ class TestQueueOps:
 
     async def test_queue_expires_is_the_fallback_for_a_queue_without_one(self):
         ch = _make_channel(queue_expires=45)
-        ch.client.sadd = AsyncMock()
+        _stub_binding_writes(ch)
         q = Queue("test_q")
         await ch.declare_queue(q)
         assert ch._expires["test_q"] == 45_000
 
     async def test_an_explicit_expires_wins_over_the_fallback(self):
         ch = _make_channel(queue_expires=45)
-        ch.client.sadd = AsyncMock()
+        _stub_binding_writes(ch)
         q = Queue("test_q")
         q.queue_arguments = {"x-expires": 20_000}
         await ch.declare_queue(q)
@@ -305,21 +338,21 @@ class TestQueueOps:
 
     async def test_no_queue_expires_leaves_queues_alone(self):
         ch = _make_channel()
-        ch.client.sadd = AsyncMock()
+        _stub_binding_writes(ch)
         await ch.declare_queue(Queue("test_q"))
         assert ch._global_expires_ms() is None
         assert "test_q" not in ch._expires
 
     async def test_queue_bind(self):
         ch = _make_channel()
-        ch.client.sadd = AsyncMock()
+        _stub_binding_writes(ch)
         await ch.queue_bind("q1", "ex1", "rk1")
         assert ("q1", "rk1") in ch._bindings["ex1"]
-        ch.client.sadd.assert_called_once()
+        ch.client.zadd.assert_called_once()
 
     async def test_queue_unbind(self):
         ch = _make_channel()
-        ch.client.srem = AsyncMock()
+        _stub_binding_writes(ch)
         ch._bindings["ex1"] = [("q1", "rk1")]
         await ch.queue_unbind("q1", "ex1", "rk1")
         assert ("q1", "rk1") not in ch._bindings["ex1"]
@@ -408,11 +441,7 @@ class TestPublish:
     async def test_topic_publish(self):
         ch = _make_channel()
         ch._exchanges["topic_ex"] = {"type": "topic"}
-        ch.client.smembers = AsyncMock(
-            return_value={
-                (BINDING_SEP.join(["user.*", "user.*", "q1"])).encode(),
-            },
-        )
+        _stub_binding_reads(ch, live=[BINDING_SEP.join(["user.*", "user.*", "q1"]).encode()])
         ch._put_message = AsyncMock()
         await ch.publish(b'{"body": "hi"}', exchange="topic_ex", routing_key="user.created")
         ch._put_message.assert_called_once()
@@ -1121,21 +1150,237 @@ class TestLoadBindings:
     async def test_load_sep_format(self):
         ch = _make_channel()
         binding = BINDING_SEP.join(["rk1", "rk1", "q1"])
-        ch.client.smembers = AsyncMock(return_value={binding.encode()})
+        _stub_binding_reads(ch, live=[binding.encode()])
 
         bindings = await ch._load_bindings("ex1")
         assert bindings == [("q1", "rk1")]
 
     async def test_load_json_format(self):
         ch = _make_channel()
-        ch.client.smembers = AsyncMock(
-            return_value={
-                b'{"queue": "q1", "routing_key": "rk1"}',
-            },
-        )
+        _stub_binding_reads(ch, live=[b'{"queue": "q1", "routing_key": "rk1"}'])
 
         bindings = await ch._load_bindings("ex1")
         assert bindings == [("q1", "rk1")]
+
+
+# ---------------------------------------------------------------------------
+# Binding lifetime
+# ---------------------------------------------------------------------------
+
+
+def _wrongtype() -> Exception:
+    return ResponseError("WRONGTYPE Operation against a key holding the wrong kind of value")
+
+
+class TestBindingLifetime:
+    async def test_a_bind_scores_the_member_with_its_staleness_deadline(self):
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        ch._expires["q1"] = 900_000  # 900s, comfortably above the floor
+
+        with patch("kombu.transport.valkey_redis.time", return_value=1000.0):
+            await ch.queue_bind("q1", "ex1", "rk1")
+
+        member = BINDING_SEP.join(["rk1", "rk1", "q1"])
+        ch.client.zadd.assert_called_once_with("_kombu.binding.ex1", {member: 1900.0})
+
+    async def test_a_queue_without_expires_binds_forever(self):
+        """Nothing can refresh it, but nothing needs to: it never goes away on its own."""
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+
+        await ch.queue_bind("q1", "ex1", "rk1")
+
+        (_key, mapping), _ = ch.client.zadd.call_args
+        assert next(iter(mapping.values())) == float("inf")
+
+    async def test_the_deadline_never_falls_below_the_minimum(self):
+        """A control client's 10s reply queue must outlive the control call itself."""
+        ch = _make_channel()
+        ch._expires["q1"] = MIN_QUEUE_EXPIRES
+
+        with patch("kombu.transport.valkey_redis.time", return_value=1000.0):
+            assert ch._binding_stale_at("q1") == 1000.0 + MIN_BINDING_LIFETIME
+
+    async def test_a_legacy_set_is_converted_on_bind(self):
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        ch.client.zadd = AsyncMock(side_effect=[_wrongtype(), 1])
+        script = AsyncMock(return_value=3)
+        ch.client.register_script = MagicMock(return_value=script)
+
+        await ch.queue_bind("q1", "ex1", "rk1")
+
+        script.assert_awaited_once_with(keys=["_kombu.binding.ex1"])
+        assert ch.client.zadd.await_count == 2
+
+    async def test_a_bind_error_that_is_not_wrongtype_propagates(self):
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        ch.client.zadd = AsyncMock(side_effect=ResponseError("NOSCRIPT"))
+
+        with pytest.raises(ResponseError, match="NOSCRIPT"):
+            await ch.queue_bind("q1", "ex1", "rk1")
+
+    async def test_unbind_removes_the_member_in_place_from_a_legacy_set(self):
+        """Unbinding is no reason to convert a table another deployment still writes."""
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        ch.client.zrem = AsyncMock(side_effect=_wrongtype())
+        ch.client.srem = AsyncMock()
+
+        await ch.queue_unbind("q1", "ex1", "rk1")
+
+        ch.client.srem.assert_awaited_once_with(
+            "_kombu.binding.ex1",
+            BINDING_SEP.join(["rk1", "rk1", "q1"]),
+        )
+
+    async def test_the_binding_key_gets_no_ttl_without_queue_expires(self):
+        """A per-queue x-expires must not expire a table shared with queues that never do."""
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        ch._expires["q1"] = 900_000
+
+        await ch.queue_bind("q1", "ex1", "rk1")
+
+        ch.client.pexpire.assert_not_called()
+
+    async def test_the_binding_key_gets_a_ttl_with_queue_expires(self):
+        ch = _make_channel(queue_expires=900)
+        _stub_binding_writes(ch)
+
+        await ch.queue_bind("q1", "ex1", "rk1")
+
+        ch.client.pexpire.assert_awaited_once_with("_kombu.binding.ex1", 900_000, gt=True)
+
+    async def test_a_key_that_has_no_ttl_yet_gets_one(self):
+        """PEXPIRE GT reads a missing TTL as infinite and declines, so bootstrap it."""
+        ch = _make_channel(queue_expires=900)
+        _stub_binding_writes(ch)
+        ch.client.pexpire = AsyncMock(side_effect=[0, 1])
+        ch.client.pttl = AsyncMock(return_value=-1)
+
+        await ch.queue_bind("q1", "ex1", "rk1")
+
+        assert ch.client.pexpire.await_args_list[-1].args == ("_kombu.binding.ex1", 900_000)
+
+    async def test_a_key_whose_ttl_is_already_longer_is_left_alone(self):
+        ch = _make_channel(queue_expires=900)
+        _stub_binding_writes(ch)
+        ch.client.pexpire = AsyncMock(return_value=0)
+        ch.client.pttl = AsyncMock(return_value=5_000_000)
+
+        await ch.queue_bind("q1", "ex1", "rk1")
+
+        assert ch.client.pexpire.await_count == 1
+
+    async def test_reading_drops_the_bindings_that_aged_out(self):
+        ch = _make_channel()
+        stale = BINDING_SEP.join(["rk-gone", "rk-gone", "q-gone"]).encode()
+        live = BINDING_SEP.join(["rk1", "rk1", "q1"]).encode()
+        _stub_binding_reads(ch, live=[live], stale=[stale])
+
+        with patch("kombu.transport.valkey_redis.logger") as mock_logger:
+            assert await ch._load_bindings("ex1") == [("q1", "rk1")]
+
+        fmt, *rest = mock_logger.info.call_args[0]
+        assert "q-gone" in fmt % tuple(rest)
+
+    async def test_reading_a_legacy_set_falls_back_to_smembers(self):
+        """Kombu's own Redis transport writes a plain set; stay readable against it."""
+        ch = _make_channel()
+        member = BINDING_SEP.join(["rk1", "rk1", "q1"]).encode()
+        pipe = AsyncMock()
+        pipe.execute = AsyncMock(side_effect=_wrongtype())
+        ch.client.pipeline = MagicMock(return_value=_AsyncContext(pipe))
+        ch.client.smembers = AsyncMock(return_value={member})
+
+        assert await ch._load_bindings("ex1") == [("q1", "rk1")]
+
+    async def test_a_read_error_that_is_not_wrongtype_propagates(self):
+        ch = _make_channel()
+        pipe = AsyncMock()
+        pipe.execute = AsyncMock(side_effect=ResponseError("LOADING"))
+        ch.client.pipeline = MagicMock(return_value=_AsyncContext(pipe))
+
+        with pytest.raises(ResponseError, match="LOADING"):
+            await ch._load_bindings("ex1")
+
+    async def test_the_refresh_rescores_the_bindings_this_channel_declared(self):
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        ch._expires["q1"] = 900_000
+        await ch.queue_bind("q1", "ex1", "rk1")
+
+        pipe = AsyncMock()
+        ch.client.pipeline = MagicMock(return_value=_AsyncContext(pipe))
+        with patch("kombu.transport.valkey_redis.time", return_value=1000.0):
+            await ch._refresh_queue_expires()
+
+        member = BINDING_SEP.join(["rk1", "rk1", "q1"])
+        pipe.zadd.assert_awaited_once_with("_kombu.binding.ex1", {member: 1900.0}, gt=True)
+
+    async def test_the_refresh_leaves_another_channels_longer_deadline_alone(self):
+        """GT, so a short-lived declarer cannot pull a route out from under a long one."""
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        ch._expires["q1"] = 900_000
+        await ch.queue_bind("q1", "ex1", "rk1")
+
+        pipe = AsyncMock()
+        ch.client.pipeline = MagicMock(return_value=_AsyncContext(pipe))
+        await ch._refresh_queue_expires()
+
+        assert pipe.zadd.await_args.kwargs == {"gt": True}
+
+    async def test_publishing_rescores_the_binding(self):
+        """Producers run no refresh timer, so the publish has to keep the route alive."""
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        ch._expires["q1"] = 900_000
+        await ch.queue_bind("q1", "ex1", "rk1")
+
+        pipe = AsyncMock()
+        ch.client.pipeline = MagicMock(return_value=_AsyncContext(pipe))
+        with patch("kombu.transport.valkey_redis.time", return_value=1000.0):
+            await ch._put_message("q1", b'{"body": "hi", "properties": {}}')
+
+        member = BINDING_SEP.join(["rk1", "rk1", "q1"])
+        assert any(
+            c.args == ("_kombu.binding.ex1", {member: 1900.0}) and c.kwargs == {"gt": True}
+            for c in pipe.zadd.await_args_list
+        )
+
+    async def test_a_transient_direct_exchange_drops_instead_of_raising(self):
+        """Its bindings empty by design, and a redeclare cannot recreate someone else's."""
+        ch = _make_channel()
+        ch._exchanges["reply.ex"] = {"type": "direct", "durable": False}
+        _stub_binding_reads(ch)
+        ch._put_message = AsyncMock()
+
+        with patch("kombu.transport.valkey_redis.logger") as mock_logger:
+            await ch.publish(b'{"body": "hi"}', exchange="reply.ex", routing_key="rk")
+
+        ch._put_message.assert_not_called()
+        mock_logger.info.assert_called_once()
+
+    async def test_a_durable_direct_exchange_still_raises(self):
+        ch = _make_channel()
+        ch._exchanges["ex1"] = {"type": "direct", "durable": True}
+        _stub_binding_reads(ch)
+
+        with pytest.raises(InconsistencyError, match="no bindings declared"):
+            await ch.publish(b'{"body": "hi"}', exchange="ex1", routing_key="rk")
+
+    async def test_an_undeclared_exchange_counts_as_durable(self):
+        """Assume the bindings were meant to outlive their consumers, and redeclare."""
+        ch = _make_channel()
+        _stub_binding_reads(ch)
+
+        assert ch._exchange_is_durable("never-declared")
+        with pytest.raises(InconsistencyError):
+            await ch.publish(b'{"body": "hi"}', exchange="never-declared", routing_key="rk")
 
 
 # ---------------------------------------------------------------------------

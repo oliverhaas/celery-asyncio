@@ -49,6 +49,16 @@ Transport Options
 * ``socket_connect_timeout``: Socket connection timeout in seconds
 * ``health_check_interval``: Health check interval for connections
 * ``max_connections``: Maximum connections in pool
+
+Binding lifetime
+================
+``_kombu.binding.{exchange}`` is a sorted set scored with the unix time each binding goes
+stale, which is ``x-expires`` after its last refresh (at least ``MIN_BINDING_LIFETIME``).
+A queue without ``x-expires`` is scored ``+inf`` and its binding only ever goes away on an
+explicit unbind. Declaring, refreshing and publishing all rescore; the publish path drops
+whatever has aged out, so cleanup rides the read path and nothing has to sweep. The key is
+a sorted set rather than the set kombu's own Redis transport writes, so the two can no
+longer share it; the first bind converts an inherited set in place.
 """
 
 import asyncio
@@ -127,6 +137,13 @@ DEFAULT_DELIVERY_LIMIT: int | None = 20
 # log. The drop deletes the hash, so that line is the message's last trace.
 DROPPED_REPORT_LIMIT = 10
 
+# Floor under how long a binding survives without a refresh, in seconds.
+# A binding is scored with its queue's x-expires window, but the processes that
+# leave bindings behind are the ones that cannot refresh them: a celery control
+# client has no event loop, and x-expires on its reply queue is 10s, which is
+# shorter than the control call the binding has to outlive.
+MIN_BINDING_LIFETIME = 300
+
 # Default server-side block duration for BZMPOP/XREAD inside a single consumer
 # iteration. Overridable via the `block_timeout` transport option.
 DEFAULT_BLOCK_TIMEOUT = 10.0
@@ -159,6 +176,7 @@ _ENQUEUE_DUE_MESSAGES_LUA = (_PACKAGE_DIR / "transport_enqueue_due_messages.lua"
 _REQUEUE_MESSAGE_LUA = (_PACKAGE_DIR / "transport_requeue_message.lua").read_text()
 _CONSUME_MESSAGE_LUA = (_PACKAGE_DIR / "transport_consume_message.lua").read_text()
 _ACK_MESSAGE_LUA = (_PACKAGE_DIR / "transport_ack_message.lua").read_text()
+_CONVERT_BINDINGS_LUA = (_PACKAGE_DIR / "transport_convert_bindings.lua").read_text()
 
 # ---------------------------------------------------------------------------
 # Valkey/Redis error tuples (from ALL installed libraries for catch-all)
@@ -171,6 +189,15 @@ _redis_channel_errors = get_all_channel_errors()
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _is_wrongtype(exc: Exception) -> bool:
+    """Whether the server rejected a command because the key holds another type.
+
+    Substring, not prefix: a pipeline reply arrives wrapped as
+    "Command # 1 (ZRANGEBYSCORE ...) of pipeline caused error: WRONGTYPE ...".
+    """
+    return "WRONGTYPE" in str(exc)
 
 
 def _queue_score(priority: int, timestamp: float | None = None) -> float:
@@ -249,6 +276,11 @@ class Channel:
     _warned_expires_clamp = False
     _warned_queue_expires_clamp = False
 
+    # Lua script handles. Registered on first use; the accessor's assignment
+    # shadows the class default, so each channel keeps its own handle.
+    _enqueue_script = _requeue_script = _consume_script = _ack_script = None
+    _convert_bindings_script = None
+
     def __init__(self, transport: Transport, connection_id: str) -> None:
         self._transport = transport
         self._connection_id = connection_id
@@ -265,6 +297,9 @@ class Channel:
         # Exchange / binding state
         self._exchanges: dict[str, dict] = {}
         self._bindings: dict[str, list[tuple[str, str]]] = {}
+        # queue → {(exchange, member)} for the bindings this channel declared,
+        # which are the only ones it may rescore on refresh or publish.
+        self._binding_members: dict[str, set[tuple[str, str]]] = {}
 
         # Fanout state
         self._fanout_queues: dict[str, tuple[str, str]] = {}  # queue → (exchange, rk)
@@ -336,12 +371,6 @@ class Channel:
         self._heartbeat_task: asyncio.Task | None = None
         self._expires_task: asyncio.Task | None = None
 
-        # Lua script handles (registered lazily)
-        self._enqueue_script = None
-        self._requeue_script = None
-        self._consume_script = None
-        self._ack_script = None
-
     # ---- key helpers -------------------------------------------------------
 
     def _prefixed(self, key: str) -> str:
@@ -386,6 +415,67 @@ class Channel:
                 Channel._warned_queue_expires_clamp = True
             expires_ms = MIN_QUEUE_EXPIRES
         return expires_ms
+
+    # ---- binding lifetime --------------------------------------------------
+
+    @staticmethod
+    def _binding_member(routing_key: str, queue: str) -> str:
+        return BINDING_SEP.join([routing_key or "", routing_key or "", queue or ""])
+
+    def _binding_stale_at(self, queue: str, now: float | None = None) -> float:
+        """Unix time the bindings of this queue go stale.
+
+        Only a queue that expires can leave a binding behind that nobody wants:
+        one that stays around has to keep its route, so it is scored +inf and
+        goes away on an explicit unbind or not at all.
+
+        The window never drops below MIN_BINDING_LIFETIME, because the processes
+        that abandon bindings are the ones that cannot refresh them. A celery
+        control client has no event loop, and the 10s x-expires on its reply
+        queue is shorter than the control call the binding has to outlive.
+        """
+        expires_ms = self._expires.get(queue)
+        if expires_ms is None:
+            return float("inf")
+        return (time() if now is None else now) + max(expires_ms / 1000, MIN_BINDING_LIFETIME)
+
+    def _binding_ttl_ms(self, queue: str) -> int | None:
+        """TTL to put on a binding key touched on behalf of this queue.
+
+        Only with the global queue_expires option: a per-queue x-expires alone
+        must not put a TTL on a table that may also hold the bindings of queues
+        that never expire. The floor mirrors _binding_stale_at, so the key
+        outlives its own members' staleness deadlines.
+        """
+        global_ms = self._global_expires_ms()
+        if global_ms is None:
+            return None
+        return max(self._expires.get(queue, global_ms), MIN_BINDING_LIFETIME * 1000)
+
+    async def _touch_binding_key(self, exchange: str, queue: str) -> None:
+        """Give the binding key a TTL when the global queue_expires option is on.
+
+        GT, so a queue with a short window cannot shrink a TTL that another
+        queue's touch pushed further out. GT treats a key without a TTL as
+        infinite and declines, so a key that has none yet gets one directly.
+        """
+        ttl_ms = self._binding_ttl_ms(queue)
+        if ttl_ms is None:
+            return
+        key = self._binding_key(exchange)
+        if not await self.client.pexpire(key, ttl_ms, gt=True) and await self.client.pttl(key) == -1:
+            await self.client.pexpire(key, ttl_ms)
+
+    async def _convert_binding_set(self, exchange: str) -> None:
+        """Turn a binding table left behind as a plain set into a sorted set."""
+        script = await self._get_convert_bindings_script()
+        converted = await script(keys=[self._binding_key(exchange)])
+        logger.info(
+            "Converted the binding table of exchange %r from a set to a sorted set, "
+            "carrying over %s member(s) with no staleness deadline",
+            exchange,
+            converted,
+        )
 
     # ---- client access -----------------------------------------------------
 
@@ -432,6 +522,13 @@ class Channel:
                 _ACK_MESSAGE_LUA,
             )
         return self._ack_script
+
+    async def _get_convert_bindings_script(self):
+        if self._convert_bindings_script is None:
+            self._convert_bindings_script = self.client.register_script(
+                _CONVERT_BINDINGS_LUA,
+            )
+        return self._convert_bindings_script
 
     # ---- exchange operations -----------------------------------------------
 
@@ -530,9 +627,17 @@ class Channel:
             await self.client.delete(self._binding_key(exchange))
             return
 
-        # Store in Redis with sep-delimited format
-        binding_data = BINDING_SEP.join([routing_key or "", routing_key or "", queue])
-        await self.client.sadd(self._binding_key(exchange), binding_data)
+        member = self._binding_member(routing_key, queue)
+        self._binding_members.setdefault(queue, set()).add((exchange, member))
+        key = self._binding_key(exchange)
+        try:
+            await self.client.zadd(key, {member: self._binding_stale_at(queue)})
+        except _redis_channel_errors as exc:
+            if not _is_wrongtype(exc):
+                raise
+            await self._convert_binding_set(exchange)
+            await self.client.zadd(key, {member: self._binding_stale_at(queue)})
+        await self._touch_binding_key(exchange, queue)
 
     async def queue_unbind(
         self,
@@ -552,8 +657,20 @@ class Channel:
             self.active_fanout_queues.discard(queue)
             return
 
-        binding_data = BINDING_SEP.join([routing_key or "", routing_key or "", queue])
-        await self.client.srem(self._binding_key(exchange), binding_data)
+        member = self._binding_member(routing_key, queue)
+        declared = self._binding_members.get(queue)
+        if declared is not None:
+            declared.discard((exchange, member))
+            if not declared:
+                del self._binding_members[queue]
+        try:
+            await self.client.zrem(self._binding_key(exchange), member)
+        except _redis_channel_errors as exc:
+            if not _is_wrongtype(exc):
+                raise
+            # Table still a plain set from an older deployment. Unbinding is
+            # no reason to convert it, so just remove the member in place.
+            await self.client.srem(self._binding_key(exchange), member)
 
     async def queue_purge(self, queue: str) -> int:
         """Purge all messages from a queue, cleaning up message hashes."""
@@ -615,6 +732,7 @@ class Channel:
         self._expires.pop(queue, None)
         self._message_ttls.pop(queue, None)
         self.auto_delete_queues.discard(queue)
+        self._binding_members.pop(queue, None)
 
         for exch, bindings in list(self._bindings.items()):
             self._bindings[exch] = [(q, rk) for q, rk in bindings if q != queue]
@@ -641,9 +759,60 @@ class Channel:
         else:
             await self._direct_publish(exchange, routing_key, message)
 
+    def _exchange_is_durable(self, exchange: str) -> bool:
+        """Whether the exchange was declared durable.
+
+        An exchange this channel never declared has no state entry. Assume
+        durable then, which keeps the raise-and-redeclare path the default for
+        exchanges whose bindings are supposed to outlive their consumers.
+        """
+        entry = self._exchanges.get(exchange)
+        if not entry:
+            return True
+        return bool(entry.get("durable", True))
+
+    async def _read_bindings(self, exchange: str) -> Any:
+        """Read the live bindings of an exchange, dropping the ones that aged out.
+
+        Pruning rides the read path because nothing else can reach these members:
+        a binding is only ever unbound by the process that declared it, and the
+        ones that pile up are precisely the ones whose process is gone. The
+        removal costs no extra round trip, and in steady state it removes
+        nothing, so Redis has nothing to propagate.
+
+        The pruned members are read back first and logged: dropping a binding
+        silently reroutes messages, so the log line is the only way to tell an
+        aged-out route from one that never existed.
+        """
+        key = self._binding_key(exchange)
+        now = time()
+        try:
+            # Not a transaction: this runs on the publish path, and a bind
+            # landing between the commands is indistinguishable from one
+            # landing just after the read.
+            async with self.client.pipeline(transaction=False) as pipe:
+                await pipe.zrangebyscore(key, "-inf", now)
+                await pipe.zremrangebyscore(key, "-inf", now)
+                await pipe.zrange(key, 0, -1)
+                stale, _removed, live = await pipe.execute()
+        except _redis_channel_errors as exc:
+            if not _is_wrongtype(exc):
+                raise
+            # Table still a plain set from an older deployment or from kombu's
+            # own Redis transport. Readable as it is; the next bind converts it.
+            return await self.client.smembers(key)
+        if stale:
+            logger.info(
+                "Exchange %r: dropped %d abandoned binding(s): %s",
+                exchange,
+                len(stale),
+                ", ".join(sorted(m.decode() if isinstance(m, bytes) else m for m in stale)),
+            )
+        return live
+
     async def _load_bindings(self, exchange: str) -> list[tuple[str, str]]:
         """Load bindings from Redis, supporting both sep and JSON formats."""
-        members = await self.client.smembers(self._binding_key(exchange))
+        members = await self._read_bindings(exchange)
         bindings = []
         for member in members:
             if isinstance(member, bytes):
@@ -677,7 +846,25 @@ class Channel:
                 # the message has nowhere to go. InconsistencyError is in
                 # connection_errors, so Connection.ensure redeclares and
                 # retries instead of losing the publish.
-                raise InconsistencyError(f"Cannot route to {exchange}: no bindings declared.")
+                if not self._exchange_is_durable(exchange):
+                    # A transient direct exchange empties by design whenever its
+                    # consumers go away: a pidbox reply exchange loses its
+                    # binding the moment the control client leaves, and the
+                    # publisher redeclaring its own entities could never
+                    # recreate a binding that belonged to someone else, so the
+                    # retry loop would only churn.
+                    logger.info(
+                        "Dropped message to transient exchange %r with routing key %r: binding table is empty.",
+                        exchange,
+                        routing_key,
+                    )
+                    return
+                key = self._binding_key(exchange)
+                raise InconsistencyError(
+                    f"Cannot route to {exchange}: no bindings declared."
+                    f" Probably the key {key!r} has been removed from the database,"
+                    f" or every binding in it went stale.",
+                )
             for queue, rk in bindings:
                 if rk == routing_key:
                     await self._put_message(queue, message)
@@ -786,6 +973,15 @@ class Channel:
                 ttl_ms = self._expires[queue]
                 await pipe.pexpire(queue_key, ttl_ms)
                 await pipe.pexpire(index_key, ttl_ms)
+                # Publishing keeps the route alive (producers run no refresh
+                # timer); GT never pulls back another channel's longer deadline.
+                stale_at = self._binding_stale_at(queue, now=now)
+                binding_ttl_ms = self._binding_ttl_ms(queue)
+                for exchange, member in self._binding_members.get(queue, ()):
+                    binding_key = self._binding_key(exchange)
+                    await pipe.zadd(binding_key, {member: stale_at}, gt=True)
+                    if binding_ttl_ms is not None:
+                        await pipe.pexpire(binding_key, binding_ttl_ms, gt=True)
 
             await pipe.execute()
 
@@ -1628,14 +1824,31 @@ class Channel:
             await pipe.execute()
 
     async def _refresh_queue_expires(self) -> None:
-        """Refresh PEXPIRE on queue + index keys."""
+        """Refresh the queue, index and binding keys of queues with x-expires.
+
+        A binding lives exactly as long as some channel keeps rescoring it. The
+        rescore also re-adds a member another process pruned while this one was
+        stalled, so a queue that is still declared here keeps its route.
+        """
         if not self._expires:
             return
+        now = time()
+        touch: set[tuple[str, str]] = set()
         async with self.client.pipeline(transaction=False) as pipe:
             for queue, ttl_ms in self._expires.items():
                 await pipe.pexpire(self._queue_key(queue), ttl_ms)
                 await pipe.pexpire(self._messages_index_key(queue), ttl_ms)
+                # GT, as in _put_message: never pull a deadline backwards that
+                # another channel pushed further out.
+                stale_at = self._binding_stale_at(queue, now=now)
+                for exchange, member in self._binding_members.get(queue, ()):
+                    await pipe.zadd(self._binding_key(exchange), {member: stale_at}, gt=True)
+                    touch.add((exchange, queue))
             await pipe.execute()
+        # Off the pipeline because the bootstrap needs the PTTL reply:
+        # PEXPIRE GT declines on a key that lost its TTL.
+        for exchange, queue in touch:
+            await self._touch_binding_key(exchange, queue)
 
     # ---- get() and close() ------------------------------------------------
 
