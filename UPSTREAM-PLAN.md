@@ -82,6 +82,14 @@ Then drop anything touching only the subsystems listed above.
 | `df57d9ab9` O(K²) message bloat in a chain of chords | `962bf44fd` | Verbatim. Upstream's size test passes pre-fix -- the chords collapse into one task, so max == min over a single element. Ours asserts the task count too. |
 | `379a629dc` Keep group errbacks mutable | `3997b6195` | Adapted, and it does less than the upstream message claims: `clone(immutable=True)` never made anything immutable, because `clone()` copies `immutable` from the source signature and an `immutable` kwarg only lands in `options`. All the fix removes is a stray execution option riding into the published message. The test asserts that, not the mutability. |
 | `2d560f5c1` `AsyncResult.exists()` | `2e1d9be90` | Adapted: `atask_result_exists` twins throughout, defaulting to `sync_to_async` on `Backend` and overridden natively on `RedisBackend`, plus `AsyncResult.aexists()`. The database and mongodb hunks are dropped -- neither backend exists here. |
+| `6e0d68308` UUID task ids in key-value store key generation | `2c48c6594` | Verbatim. `ensure_bytes` passes a non-string through unchanged and the `bytes.join()` below then raises `TypeError`. |
+| `477c816f9` One raising errback no longer halts the rest | `2c48c6594` | Verbatim. The old-style path below already got this from the group it is called through. |
+| `1432d9b6c` Reach the chord body when a chained step fails | `1ff72dc00` | Adapted: applied to `amark_as_failure` as well. A chord step completes when its *body* does, so an enclosing chord waits on the body id, not the chord's own -- marking only the latter left the body PENDING and `chord_unlock` retried without bound. |
+| `72e9240aa` Chord error handling when the body is a chain | `1ff72dc00` | Adapted, and only hunks 1 and 3 of 3. `prepare_steps` now sets `self.id` from the real last result, and `chord_error_from_stack` mints a `task_id` for a callback that was never frozen. Hunk 2 (an explicit `task.body.link_error(errback)` in `prepare_steps`) is **not** ported: `_chord.link_error` already links the body unconditionally on both sides of `task_allow_error_cb_on_chord_header`, and upstream's hunk only survives being a no-op because `append_to_list_option` dedupes. A parametrized test pins both halves of that -- present, and not twice. |
+| `be0e2de23` Allow `redis_backend_use_ssl` with a `redis://` URL | `00ee290db` | Verbatim. Only the query string is a scheme mismatch now; the setting takes the same dict as `broker_use_ssl`, which honours it against a `redis://` URL. |
+| `9f0a61c61` Sentinel ACL: the username never reached `master_for()` | `00ee290db` | Verbatim. `master_for()` opens a *new* connection to the master, so the sentinel's own credentials do not carry over to it. |
+| `0472aaccb` Configurable additional connection errors | `258a2ffd6` | Adapted, and shortened: upstream's four-branch normalisation collapses to one `isinstance` check. The option is read straight off the conf rather than through the `_transport_options` cached_property -- reading it from `__init__` would materialise the cache there and freeze every other transport option at construction time. Upstream hit the same trap and fixed it inside the PR; a test pins it here. The docs hunk is dropped, there is no `backends-and-brokers/` in this fork. |
+| `22a03fa13` redis-py DriverInfo | `258a2ffd6` | Adapted: upstream reaches for `redis` unconditionally, but this fork resolves the client library from the URL scheme and valkey-py has no `DriverInfo`, so the lookup goes through `self.redis` and falls back to the deprecated `lib_name`/`lib_version` pair. Both forms verified against the sync *and* async connection-pool constructors of both libraries. |
 
 ### Found along the way
 
@@ -161,7 +169,11 @@ Grouped by what is missing, so a future sweep can classify most commits by inspe
 The fork's result consumer polls; there is no PUBSUB subscription to leak or unsubscribe.
 `d35acd7f5` redundant unsubscribe · `74a7a63bb` / `4f1595434` / `4a11650b1` `_pending_messages`
 leak, reverted and re-landed upstream · `6b1fad369` deprecated `get_connection` args ·
-`8f0842b33` redis-py < 5.3.0 compat, and the floor here is redis>=7
+`8f0842b33` redis-py < 5.3.0 compat, and the floor here is redis>=7 ·
+`8eec5af31` + `f8668fcf5` a shared `reconnect_on_error` on `BaseResultConsumer`, without
+`socket.timeout` in the reconnect conditions. `BaseResultConsumer` is a documented no-op stub here
+and its only subclass, `valkey_redis.ResultConsumer`, is a stub too -- `start`, `stop`,
+`drain_events`, `consume_from` and `cancel_for` all do nothing, so nothing would ever call it
 
 **Subsystem absent**
 `efc3a7f11` multi stopwait EPERM, there is no `apps/multi.py` ·
@@ -195,20 +207,6 @@ machinery described in "Found along the way".
 
 Triaged as real and missing but not yet checked line by line, let alone ported. Roughly ordered
 by how much they matter. **Every one of these is (unverified).**
-
-### Backends
-
-`6e0d68308` handle UUID task ids in key-value store key generation · `1432d9b6c` propagate chained
-task failures into the chord body · `477c816f9` wrap new-style errback calls so one raising
-errback does not halt the chain · `72e9240aa` chord error handling when the body is a chain ·
-`8eec5af31` + `f8668fcf5` a shared `reconnect_on_error` on `BaseResultConsumer`, without
-`socket.timeout` in the reconnect conditions
-
-### valkey_redis backend
-
-`be0e2de23` allow `redis_backend_use_ssl` with a `redis://` URL · `9f0a61c61` Sentinel ACL, the
-username never reaches `master_for()` · `0472aaccb` configurable additional connection errors ·
-`22a03fa13` redis-py DriverInfo
 
 ### App, CLI, Django fixup
 

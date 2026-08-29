@@ -682,12 +682,16 @@ class test_BaseBackend_dict:
             exc=mock_call_errbacks.side_effect,
         )
 
-    def test_chord_error_from_stack_without_a_callback_id(self):
+    @pytest.mark.parametrize("errback_raises", [False, True], ids=["errbacks-ok", "errback-raises"])
+    def test_chord_error_from_stack_without_a_callback_id(self, errback_raises):
         # A chord body that was never frozen has no id, and
         # fail_from_current_stack would then reach get_key_for_task(None) and
         # raise instead of recording the failure (upstream 72e9240aa, #4834).
+        # The method has two exits and both must use the id we minted.
         b = BaseBackend(app=self.app)
         b.fail_from_current_stack = Mock()
+        if errback_raises:
+            b._call_task_errbacks = Mock(side_effect=RuntimeError("errback failed"))
         callback = signature("test.body", app=self.app)
         assert callback.id is None
 

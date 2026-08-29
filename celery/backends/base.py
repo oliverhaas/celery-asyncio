@@ -378,9 +378,9 @@ class Backend:
         try:
             self._call_task_errbacks(fake_request, original_exc, None)
         except Exception as eb_exc:
-            return backend.fail_from_current_stack(callback.id, exc=eb_exc)
+            return backend.fail_from_current_stack(callback_id, exc=eb_exc)
         else:
-            return backend.fail_from_current_stack(callback.id, exc=original_exc)
+            return backend.fail_from_current_stack(callback_id, exc=original_exc)
 
     def _handle_group_chord_error(self, group_callback, backend, exc=None):
         """Handle chord errors when the callback is a group.
