@@ -31,7 +31,7 @@ class Venv:
     celery_bin: Path
 
     @classmethod
-    def from_dir(cls, name: str) -> "Venv":
+    def from_dir(cls, name: str) -> Venv:
         d = ROOT / name
         return cls(name=name, python=d / "bin" / "python", celery_bin=d / "bin" / "celery")
 
@@ -74,15 +74,9 @@ def matrix() -> list[Run]:
         # Same three layouts again under uvloop (libuv event loop). Same venv,
         # same kwargs — only the event-loop implementation differs.
         uvloop_env = {"BENCH_UVLOOP": "1"}
-        runs.append(
-            Run(f"aio-async-l4c25-uvloop-{suffix}", venv, "asyncio", None, 4, 25, 1, "async", uvloop_env)
-        )
-        runs.append(
-            Run(f"aio-sync-s4-uvloop-{suffix}", venv, "asyncio", None, 1, 1, 4, "sync", uvloop_env)
-        )
-        runs.append(
-            Run(f"aio-mixed-l2c50-s2-uvloop-{suffix}", venv, "asyncio", None, 2, 50, 2, "mixed", uvloop_env)
-        )
+        runs.append(Run(f"aio-async-l4c25-uvloop-{suffix}", venv, "asyncio", None, 4, 25, 1, "async", uvloop_env))
+        runs.append(Run(f"aio-sync-s4-uvloop-{suffix}", venv, "asyncio", None, 1, 1, 4, "sync", uvloop_env))
+        runs.append(Run(f"aio-mixed-l2c50-s2-uvloop-{suffix}", venv, "asyncio", None, 2, 50, 2, "mixed", uvloop_env))
 
     for venv in (".venv-classic-314", ".venv-classic-314t"):
         suffix = venv.split("-classic-")[1]
@@ -120,12 +114,18 @@ def run_one(r: Run, workload: Path, tasks: int, profile: str) -> tuple[bool, Pat
     cmd = [
         str(venv.python),
         str(ROOT / "runner.py"),
-        "--config", r.label,
-        "--workload", str(workload),
-        "--output", str(out),
-        "--worker-bin", str(venv.celery_bin),
-        "--variant", r.variant,
-        "--run-timeout", "1800",
+        "--config",
+        r.label,
+        "--workload",
+        str(workload),
+        "--output",
+        str(out),
+        "--worker-bin",
+        str(venv.celery_bin),
+        "--variant",
+        r.variant,
+        "--run-timeout",
+        "1800",
     ]
     if r.pool:
         cmd += ["--pool", r.pool]
@@ -163,8 +163,12 @@ def main() -> None:
         default="mixed",
         help="workload profile: 'mixed' (default), 'cpu-only' (showcase GIL impact on threads), 'io-only' (showcase asyncio concurrency)",
     )
-    ap.add_argument("--cpu-iters", type=int, default=None, help="override cpu_iters for cpu-only profile (default 20000 ≈ 5 ms)")
-    ap.add_argument("--io-seconds", type=float, default=None, help="override io_seconds for io-only profile (default 0.1 s)")
+    ap.add_argument(
+        "--cpu-iters", type=int, default=None, help="override cpu_iters for cpu-only profile (default 20000 ≈ 5 ms)"
+    )
+    ap.add_argument(
+        "--io-seconds", type=float, default=None, help="override io_seconds for io-only profile (default 0.1 s)"
+    )
     args = ap.parse_args()
 
     # Generate workload (one for the entire matrix).
@@ -173,11 +177,16 @@ def main() -> None:
     workload.parent.mkdir(parents=True, exist_ok=True)
     if not workload.exists():
         cmd = [
-            sys.executable, str(ROOT / "workload.py"),
-            "--count", str(args.tasks),
-            "--seed", str(args.seed),
-            "--profile", args.profile,
-            "--out", str(workload),
+            sys.executable,
+            str(ROOT / "workload.py"),
+            "--count",
+            str(args.tasks),
+            "--seed",
+            str(args.seed),
+            "--profile",
+            args.profile,
+            "--out",
+            str(workload),
         ]
         if args.cpu_iters is not None:
             cmd += ["--cpu-iters", str(args.cpu_iters)]
@@ -201,9 +210,7 @@ def main() -> None:
     print("\n" + "=" * 110)
     print(f"SUMMARY ({args.profile} profile, {args.tasks} tasks)")
     print("=" * 110)
-    print(
-        f"{'config':<32} {'variant':<8} {'time':>8} {'tps':>8} {'peak_rss':>10} {'mean_cpu':>10} {'stranded':>10}"
-    )
+    print(f"{'config':<32} {'variant':<8} {'time':>8} {'tps':>8} {'peak_rss':>10} {'mean_cpu':>10} {'stranded':>10}")
     print("-" * 110)
     for res in sorted(results, key=lambda x: x["complete_seconds"]):
         s = res["summary"]

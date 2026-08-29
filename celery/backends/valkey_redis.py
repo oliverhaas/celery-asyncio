@@ -775,9 +775,10 @@ return false
             if isinstance(existing, bytes):
                 existing = existing.decode()
             logger.error(
-                "Dropped duplicate result write for task %s: existing terminal state %s, "
-                "attempted state %s",
-                bytes_to_str(task_id), existing, state,
+                "Dropped duplicate result write for task %s: existing terminal state %s, attempted state %s",
+                bytes_to_str(task_id),
+                existing,
+                state,
             )
         return result
 

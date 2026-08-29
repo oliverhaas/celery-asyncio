@@ -17,21 +17,30 @@ ROOT = Path(__file__).resolve().parent
 
 # Fargate Linux/x86 us-east-1, May 2026.
 VCPU_S_RATE = 0.04048 / 3600  # $/vCPU·s
-GB_S_RATE = 0.004445 / 3600   # $/GB·s
+GB_S_RATE = 0.004445 / 3600  # $/GB·s
 
 PROFILES = ("mixed", "cpu-only", "io-only")
 
 # Stable canonical order — TPS will determine sort within tables.
 CANONICAL_CONFIGS = [
-    "aio-async-l4c25-314", "aio-async-l4c25-314t",
-    "aio-async-l4c25-uvloop-314", "aio-async-l4c25-uvloop-314t",
-    "aio-sync-s4-314", "aio-sync-s4-314t",
-    "aio-sync-s4-uvloop-314", "aio-sync-s4-uvloop-314t",
-    "aio-mixed-l2c50-s2-314", "aio-mixed-l2c50-s2-314t",
-    "aio-mixed-l2c50-s2-uvloop-314", "aio-mixed-l2c50-s2-uvloop-314t",
-    "classic-prefork1-314", "classic-prefork1-314t",
-    "classic-prefork4-314", "classic-prefork4-314t",
-    "classic-threads4-314", "classic-threads4-314t",
+    "aio-async-l4c25-314",
+    "aio-async-l4c25-314t",
+    "aio-async-l4c25-uvloop-314",
+    "aio-async-l4c25-uvloop-314t",
+    "aio-sync-s4-314",
+    "aio-sync-s4-314t",
+    "aio-sync-s4-uvloop-314",
+    "aio-sync-s4-uvloop-314t",
+    "aio-mixed-l2c50-s2-314",
+    "aio-mixed-l2c50-s2-314t",
+    "aio-mixed-l2c50-s2-uvloop-314",
+    "aio-mixed-l2c50-s2-uvloop-314t",
+    "classic-prefork1-314",
+    "classic-prefork1-314t",
+    "classic-prefork4-314",
+    "classic-prefork4-314t",
+    "classic-threads4-314",
+    "classic-threads4-314t",
 ]
 
 
@@ -95,10 +104,16 @@ def main_table(profile: str) -> str:
         workers = _describe_workers(r)
         lines.append(
             "| {cfg:<23} | {py:<5} | {var:<7} | {w:<20} | {wall:>6.1f} s | {tps:>6.1f} | {pr:>5.0f} MB  | {mr:>5.0f} MB  | {pc:>5.0f} % | {mc:>5.0f} % | {st:>6} |".format(
-                cfg=r["config"], py=py, var=variant, w=workers,
-                wall=r["complete_seconds"], tps=r["throughput_tps"],
-                pr=s["peak_rss_mb"], mr=s["mean_rss_mb"],
-                pc=s["peak_cpu_pct"], mc=s["mean_cpu_pct"],
+                cfg=r["config"],
+                py=py,
+                var=variant,
+                w=workers,
+                wall=r["complete_seconds"],
+                tps=r["throughput_tps"],
+                pr=s["peak_rss_mb"],
+                mr=s["mean_rss_mb"],
+                pc=s["peak_cpu_pct"],
+                mc=s["mean_cpu_pct"],
                 st=r["n_stranded"],
             )
         )
@@ -132,15 +147,17 @@ def cost_table(profile: str) -> str:
         ideal = _ideal_cost_per_million(r)
         prov = _provisioned_cost_per_million(r)
         vcpu_slot, gb_slot = _provisioned_slot(r)
-        out.append({
-            "config": r["config"],
-            "tps": r["throughput_tps"],
-            "vcpu_s_per_1k": vcpu_s_per_1k,
-            "mb_s_per_1k": mb_s_per_1k,
-            "ideal_per_m": ideal,
-            "prov_per_m": prov,
-            "slot": f"{vcpu_slot} vCPU / {gb_slot:g} GB",
-        })
+        out.append(
+            {
+                "config": r["config"],
+                "tps": r["throughput_tps"],
+                "vcpu_s_per_1k": vcpu_s_per_1k,
+                "mb_s_per_1k": mb_s_per_1k,
+                "ideal_per_m": ideal,
+                "prov_per_m": prov,
+                "slot": f"{vcpu_slot} vCPU / {gb_slot:g} GB",
+            }
+        )
     out.sort(key=lambda r: r["ideal_per_m"])
     lines = [
         "| config                  | TPS   | vCPU·s / 1 k | MB·s / 1 k |  ideal $/1M |  prov $/1M | Fargate slot |",
@@ -149,9 +166,13 @@ def cost_table(profile: str) -> str:
     for x in out:
         lines.append(
             "| {cfg:<23} | {tps:>5.1f} | {vs:>11.2f}  | {ms:>8.0f}   | ${ideal:>7.2f}    | ${prov:>7.2f}   | {slot} |".format(
-                cfg=x["config"], tps=x["tps"], vs=x["vcpu_s_per_1k"],
-                ms=x["mb_s_per_1k"], ideal=x["ideal_per_m"],
-                prov=x["prov_per_m"], slot=x["slot"],
+                cfg=x["config"],
+                tps=x["tps"],
+                vs=x["vcpu_s_per_1k"],
+                ms=x["mb_s_per_1k"],
+                ideal=x["ideal_per_m"],
+                prov=x["prov_per_m"],
+                slot=x["slot"],
             )
         )
     return "\n".join(lines)
@@ -163,13 +184,15 @@ def all_costs() -> dict[str, list[dict]]:
         out[profile] = []
         for r in load_profile(profile):
             s = r["summary"]
-            out[profile].append({
-                "config": r["config"],
-                "tps": r["throughput_tps"],
-                "ideal_per_m": _ideal_cost_per_million(r),
-                "vcpu_s_per_1k": (s["mean_cpu_pct"] / 100) * r["complete_seconds"] / r["n_completed"] * 1000,
-                "mb_s_per_1k": s["mean_rss_mb"] * r["complete_seconds"] / r["n_completed"] * 1000,
-            })
+            out[profile].append(
+                {
+                    "config": r["config"],
+                    "tps": r["throughput_tps"],
+                    "ideal_per_m": _ideal_cost_per_million(r),
+                    "vcpu_s_per_1k": (s["mean_cpu_pct"] / 100) * r["complete_seconds"] / r["n_completed"] * 1000,
+                    "mb_s_per_1k": s["mean_rss_mb"] * r["complete_seconds"] / r["n_completed"] * 1000,
+                }
+            )
     return out
 
 

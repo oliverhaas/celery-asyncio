@@ -38,7 +38,7 @@ def main() -> None:
             continue
         try:
             rows.append(_row(json.loads(p.read_text())))
-        except (KeyError, json.JSONDecodeError):
+        except KeyError, json.JSONDecodeError:
             continue
 
     if not rows:

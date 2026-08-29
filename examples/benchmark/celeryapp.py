@@ -19,7 +19,7 @@ import sys
 # makes uvloop activation observable per run, not just "we set the env var").
 _UVLOOP_REQUESTED = os.environ.get("BENCH_UVLOOP") == "1"
 if _UVLOOP_REQUESTED:
-    import uvloop  # noqa: PLC0415
+    import uvloop
 
     uvloop.install()
 
@@ -34,7 +34,7 @@ print(
     flush=True,
 )
 
-from celery import Celery  # noqa: E402
+from celery import Celery
 
 BROKER_URL = os.environ.get("BENCH_BROKER", "redis://localhost:6379/0")
 RESULT_URL = os.environ.get("BENCH_BACKEND", "redis://localhost:6379/1")

@@ -108,7 +108,7 @@ def sample_loop(proc: psutil.Process, samples: list[dict], stop: threading.Event
                 cpu_total += p.cpu_percent(interval=None)
                 rss_total += p.memory_info().rss
                 n += 1
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except psutil.NoSuchProcess, psutil.AccessDenied:
                 pass
 
         samples.append(
@@ -167,8 +167,8 @@ def wait_for_worker_ready(log_path: Path, timeout: float) -> bool:
 def import_tasks() -> tuple[Any, Any, Any]:
     """Import the app + tasks from the bench directory."""
     sys.path.insert(0, str(Path(__file__).parent))
-    from celeryapp import app  # noqa: PLC0415
-    from tasks import mixed_async, mixed_sync  # noqa: PLC0415
+    from celeryapp import app
+    from tasks import mixed_async, mixed_sync
 
     return app, mixed_sync, mixed_async
 
@@ -284,11 +284,7 @@ def main() -> None:
             if n_done != prev_done:
                 prev_done = n_done
                 last_change = now
-            if (
-                n_done >= int(n_tasks * 0.99)
-                and now - last_change > args.stall_seconds
-                and n_done < n_tasks
-            ):
+            if n_done >= int(n_tasks * 0.99) and now - last_change > args.stall_seconds and n_done < n_tasks:
                 stalled = True
                 break
             if now - last_print > 2.0:
@@ -350,14 +346,14 @@ def main() -> None:
         # subprocesses go down together.
         try:
             os.killpg(worker.pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
+        except ProcessLookupError, PermissionError:
             worker.send_signal(signal.SIGTERM)
         try:
             worker.wait(timeout=10)
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(worker.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
+            except ProcessLookupError, PermissionError:
                 worker.kill()
             worker.wait(timeout=5)
 

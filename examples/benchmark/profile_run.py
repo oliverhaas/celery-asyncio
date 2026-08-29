@@ -57,25 +57,50 @@ def main() -> None:
     runs: list[tuple[str, list[str]]] = []
     if fmt in ("flamegraph", "both"):
         out = profiles / f"{args.label}.svg"
-        runs.append(("flamegraph", [
-            str(py_spy), "record", "-o", str(out),
-            "--duration", str(args.duration),
-            "--rate", str(args.rate),
-            "--threads", "--idle",
-            "--subprocesses",
-            "--",
-        ] + worker_cmd))
+        runs.append(
+            (
+                "flamegraph",
+                [
+                    str(py_spy),
+                    "record",
+                    "-o",
+                    str(out),
+                    "--duration",
+                    str(args.duration),
+                    "--rate",
+                    str(args.rate),
+                    "--threads",
+                    "--idle",
+                    "--subprocesses",
+                    "--",
+                ]
+                + worker_cmd,
+            )
+        )
     if fmt in ("speedscope", "both"):
         out = profiles / f"{args.label}.speedscope.json"
-        runs.append(("speedscope", [
-            str(py_spy), "record", "-o", str(out),
-            "-f", "speedscope",
-            "--duration", str(args.duration),
-            "--rate", str(args.rate),
-            "--threads", "--idle",
-            "--subprocesses",
-            "--",
-        ] + worker_cmd))
+        runs.append(
+            (
+                "speedscope",
+                [
+                    str(py_spy),
+                    "record",
+                    "-o",
+                    str(out),
+                    "-f",
+                    "speedscope",
+                    "--duration",
+                    str(args.duration),
+                    "--rate",
+                    str(args.rate),
+                    "--threads",
+                    "--idle",
+                    "--subprocesses",
+                    "--",
+                ]
+                + worker_cmd,
+            )
+        )
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(HERE) + os.pathsep + env.get("PYTHONPATH", "")
@@ -83,14 +108,12 @@ def main() -> None:
 
     for kind, cmd in runs:
         # Each profile run = flush + start worker under py-spy + publish + wait.
-        subprocess.run(["redis-cli", "-h", "localhost", "-p", "6379", "FLUSHALL"],
-                       check=False, capture_output=True)
+        subprocess.run(["redis-cli", "-h", "localhost", "-p", "6379", "FLUSHALL"], check=False, capture_output=True)
         if log_path.exists():
             log_path.unlink()
 
         print(f"[profile] starting {kind}: {' '.join(cmd[:8])} ...", flush=True)
-        proc = subprocess.Popen(cmd, env=env, cwd=str(HERE),
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc = subprocess.Popen(cmd, env=env, cwd=str(HERE), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         # Wait for the worker to be ready by tailing the log.
         deadline = time.monotonic() + 30
@@ -106,7 +129,8 @@ def main() -> None:
 
         # Publish the workload from the same venv (matches celery-asyncio).
         publish = [
-            str(venv / "bin" / "python"), "-c",
+            str(venv / "bin" / "python"),
+            "-c",
             "import json, sys, time\n"
             "sys.path.insert(0, '.')\n"
             "from celeryapp import app\n"
@@ -119,7 +143,7 @@ def main() -> None:
             "    done = sum(1 for r in results if r.ready())\n"
             "    if done >= n: break\n"
             "    time.sleep(0.2)\n"
-            "print(f'published {n} in {time.monotonic() - t0:.1f}s, done={done}/{n}', flush=True)\n"
+            "print(f'published {n} in {time.monotonic() - t0:.1f}s, done={done}/{n}', flush=True)\n",
         ]
         subprocess.run(publish, env=env, cwd=str(HERE), check=False)
 
@@ -131,7 +155,10 @@ def main() -> None:
             proc.send_signal(signal.SIGINT)
             proc.wait(timeout=10)
 
-        print(f"[profile] {kind} done -> profiles/{args.label}.{('svg' if kind == 'flamegraph' else 'speedscope.json')}", flush=True)
+        print(
+            f"[profile] {kind} done -> profiles/{args.label}.{('svg' if kind == 'flamegraph' else 'speedscope.json')}",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":
