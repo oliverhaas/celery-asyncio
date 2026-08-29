@@ -236,6 +236,16 @@ def main() -> None:
         ready = wait_for_worker_ready(log_path, timeout=args.ready_timeout)
         if not ready:
             msg = f"worker did not become ready within {args.ready_timeout}s (see {log_path})"
+            if worker.poll() is not None and not log_path.exists():
+                # Nothing was ever logged and the process is already gone, so
+                # it died before celery got a chance to run. Usually the venv:
+                # a console script keeps the absolute path it was built at, so
+                # moving the checkout leaves the shebang pointing nowhere.
+                msg = (
+                    f"worker exited with {worker.returncode} before logging anything. "
+                    f"Check that {args.worker_bin} still runs on its own; if this "
+                    f"checkout was moved or renamed, re-run setup_venvs.sh."
+                )
             raise RuntimeError(msg)
 
         app, mixed_sync, mixed_async = import_tasks()

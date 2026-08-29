@@ -58,6 +58,11 @@ Results land in `results/<config>.json` and a summary table is printed at
 the end. Each JSON file has the full per-tick (CPU%, RSS) sample series
 under `samples`.
 
+The venvs record the absolute path they were built at, in console-script
+shebangs and in the `.pth` files the editable installs leave behind. So
+moving or renaming this checkout breaks all four, and `setup_venvs.sh`
+rebuilds any it finds in that state rather than reusing them.
+
 ## Measurement
 
 `runner.py` starts the worker in a subprocess, waits for `inspect ping`,
