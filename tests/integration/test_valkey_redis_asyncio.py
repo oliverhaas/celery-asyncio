@@ -386,6 +386,25 @@ class TestDeliveryTracking:
 
         await channel.queue_purge(queue_name)
 
+    async def test_consuming_recreates_a_missing_index_entry(self, channel):
+        """PORT-PLAN fix 2."""
+        queue_name = "test_consume_recreates_index"
+        await channel.queue_purge(queue_name)
+        await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+
+        # Drop the index entry. A delivery that leaves nothing tracking the
+        # message is out of the queue and out of the index, so a worker crash
+        # loses it permanently.
+        index_key = channel._messages_index_key(queue_name)
+        await channel.client.delete(index_key)
+
+        msg = await channel.get(queue_name, no_ack=False)
+        assert msg is not None
+        assert await channel.client.zscore(index_key, msg.delivery_tag) is not None
+
+        await msg.ack()
+        await channel.queue_purge(queue_name)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

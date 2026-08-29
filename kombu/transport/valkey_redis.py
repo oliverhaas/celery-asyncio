@@ -966,7 +966,12 @@ class Channel:
 
         try:
             async with self.client.pipeline(transaction=False) as pipe:
-                await pipe.zadd(index_key, {delivery_tag: new_queue_at}, xx=True)
+                # Not xx=True: a delivery with no index entry is tracked by
+                # nothing and lost on a worker crash. This pipeline is not
+                # transactional, so a plain ZADD can write an entry for a
+                # message acked a moment ago; the empty-payload branch below
+                # ZREMs it again.
+                await pipe.zadd(index_key, {delivery_tag: new_queue_at})
                 await pipe.hmget(message_key, "payload", "restore_count")
                 results = await pipe.execute()
         except BaseException:
