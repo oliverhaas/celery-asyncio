@@ -76,10 +76,16 @@ Then drop anything touching only the subsystems listed above.
 | `865922abd` Dispatch the chain and callbacks on the dedup fast path | `a43f31759` | Adapted: an awaiting `_adispatch_callbacks_and_chain` twin for `build_async_tracer`, which upstream does not have. The `Reject` passthrough was added to both tracers and to `trace_task`. |
 | `333a82f74` Mark revoked tasks REVOKED in the backend immediately | `66350406f` | Adapted: `amark_as_revoked` scheduled on the running loop rather than upstream's blocking call, since the pidbox handler runs on the worker's event loop. The existing schedule-or-run idiom was extracted into `_schedule()` and given the strong task reference its two copies lacked. |
 | `feb789acc` Close the broken connection before reconnecting | `31866ad09` | Adapted, and only half applies: the fork's handler never calls `collect()`. `Connection.close()` is a coroutine here, so `on_connection_error_after_connected` and its call site became `async`. |
+| `1d563dafb` Stop an eager chain on Ignore and Reject | `3997b6195` | Adapted: applied to `aapply` as well. It exposed a fork-only defect in `EagerResult`, fixed in `2bb2a49b1`. See "Found along the way". |
+| `bf1cf69e2` Skip empty groups in chains | `45b4c9813` | Adapted, three hunks: `prepare_steps`, `group.__or__` and `_chord.freeze`. Generator-backed groups are left alone in all three, since asking whether one is empty consumes it. |
+| `a094d2a89` Restore GroupResult fan-out in `chain.as_tuple()` | `45b4c9813` | Verbatim. Only `prev_task` is reset after a chord upgrade; resetting `prev_res` too collapsed consecutive groups into a single result. |
+| `df57d9ab9` O(K²) message bloat in a chain of chords | `962bf44fd` | Verbatim. Upstream's size test passes pre-fix -- the chords collapse into one task, so max == min over a single element. Ours asserts the task count too. |
+| `379a629dc` Keep group errbacks mutable | `3997b6195` | Adapted, and it does less than the upstream message claims: `clone(immutable=True)` never made anything immutable, because `clone()` copies `immutable` from the source signature and an `immutable` kwarg only lands in `options`. All the fix removes is a stray execution option riding into the published message. The test asserts that, not the mutability. |
+| `2d560f5c1` `AsyncResult.exists()` | `2e1d9be90` | Adapted: `atask_result_exists` twins throughout, defaulting to `sync_to_async` on `Backend` and overridden natively on `RedisBackend`, plus `AsyncResult.aexists()`. The database and mongodb hunks are dropped -- neither backend exists here. |
 
 ### Found along the way
 
-Two fork-only defects that the ports above exposed. Neither exists upstream.
+Fork-only defects and gaps that the ports above exposed. None of them exist upstream.
 
 **`autoretry_for` did nothing on async tasks.** Calling a coroutine function only builds the
 coroutine; nothing in it runs until it is awaited. The wrapper put the call inside `try/except`
@@ -101,6 +107,30 @@ verifiable. `a43f31759` added an `atrace()` helper and three async tests coverin
 path, but that is three tests against roughly six hundred lines of async tracer. The sync
 `test_trace.py` cases are the model -- most of them have no async twin. Still the fork's largest
 coverage gap, and worth closing before the next `trace.py` sweep.
+
+**Two test modules had been skipping silently.** `tests/unit/tasks/test_canvas.py` and
+`tests/unit/utils/test_functional.py` both opened with `pytest.importorskip("pytest_subtests")`.
+pytest 9 vendored subtests into `_pytest/subtests.py` and the standalone distribution is no longer
+installed, so the guard skipped both modules whole -- 268 tests, for however long the venv has been
+on pytest 9. Removing the guard in `3e1646513` brought all 268 back, passing unmodified. Worth
+grepping for `importorskip` after any test-dependency bump.
+
+**`EagerResult` had no `aget()`.** It overrides `get()` to return `None` for a task that produced no
+result, but inherited `aget()` from `AsyncResult`, which reads the value straight out of the cache
+and so returned the `Ignore`/`Reject` instance instead. The two halves of the API disagreed on
+exactly the states `1d563dafb` is about. Fixed in `2bb2a49b1`. A fork where every sync method has an
+async twin needs the twins audited whenever a sync method is *overridden*, not just when one is
+added.
+
+**The barrier / `on_ready` machinery is inert.** The fork dropped vine and replaced it with a
+home-grown `barrier` in `celery/utils/promises.py`. That barrier has no `finalized` gate, `finalize()`
+only fires an already-empty barrier, and `_pending` is never drained -- so a barrier with pending
+promises never becomes ready. `add_pending_result` / `remove_pending_result` are no-op stubs, and
+`ResultSet._on_ready` only calls `on_ready()` when `backend.is_async`. Result waiting works because
+it polls (`wait_for_pending` / `await_for_pending`); the callback path is vestigial. Practical
+consequence: `ResultSet.then()` and `GroupResult.then()` do not fire. Any upstream commit touching
+drainers, barriers or `on_ready` is a no-op here until that is either removed or made real -- see
+`7eb644e52` under "Not applicable".
 
 ## Not applicable
 
@@ -148,6 +178,13 @@ the spawn prefork pool. Here `apps/worker.py` calls it in the same process the a
 so `_localized` and `use_fast_trace_task` are always set together. Upstream's message names
 `--pool=solo` and `--pool=threads`, neither of which exists in this fork
 
+**No working barrier to finalize**
+`7eb644e52` finalize the ResultSet barrier when `iter_native` begins. Upstream's fix flips vine's
+`finalized` flag so a barrier whose promises all arrived before the caller started iterating can
+still fire. The fork's barrier has no such flag and never drains `_pending`, so the call would be a
+provable no-op with a comment claiming otherwise. Revisit together with the vestigial `on_ready`
+machinery described in "Found along the way".
+
 **Docs, release prep, test fixtures**
 `d96df921e`, `658230391`, `066092edc`, `a3f51e4c3`, `99b0a8977`, `bcc1798a8`,
 `6a43c846f`, `21dbc73f8`, `cca111648`, `b446910f1`
@@ -158,13 +195,6 @@ so `_localized` and `use_fast_trace_task` are always set together. Upstream's me
 
 Triaged as real and missing but not yet checked line by line, let alone ported. Roughly ordered
 by how much they matter. **Every one of these is (unverified).**
-
-### Canvas and results
-
-`1d563dafb` stop eager chain execution on Ignore and Reject · `a094d2a89` restore GroupResult
-fan-out in `chain.as_tuple()` · `379a629dc` keep group errbacks mutable · `df57d9ab9` O(K²)
-message bloat in a chain of chords · `7eb644e52` finalize the ResultSet barrier when
-`iter_native` begins · `bf1cf69e2` skip empty groups in chains · `2d560f5c1` `AsyncResult.exists()`
 
 ### Backends
 
