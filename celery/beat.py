@@ -345,6 +345,12 @@ class Scheduler:
 
         event = H[0]
         entry = event[2]
+        now = self._when(entry, 0)
+        if event[0] > now:
+            # The heap already says this one is not ready, so there is nothing
+            # to ask its schedule about.
+            return min(event[0] - now, max_interval)
+
         is_due, next_time_to_run = self.is_due(entry)
         if is_due:
             verify = heappop(H)
@@ -356,10 +362,20 @@ class Scheduler:
             else:
                 heappush(H, verify)
                 return min(verify[0], max_interval)
-        adjusted_next_time_to_run = adjust(next_time_to_run)
-        return min(
-            adjusted_next_time_to_run if is_numeric_value(adjusted_next_time_to_run) else max_interval, max_interval
-        )
+
+        # The heap said ready, the entry says not yet. Move it to the time it
+        # asked for, or it stays on top and everything behind it starves
+        # (upstream f52429cfd, celery#7649).
+        reschedule_delay = next_time_to_run if is_numeric_value(next_time_to_run) else max_interval
+        verify = heappop(H)
+        if verify is not event:
+            # `is_due()` runs arbitrary code and a database-backed scheduler may
+            # have added an entry while it did. Put back what was popped.
+            heappush(H, verify)
+            return min(verify[0], max_interval)
+        heappush(H, event_t(self._when(entry, reschedule_delay), event[1], entry))
+        # Something else is on top now, so go round again without sleeping.
+        return 0 if H and H[0][2] is not entry else min(adjust(reschedule_delay), max_interval)
 
     def schedules_equal(self, old_schedules, new_schedules):
         if old_schedules is new_schedules is None:
@@ -395,10 +411,19 @@ class Scheduler:
         try:
             entry_args = _evaluate_entry_args(entry.args)
             entry_kwargs = _evaluate_entry_kwargs(entry.kwargs)
+
+            # Marks the message as scheduled rather than sent by hand, which a
+            # consumer has no other way to tell (upstream fe9457327). A fresh
+            # headers dict rather than upstream's `setdefault(...)[k] = v`: the
+            # copy above is shallow, so mutating in place would reach through
+            # into the dict the schedule entry is holding.
+            options = entry.options.copy()
+            options["headers"] = {**(entry.options.get("headers") or {}), "celery_beat_task": True}
+
             if task:
-                return task.apply_async(entry_args, entry_kwargs, producer=producer, **entry.options)
+                return task.apply_async(entry_args, entry_kwargs, producer=producer, **options)
             else:
-                return self.send_task(entry.task, entry_args, entry_kwargs, producer=producer, **entry.options)
+                return self.send_task(entry.task, entry_args, entry_kwargs, producer=producer, **options)
         except Exception as exc:
             reraise(
                 SchedulingError,

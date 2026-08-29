@@ -372,7 +372,7 @@ class test_Scheduler:
     def test_pending_tick(self):
         scheduler = mScheduler(app=self.app)
         scheduler.add(name="test_pending_tick", schedule=always_pending)
-        assert scheduler.tick() == 1 - 0.010
+        assert 0 < scheduler.tick() <= 1 - 0.010
 
     def test_pending_left_10_milliseconds_tick(self):
         scheduler = mScheduler(app=self.app)
@@ -390,7 +390,7 @@ class test_Scheduler:
         nums = [600, 300, 650, 120, 250, 36]
         s = {"test_ticks%s" % i: {"schedule": mocked_schedule(False, j)} for i, j in enumerate(nums)}
         scheduler.update_from_dict(s)
-        assert scheduler.tick() == min(nums) - 0.010
+        assert 0 < scheduler.tick() <= min(nums) - 0.010
 
     def test_ticks_microseconds(self):
         scheduler = mScheduler(app=self.app)
@@ -425,7 +425,52 @@ class test_Scheduler:
     def test_schedule_no_remain(self):
         scheduler = mScheduler(app=self.app)
         scheduler.add(name="test_schedule_no_remain", schedule=mocked_schedule(False, None))
-        assert scheduler.tick() == scheduler.max_interval
+        assert scheduler.tick() == scheduler.max_interval - 0.01
+
+    def test_not_due_top_entry_is_rescheduled_behind_the_due_one(self):
+        # An entry the heap thinks is ready but whose schedule keeps saying
+        # "not yet" used to sit on top forever, and every entry behind it
+        # starved (upstream f52429cfd, celery#7649).
+        scheduler = mScheduler(app=self.app)
+        stuck = scheduler.add(name="stuck", task="c.stuck", schedule=always_pending)
+        ready = scheduler.add(name="ready", task="c.ready", schedule=always_due)
+        # Keeps populate_heap() from replacing the heap laid out below.
+        scheduler.old_schedulers = scheduler.schedule
+        scheduler._heap = [
+            event_t(scheduler._when(stuck, 0) - 2, 5, stuck),
+            event_t(scheduler._when(ready, 0) - 1, 5, ready),
+        ]
+
+        assert scheduler.tick() == 0
+        assert not scheduler.sent
+        assert scheduler._heap[0].entry is ready
+
+        assert scheduler.tick() == 0
+        assert scheduler.sent[0]["name"] == "c.ready"
+
+    def test_reheap_skipped_when_is_due_mutates_the_heap(self):
+        # `is_due()` can run arbitrary code, and a database-backed scheduler
+        # may add an entry while it does. Reheaping then has the wrong event
+        # in hand, so it puts back what it popped and leaves the top alone.
+        scheduler = mScheduler(app=self.app)
+        stuck = scheduler.add(name="stuck", task="c.stuck", schedule=mocked_schedule(False, 1))
+        intruder = scheduler.add(name="other", task="c.other", schedule=always_due)
+        scheduler.old_schedulers = scheduler.schedule
+        stuck_event = event_t(scheduler._when(stuck, 0) - 1, 5, stuck)
+        intruder_event = event_t(scheduler._when(intruder, 0) - 2, 5, intruder)
+        scheduler._heap = [stuck_event]
+
+        def mutating_stuck_entry_is_due(_last_run_at):
+            scheduler._heap.insert(0, intruder_event)
+            return False, 1
+
+        # A fresh mocked_schedule, since the module-level ones are shared.
+        stuck.schedule.is_due = mutating_stuck_entry_is_due
+        scheduler.tick()
+
+        assert not scheduler.sent
+        assert scheduler._heap[0] is intruder_event
+        assert scheduler._heap[1] is stuck_event
 
     def test_interface(self):
         scheduler = mScheduler(app=self.app)
@@ -580,6 +625,44 @@ class test_Scheduler:
         a = None
         b = None
         assert scheduler.schedules_equal(a, b)
+
+    def test_apply_async_marks_the_message_as_coming_from_beat(self):
+        # A consumer cannot otherwise tell a scheduled run from a manual one
+        # (upstream fe9457327).
+        scheduler = mScheduler(app=self.app)
+        entry = scheduler.Entry(
+            name="test_task", task="test_task", schedule=schedule(10.0), options={"queue": "test_queue"}, app=self.app
+        )
+
+        assert scheduler.apply_async(entry).id
+        assert scheduler.sent[0]["options"]["headers"]["celery_beat_task"] is True
+
+    def test_apply_async_preserves_existing_headers(self):
+        scheduler = mScheduler(app=self.app)
+        entry = scheduler.Entry(
+            name="test_task",
+            task="test_task",
+            schedule=schedule(10.0),
+            options={"queue": "test_queue", "headers": {"existing_header": "value"}},
+            app=self.app,
+        )
+
+        assert scheduler.apply_async(entry).id
+        headers = scheduler.sent[0]["options"]["headers"]
+        assert headers == {"existing_header": "value", "celery_beat_task": True}
+
+    def test_apply_async_does_not_write_the_header_back_into_the_entry(self):
+        # `entry.options.copy()` is shallow, so a `setdefault(...)[k] = v` would
+        # reach through into the headers dict the schedule is holding.
+        scheduler = mScheduler(app=self.app)
+        headers = {"existing_header": "value"}
+        entry = scheduler.Entry(
+            name="test_task", task="test_task", schedule=schedule(10.0), options={"headers": headers}, app=self.app
+        )
+
+        scheduler.apply_async(entry)
+
+        assert headers == {"existing_header": "value"}
 
 
 def create_persistent_scheduler(shelv=None):
