@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Union
 from kombu.utils.objects import cached_property
 
 from . import current_app
+from .exceptions import ImproperlyConfigured
 from .utils.collections import AttributeDict
 from .utils.time import (
     ffwd,
@@ -64,6 +65,13 @@ Argument longitude {lon} is invalid, must be between -180 and 180.\
 
 SOLAR_INVALID_EVENT = """\
 Argument event "{event}" is invalid, must be one of {all_events}.\
+"""
+
+SOLAR_EPHEM_NOT_INSTALLED = """\
+You need to install the ephem library to use solar schedules.
+Please install by:
+
+    $ pip install celery-asyncio[solar]
 """
 
 
@@ -779,7 +787,7 @@ class solar(BaseSchedule):
         "sunset": "-0:34",
         "dusk_civil": "-6",
         "dusk_nautical": "-12",
-        "dusk_astronomical": "18",
+        "dusk_astronomical": "-18",
     }
     _methods = {
         "dawn_astronomical": "next_rising",
@@ -805,7 +813,10 @@ class solar(BaseSchedule):
     }
 
     def __init__(self, event: str, lat: float, lon: float, **kwargs: Any) -> None:
-        self.ephem = __import__("ephem")
+        try:
+            self.ephem = __import__("ephem")
+        except ImportError as exc:
+            raise ImproperlyConfigured(SOLAR_EPHEM_NOT_INSTALLED) from exc
         self.event = event
         self.lat = lat
         self.lon = lon

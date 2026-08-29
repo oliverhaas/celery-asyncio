@@ -74,8 +74,11 @@ pytest = ["pytest>=8.0.0"]
 # Django
 django = ["Django>=6.0"]
 
+# Scheduling
+solar = ["ephem"]
+
 # Monitoring
-flower = ["flower>=2.0", "tornado>=5,<7", "prometheus-client>=0.8", "humanize", "pytz"]
+flower =["flower>=2.0", "tornado>=5,<7", "prometheus-client>=0.8", "humanize", "pytz"]
 
 # Compression
 brotli = ["brotli>=1.0.0"]

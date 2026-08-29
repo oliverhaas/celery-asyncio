@@ -1,13 +1,15 @@
+import builtins
 import time
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pickle import dumps, loads
 from unittest import TestCase
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from celery.exceptions import ImproperlyConfigured
 from celery.schedules import ParseException, crontab, crontab_parser, schedule, solar
 
 assertions = TestCase("__init__")
@@ -78,6 +80,26 @@ class test_solar:
                 s.remaining_estimate(datetime.now(UTC))
             except TypeError:
                 pytest.fail(f"{s.method} was called with 'use_center' which is not a valid keyword for the function.")
+
+
+def test_dusk_astronomical_sits_below_the_horizon():
+    # A dusk horizon has to be negative. +18 pointed the observer at a sun 18
+    # degrees above the horizon and fired the schedule at the wrong time.
+    assert solar._horizons["dusk_astronomical"] == "-18"
+    assert solar._horizons["dawn_astronomical"] == "-18"
+
+
+def test_solar_without_ephem_says_how_to_install_it():
+    real_import = builtins.__import__
+
+    def no_ephem(name, *args, **kwargs):
+        if name == "ephem":
+            raise ImportError("No module named 'ephem'")
+        return real_import(name, *args, **kwargs)
+
+    with patch.object(builtins, "__import__", no_ephem):
+        with pytest.raises(ImproperlyConfigured, match=r"pip install celery-asyncio\[solar\]"):
+            solar("sunrise", 60, 30)
 
 
 class test_schedule:
