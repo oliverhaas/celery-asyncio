@@ -572,5 +572,46 @@ class TestDeliveryTracking:
             assert await channel.get(queue_name, no_ack=False) is None
 
 
+class TestConsumerCancellation:
+    """Regressions for the upstream kombu fixes ported in UPSTREAM-PLAN.md."""
+
+    async def test_a_message_popped_for_a_cancelled_consumer_goes_back(self, channel):
+        """Upstream kombu 77a5dee8, adapted: a cancel racing an in-flight consume."""
+        queue_name = "test_cancel_races_consume"
+        await channel.queue_purge(queue_name)
+        await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+
+        tag = await channel.basic_consume(queue_name, callback=lambda *args: None)
+        await channel.basic_cancel(tag)
+
+        # The stale queue list the in-flight iteration is still holding.
+        assert await channel._fast_consume([queue_name]) is False
+        assert await channel.client.zcard(channel._queue_key(queue_name)) == 1
+        assert not channel._delivered
+
+        await channel.queue_purge(queue_name)
+
+    async def test_the_sweep_visits_queues_in_declaration_order(self, channel, monkeypatch):
+        """Upstream kombu 9d096dd0, adapted: the sweep used to iterate a set."""
+        queues = [f"test_sweep_order_{i}" for i in range(8)]
+        for i, queue in enumerate(queues):
+            channel._consumers[f"probe-{i}"] = (queue, lambda *args: None, False)
+
+        visited = []
+        index_key = channel._messages_index_key
+        monkeypatch.setattr(
+            channel,
+            "_messages_index_key",
+            lambda queue: (visited.append(queue), index_key(queue))[1],
+        )
+        try:
+            await channel._enqueue_due_messages()
+        finally:
+            for i in range(len(queues)):
+                del channel._consumers[f"probe-{i}"]
+
+        assert visited == queues
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

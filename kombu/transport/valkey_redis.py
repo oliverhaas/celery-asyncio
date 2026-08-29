@@ -914,7 +914,7 @@ class Channel:
         payload = json_loads(payload_json)
         message = self._create_message(queue_name, payload, delivery_tag, delivery_count)
         try:
-            await self._deliver_to_consumer(queue_name, message)
+            delivered = await self._deliver_to_consumer(queue_name, message)
         except BaseException:
             # The Lua script already popped this tag from the queue ZSET.
             # If delivery is cancelled (e.g. close() running out of headroom)
@@ -924,7 +924,9 @@ class Channel:
             self._delivered.pop(delivery_tag, None)
             await self._restore_to_queue(queue_name, delivery_tag)
             raise
-        return True
+        if not delivered:
+            await self._restore_undeliverable(queue_name, delivery_tag)
+        return delivered
 
     async def _restore_to_queue(
         self,
@@ -933,6 +935,37 @@ class Channel:
         score: float | None = None,
     ) -> None:
         """Put a popped tag back on the queue ZSET. Best-effort recovery."""
+        await self._zadd_restore(queue, delivery_tag, score)
+
+    async def _restore_undeliverable(
+        self,
+        queue: str,
+        delivery_tag: str,
+        score: float | None = None,
+    ) -> None:
+        """Put back a message popped for a queue that no longer has a consumer.
+
+        Unlike `_restore_to_queue` this is not a cancellation path, so it is
+        worth a warning: it means a `basic_cancel` raced an in-flight consume.
+        A `no_ack` consumer is the one case that cannot be recovered, because
+        the consume script already deleted the message hash; the tag restored
+        here is then dangling and the next consume drops it.
+        """
+        logger.warning(
+            "No consumer for %s when message %s was delivered; restoring it. "
+            "A basic_cancel raced an in-flight consume.",
+            queue,
+            delivery_tag,
+        )
+        self._delivered.pop(delivery_tag, None)
+        await self._zadd_restore(queue, delivery_tag, score)
+
+    async def _zadd_restore(
+        self,
+        queue: str,
+        delivery_tag: str,
+        score: float | None = None,
+    ) -> None:
         queue_key = self._queue_key(queue)
         if score is None:
             score = _queue_score(DEFAULT_PRIORITY, time())
@@ -1014,12 +1047,14 @@ class Channel:
         delivery_count = int(results[1][1] or 0)
         message = self._create_message(queue, payload, delivery_tag, delivery_count)
         try:
-            await self._deliver_to_consumer(queue, message)
+            delivered = await self._deliver_to_consumer(queue, message)
         except BaseException:
             self._delivered.pop(delivery_tag, None)
             await self._restore_to_queue(queue, delivery_tag, original_score)
             raise
-        return True
+        if not delivered:
+            await self._restore_undeliverable(queue, delivery_tag, original_score)
+        return delivered
 
     def _parse_consume_result(self, result: list) -> tuple[str, str, str, int]:
         """Parse the result from consume_message Lua script.
@@ -1048,8 +1083,10 @@ class Channel:
                 payload = json_loads(fields[0])
                 delivery_count = int(fields[1] or 0)
                 message = self._create_message(queue, payload, delivery_tag, delivery_count)
-                await self._deliver_to_consumer(queue, message)
-                return True
+                if await self._deliver_to_consumer(queue, message):
+                    return True
+                await self._restore_undeliverable(queue, delivery_tag)
+                return False
             # Expired — clean up index entry
             await self.client.zrem(self._messages_index_key(queue), delivery_tag)
 
@@ -1117,8 +1154,14 @@ class Channel:
                 self._fanout_tags.add(delivery_tag)
 
                 message = self._create_message(queue_name, payload, delivery_tag)
-                await self._deliver_to_consumer(queue_name, message)
-                return True
+                if await self._deliver_to_consumer(queue_name, message):
+                    return True
+                # Fanout has nothing to restore to: the stream offset has moved
+                # and there is no per-message key. Drop the tag and report the
+                # read as undelivered.
+                self._fanout_tags.discard(delivery_tag)
+                logger.debug("No consumer for fanout queue %s; dropping delivery", queue_name)
+                return False
 
         return False
 
@@ -1177,8 +1220,16 @@ class Channel:
         self,
         queue: str,
         message: Message,
-    ) -> None:
-        """Find matching consumer and deliver message."""
+    ) -> bool:
+        """Find matching consumer and deliver message.
+
+        Returns False when the queue has no consumer any more. A consume
+        iteration captures its queue list when it starts and then blocks in
+        Redis for up to ``block_timeout``, so a ``basic_cancel`` landing in
+        that window pops a message nobody is listening for. Callers put it
+        back rather than leaving it invisible until the visibility timeout,
+        which would also count a redelivery against ``delivery_limit``.
+        """
         for q, callback, no_ack in self._consumers.values():
             if q == queue:
                 if not no_ack:
@@ -1192,7 +1243,8 @@ class Channel:
                 result = callback(body, message)
                 if asyncio.iscoroutine(result):
                     await result
-                return
+                return True
+        return False
 
     # ---- ack / reject / recover -------------------------------------------
 
@@ -1364,7 +1416,11 @@ class Channel:
 
         Returns (total_enqueued, total_dropped).
         """
-        active_queues = list({q for q, _, _ in self._consumers.values() if q not in self.active_fanout_queues})
+        # Same predicate the consume path uses, and deliberately the same
+        # order-preserving dedupe: a set here made the sweep visit queues in
+        # hash order, so which backlog got restored first under the batch limit
+        # differed between two workers with identical configuration.
+        active_queues = self._regular_queues()
         if not active_queues:
             return 0, 0
 
@@ -1523,9 +1579,12 @@ class Channel:
                 except (asyncio.CancelledError, Exception):  # fmt: skip
                     pass
 
-        # Requeue unacked messages
+        # Requeue unacked messages. The snapshot is iterated across awaits and
+        # basic_ack runs on the same loop, so a tag can be acked mid-drain;
+        # skipping it then keeps the intent explicit rather than relying on the
+        # requeue script's missing-hash guard to no-op.
         for delivery_tag, (queue, _) in list(self._delivered.items()):
-            if delivery_tag not in self._fanout_tags:
+            if delivery_tag not in self._fanout_tags and delivery_tag in self._delivered:
                 try:
                     await self._requeue_by_tag(delivery_tag, leftmost=True)
                 except Exception:
