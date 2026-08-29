@@ -150,7 +150,8 @@ class Sentinel(conftest.MockCallbacks):
         self.min_other_sentinels = min_other_sentinels
         self.connection_kwargs = connection_kwargs
 
-    def master_for(self, service_name, redis_class):
+    def master_for(self, service_name, redis_class, **kwargs):
+        self.master_for_kwargs = kwargs
         return random.choice(self.sentinels)
 
 
@@ -660,6 +661,43 @@ class test_RedisBackend(basetest_RedisBackend):
                 uri,
                 app=self.app,
             )
+
+    def test_backend_ssl_with_redis_scheme(self):
+        # SSL configured through `redis_backend_use_ssl` is honoured even
+        # against a `redis://` URL -- that is how `broker_use_ssl` behaves, and
+        # the two settings are documented as taking the same dict. Only ssl
+        # params in the *query string* are a scheme mismatch (upstream
+        # be0e2de23).
+        pytest.importorskip("redis")
+
+        self.app.conf.redis_backend_use_ssl = {
+            "ssl_cert_reqs": ssl.CERT_REQUIRED,
+            "ssl_ca_certs": "/path/to/ca.crt",
+            "ssl_certfile": "/path/to/client.crt",
+            "ssl_keyfile": "/path/to/client.key",
+        }
+        x = self.Backend("redis://:bosco@vandelay.com:123//1", app=self.app)
+
+        assert x.connparams["host"] == "vandelay.com"
+        assert x.connparams["db"] == 1
+        assert x.connparams["port"] == 123
+        assert x.connparams["password"] == "bosco"
+        assert x.connparams["ssl_cert_reqs"] == ssl.CERT_REQUIRED
+        assert x.connparams["ssl_ca_certs"] == "/path/to/ca.crt"
+        assert x.connparams["ssl_certfile"] == "/path/to/client.crt"
+        assert x.connparams["ssl_keyfile"] == "/path/to/client.key"
+
+        from redis.connection import SSLConnection
+
+        assert x.connparams["connection_class"] is SSLConnection
+
+    def test_backend_ssl_url_redis_scheme_invalid(self):
+        # The other half of the same rule: ssl params spelled out in the query
+        # string of a non-ssl scheme still contradict it.
+        pytest.importorskip("redis")
+
+        with pytest.raises(ValueError):
+            self.Backend("redis://:bosco@vandelay.com:123//1?ssl_cert_reqs=required", app=self.app)
 
     def test_conf_raises_KeyError(self):
         self.app.conf = AttributeDict(
@@ -1381,6 +1419,44 @@ class test_SentinelBackend:
         )
         pool = x._get_pool(**x.connparams)
         assert pool
+
+    def test_url_with_acl_credentials(self):
+        # An ACL-protected setup authenticates with a username as well, and it
+        # has to reach connparams alongside the password (upstream 9f0a61c61).
+        x = self.Backend(
+            "sentinel://myuser:mypass@github.com:123/1;sentinel://myuser:mypass@github.com:124/1",
+            app=self.app,
+        )
+        assert x.connparams["username"] == "myuser"
+        assert x.connparams["password"] == "mypass"
+        assert [cp["username"] for cp in x.connparams["hosts"]] == ["myuser", "myuser"]
+
+    @pytest.mark.parametrize(
+        "url,expected",
+        [
+            ("sentinel://myuser:mypass@github.com:123/1", {"username": "myuser", "password": "mypass"}),
+            ("sentinel://:mypass@github.com:123/1", {"password": "mypass"}),
+            # `redis_password` defaults to None and reaches the per-host params
+            # through `defaults`, so the key is always there -- an explicit
+            # password=None is what redis-py defaults to anyway.
+            ("sentinel://github.com:123/1", {"password": None}),
+        ],
+        ids=["acl", "password-only", "anonymous"],
+    )
+    def test_get_pool_passes_credentials_to_the_master(self, url, expected):
+        # `master_for()` opens a *new* connection to the master, so the
+        # credentials the sentinel itself was given do not carry over -- they
+        # have to be handed over explicitly (upstream 9f0a61c61).
+        x = self.Backend(url, app=self.app)
+        x._get_sentinel_instance = Mock(name="_get_sentinel_instance")
+
+        x._get_pool(**x.connparams)
+
+        assert x._get_sentinel_instance.return_value.master_for.call_args.kwargs == {
+            "service_name": None,
+            "redis_class": x._get_client(),
+            **expected,
+        }
 
     def test_backend_ssl(self):
         pytest.importorskip("redis")

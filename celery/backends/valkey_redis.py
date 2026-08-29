@@ -358,8 +358,11 @@ return false
         ssl_param_keys = ["ssl_ca_certs", "ssl_certfile", "ssl_keyfile", "ssl_cert_reqs"]
 
         if scheme in ("redis", "valkey"):
-            # If connparams or query string contain ssl params, raise error
-            if any(key in connparams for key in ssl_param_keys) or any(key in query for key in ssl_param_keys):
+            # Only the query string is checked. SSL params that came from
+            # `redis_backend_use_ssl` are already in connparams by this point
+            # and are meant to be honoured, which is how `broker_use_ssl`
+            # behaves against a redis:// URL (upstream be0e2de23).
+            if any(key in query for key in ssl_param_keys):
                 raise ValueError(E_REDIS_SSL_PARAMS_AND_SCHEME_MISMATCH)
 
         if scheme in ("rediss", "valkeys"):
@@ -1043,8 +1046,10 @@ class SentinelBackend(RedisBackend):
         for param in ("host", "port", "db", "password"):
             connparams.pop(param)
 
-        # Adding db/password in connparams to connect to the correct instance
-        for param in ("db", "password"):
+        # Adding db/password/username in connparams to connect to the correct
+        # instance. Without the username an ACL-protected master rejects the
+        # connection (upstream 9f0a61c61).
+        for param in ("db", "password", "username"):
             if connparams["hosts"] and param in connparams["hosts"][0]:
                 connparams[param] = connparams["hosts"][0].get(param)
         return connparams
@@ -1070,7 +1075,12 @@ class SentinelBackend(RedisBackend):
 
         master_name = self._transport_options.get("master_name", None)
 
+        # The sentinel's own credentials do not carry over to the master, so
+        # they have to be handed to master_for() as well (upstream 9f0a61c61).
+        credentials = {k: params[k] for k in ("username", "password") if k in params}
+
         return sentinel_instance.master_for(
             service_name=master_name,
             redis_class=self._get_client(),
+            **credentials,
         ).connection_pool
