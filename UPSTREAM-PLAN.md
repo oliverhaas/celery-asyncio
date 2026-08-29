@@ -70,6 +70,9 @@ Then drop anything touching only the subsystems listed above.
 | `63c191022` Do not fail a task on timeout during cold shutdown | `36e095705` | Adapted. `on_cold_shutdown` sets `state.should_terminate` itself, since the signal handler only sets it after the callback returns. Upstream's `task_consumer.cancel()` is skipped: it is a coroutine here and the handler is sync. |
 | `713576800` Run the failure callbacks on a hard timeout, not just `mark_as_failure` | `36e095705` | Verbatim. Lands on the same `on_timeout` branch as `63c191022`. |
 | `40c234919` Split `acks_on_failure` and `acks_on_timeout` | `14c1371fb` | Verbatim, minus the docs half: this fork has no `configuration.rst`. |
+| `e2b276e60` Mark a rejected task failed when it is not requeued | `5cd912678` | Verbatim. |
+| `b8f85213f` Let a request's `ignore_result` beat the task definition | `8e61fa099` | Adapted: applied to `build_async_tracer` and `ahandle_error_state` as well, which upstream does not have. |
+| `1fe2a08d0` Expose `time_limit` and `soft_time_limit` on `task.request` | `fc3cfc464` | Adapted: `Context.update()` detects a written `timelimit` by comparing the stored object's identity, since every input form `dict.update` accepts replaces it. |
 
 ### Found along the way
 
@@ -87,6 +90,11 @@ because its publish is synchronous. Here `producer.publish()` is a coroutine and
 not read until the scheduled task runs, so the clear won every time and the broker received `[]`.
 Fixed in `1f32bb270`. The existing `test_send_buffer_group` asserted `_publish` was called with
 `[]`, so the bug was written down as an expectation.
+
+**The async tracer has no tests at all.** `grep -rl 'build_async_tracer\|atrace_task\|ahandle_error_state' tests/`
+returns nothing. Every `trace.py` port therefore has to be applied twice, by hand, with only the
+sync half verifiable by the suite. Both halves of `b8f85213f` were written that way. This is the
+fork's largest coverage gap and worth closing before the next `trace.py` sweep.
 
 ## Not applicable
 
@@ -154,11 +162,10 @@ when no loop is running
 
 ### Request, task and trace
 
-`e2b276e60` mark a rejected task failed when it is not requeued · `1fe2a08d0` expose `time_limit` and
-`soft_time_limit` on `task.request` · `b8f85213f` let a request's `ignore_result` beat the task
-definition · `865922abd` dispatch the
-chain and callbacks on the dedup fast path (the fork uses `build_async_tracer`, so this needs
-looking at before it is believed) · `3f2cf57d3` a clear error when the worker registry is empty
+`865922abd` dispatch the chain and callbacks on the dedup fast path (the fork uses
+`build_async_tracer`, so this needs looking at before it is believed) · `3f2cf57d3` a clear error
+when the worker registry is empty (likely not applicable: upstream's message is about the spawn
+prefork pool on Windows, which this fork does not have)
 
 ### Canvas and results
 
