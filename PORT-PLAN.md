@@ -30,13 +30,13 @@ Correctness fixes that change no public API go first. Item 5 depends on 3; item 
 | 7 | yes | Direct exchange with no bindings loses the message | silent drop | raises to publishers |
 
 Features, deferred until the seven land: 8 to 12. Item 8 turned out to be mostly present
-already; what is left of it, plus 10, are the open items.
+already, and the rest of it is the only thing still open.
 
 | # | Done | Feature |
 |---|---|---|
 | 8 | partly | `queue_expires`: per-queue TTL is in, fanout streams and binding keys are not |
 | 9 | yes | Sweep reporting |
-| 10 | no | Fanout binding cleanup |
+| 10 | yes | Fanout binding cleanup |
 | 11 | n/a | Closed after investigation, nothing to port |
 | 12 | n/a | Closed after investigation, nothing to port |
 
@@ -210,9 +210,14 @@ costing the remaining queues their sweep.
 
 ### 10. Fanout binding cleanup
 
-Fanout bindings are already kept out of the binding table here (valkey_redis.py:437). Missing is
-the cleanup celery-redis-plus does on first declare, which deletes binding keys left by older
-versions.
+**Ported.** The premise above was wrong when it was written: `queue_bind` wrote fanout bindings
+into the table like any other type. Nothing read them. Fanout delivery is one XADD to the
+exchange's stream, and no code path loads the table for a fanout exchange. Meanwhile every worker
+binds a fresh `amq.gen-*` pidbox and event queue to `reply.celery.pidbox` and `celeryev`, so the
+table gained one permanently dead member per worker that had ever started, with nothing to prune
+it. `queue_bind` now registers the fanout queue in memory and deletes the table, which also
+clears what older versions accumulated; `queue_unbind` returns without a `SREM` for the same
+reason.
 
 ### 11. The queue a message was consumed from (closed, no port needed)
 

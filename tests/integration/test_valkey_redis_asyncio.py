@@ -345,6 +345,24 @@ class TestExchangeTypes:
         assert _topic_match("user.created", "order.*") is False
         assert _topic_match("user.profile.updated", "user.*") is False
 
+    async def test_a_fanout_bind_leaves_no_binding_table(self, channel):
+        """PORT-PLAN feature 10.
+
+        Fanout delivery is one XADD to the stream and never reads the table,
+        while every worker binds a fresh amq.gen-* pidbox queue to celeryev.
+        A table nothing reads and nothing prunes grows for the cluster's life.
+        """
+        exchange_name = "test_fanout_no_binding_table"
+        await channel.declare_exchange(Exchange(exchange_name, type="fanout"))
+        binding_key = channel._binding_key(exchange_name)
+        # What an older version of the transport left behind.
+        await channel.client.sadd(binding_key, "amq.gen-from-a-worker-that-is-gone")
+
+        await channel.queue_bind(queue="amq.gen-current", exchange=exchange_name)
+
+        assert await channel.client.exists(binding_key) == 0
+        assert "amq.gen-current" in channel._fanout_queues
+
 
 JSON_MESSAGE = (
     b'{"body": {"v": "x"}, "content-type": "application/json", '

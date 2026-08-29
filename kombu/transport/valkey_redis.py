@@ -497,6 +497,13 @@ class Channel:
         exchange_meta = self._exchanges.get(exchange, {})
         if exchange_meta.get("type") == "fanout":
             self._fanout_queues[queue] = (exchange, routing_key.replace("#", "*"))
+            # Delivery to a fanout exchange is one XADD to its stream and never
+            # consults the table, while every worker binds its own amq.gen-*
+            # pidbox and event queues to celeryev and reply.celery.pidbox. So
+            # the table only ever grows, one dead member per worker that has
+            # ever run. Drop what earlier versions accumulated.
+            await self.client.delete(self._binding_key(exchange))
+            return
 
         # Store in Redis with sep-delimited format
         binding_data = BINDING_SEP.join([routing_key or "", routing_key or "", queue])
@@ -513,6 +520,12 @@ class Channel:
             binding = (queue, routing_key or queue)
             if binding in self._bindings[exchange]:
                 self._bindings[exchange].remove(binding)
+
+        if self._exchanges.get(exchange, {}).get("type") == "fanout":
+            # Nothing was written for it, so there is nothing to remove.
+            self._fanout_queues.pop(queue, None)
+            self.active_fanout_queues.discard(queue)
+            return
 
         binding_data = BINDING_SEP.join([routing_key or "", routing_key or "", queue])
         await self.client.srem(self._binding_key(exchange), binding_data)
