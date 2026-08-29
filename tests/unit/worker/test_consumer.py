@@ -386,7 +386,7 @@ class test_Consumer(ConsumerTestCase):
         errback(Mock(), 0)
         assert getattr(c, "broker_connection_retry_attempt", 0) == 3
 
-    def test_cancel_long_running_tasks_on_connection_loss(self):
+    async def test_cancel_long_running_tasks_on_connection_loss(self):
         c = self.get_consumer()
         c.app.conf.worker_cancel_long_running_tasks_on_connection_loss = True
 
@@ -404,7 +404,7 @@ class test_Consumer(ConsumerTestCase):
         active_requests.add(mock_request_acks_late_acknowledged)
         active_requests.add(mock_request_acks_early)
 
-        c.on_connection_error_after_connected(Mock())
+        await c.on_connection_error_after_connected(Mock())
 
         mock_request_acks_late_not_acknowledged.cancel.assert_called_once_with(c.pool)
         mock_request_acks_late_acknowledged.cancel.assert_not_called()
@@ -412,7 +412,7 @@ class test_Consumer(ConsumerTestCase):
 
         active_requests.clear()
 
-    def test_cancel_long_running_tasks_on_connection_loss__cancel_raises(self):
+    async def test_cancel_long_running_tasks_on_connection_loss__cancel_raises(self):
         # cancel() announces itself through the result backend, which on a
         # broker outage is often unreachable too. One failure must not skip
         # the requests behind it.
@@ -427,18 +427,43 @@ class test_Consumer(ConsumerTestCase):
         first.cancel.side_effect = OSError("backend unreachable")
 
         try:
-            c.on_connection_error_after_connected(Mock())
+            await c.on_connection_error_after_connected(Mock())
             first.cancel.assert_called_once_with(c.pool)
             second.cancel.assert_called_once_with(c.pool)
         finally:
             active_requests.clear()
 
-    def test_cancel_long_running_tasks_on_connection_loss__warning(self):
+    async def test_cancel_long_running_tasks_on_connection_loss__warning(self):
         c = self.get_consumer()
         c.app.conf.worker_cancel_long_running_tasks_on_connection_loss = False
 
         with pytest.deprecated_call(match=CANCEL_TASKS_BY_DEFAULT):
-            c.on_connection_error_after_connected(Mock())
+            await c.on_connection_error_after_connected(Mock())
+
+    async def test_connection_error_after_connected_closes_the_broken_connection(self):
+        # The Connection bootstep has no stop(), so blueprint.restart() leaves
+        # the dead socket in place and start() just overwrites the attribute,
+        # leaking it (upstream feb789acc).
+        c = self.get_consumer()
+        c.app.conf.worker_cancel_long_running_tasks_on_connection_loss = True
+        connection = c.connection = AsyncMock()
+
+        await c.on_connection_error_after_connected(Mock())
+
+        connection.close.assert_awaited_once_with()
+        assert c.connection is None
+
+    async def test_connection_error_after_connected_survives_a_failing_close(self):
+        # The connection is already broken, so close() failing is expected and
+        # must not stop the reconnect.
+        c = self.get_consumer()
+        c.app.conf.worker_cancel_long_running_tasks_on_connection_loss = True
+        connection = c.connection = AsyncMock()
+        connection.close.side_effect = OSError("broken pipe")
+
+        await c.on_connection_error_after_connected(Mock())
+
+        assert c.connection is None
 
     @pytest.mark.usefixtures("depends_on_current_app")
     def test_cancel_active_requests(self):

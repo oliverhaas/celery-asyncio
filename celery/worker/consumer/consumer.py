@@ -370,7 +370,7 @@ class Consumer:
                 maybe_shutdown()
                 if blueprint.state not in STOP_CONDITIONS:
                     if self.connection:
-                        self.on_connection_error_after_connected(exc)
+                        await self.on_connection_error_after_connected(exc)
                     else:
                         self.on_connection_error_before_connected(exc)
                     self.on_close()
@@ -386,7 +386,7 @@ class Consumer:
     def on_connection_error_before_connected(self, exc):
         error(CONNECTION_ERROR, self.conninfo.as_uri(), exc, "Trying to reconnect...")
 
-    def on_connection_error_after_connected(self, exc):
+    async def on_connection_error_after_connected(self, exc):
         warn(CONNECTION_RETRY, exc_info=True)
 
         if self.app.conf.worker_cancel_long_running_tasks_on_connection_loss:
@@ -422,6 +422,21 @@ class Consumer:
                     f"The prefetch count will be gradually restored to {self.max_prefetch_count} as the tasks "
                     "complete processing."
                 )
+
+        # Release the broken socket before blueprint.restart() opens a new
+        # one. The Connection bootstep has no stop(), so restart() leaves the
+        # dead connection in place and start() simply overwrites the attribute
+        # (upstream feb789acc). Closing it in the bootstep's stop() instead
+        # would be wrong: stop() also runs on a graceful shutdown, where the
+        # connection has to stay up for in-flight tasks to ack.
+        connection, self.connection = self.connection, None
+        if connection is not None:
+            try:
+                await connection.close()
+            except Exception:
+                # The connection is already broken; how it fails to close is
+                # not interesting, and must not stop the reconnect.
+                warn("Failed to close the broken broker connection", exc_info=True)
 
     async def shutdown(self):
         self.perform_pending_operations()
