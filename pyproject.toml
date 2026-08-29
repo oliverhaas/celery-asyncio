@@ -93,9 +93,9 @@ dev = [
   "pytest-xdist==3.8.0",
   "pytest-flakefinder==1.1.0",
   "redis==8.1.0",
-  "ruff==0.16.3",
+  "ruff==0.16.4",
   "valkey==6.1.1",
-  "ty==0.0.73",
+  "ty==0.0.74",
 ]
 docs = [
     "mkdocs==1.6.1",
