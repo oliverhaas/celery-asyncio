@@ -25,7 +25,7 @@ Correctness fixes that change no public API go first. Item 5 depends on 3; item 
 | 2 | yes | Delivery with no visibility deadline | silent message loss | none |
 | 3 | yes | Backlog counted as a redelivery | wrong counter, feeds 5 and 6 | none |
 | 4 | yes | `no_ack` deliveries stay in the index | spurious redelivery of pidbox/reply | ARGV arity |
-| 5 | no | `redelivered` written but never read | celery never sees redeliveries | hash field, headers |
+| 5 | yes | `redelivered` written but never read | celery never sees redeliveries | hash field, headers |
 | 6 | no | RabbitMQ naming and `delivery_limit` semantics | reject loops never stop | option, header, default |
 | 7 | no | Direct exchange with no bindings loses the message | silent drop | raises to publishers |
 

@@ -649,7 +649,6 @@ class Channel:
                     "payload": json_dumps(payload),
                     "routing_key": queue,
                     "priority": priority,
-                    "redelivered": 0,
                     "native_delayed": 1 if is_native_delayed else 0,
                     "eta": eta_timestamp or 0,
                     "restore_count": 0,
@@ -900,13 +899,7 @@ class Channel:
 
         queue_name, delivery_tag, payload_json, restore_count = self._parse_consume_result(result)
         payload = json_loads(payload_json)
-
-        # Inject x-restore-count header if message was restored
-        if restore_count > 0:
-            headers = payload.setdefault("headers", {})
-            headers["x-restore-count"] = restore_count
-
-        message = self._create_message(queue_name, payload, delivery_tag)
+        message = self._create_message(queue_name, payload, delivery_tag, restore_count)
         try:
             await self._deliver_to_consumer(queue_name, message)
         except BaseException:
@@ -1006,11 +999,7 @@ class Channel:
 
         payload = json_loads(payload_json)
         restore_count = int(results[1][1] or 0)
-        if restore_count > 0:
-            headers = payload.setdefault("headers", {})
-            headers["x-restore-count"] = restore_count
-
-        message = self._create_message(queue, payload, delivery_tag)
+        message = self._create_message(queue, payload, delivery_tag, restore_count)
         try:
             await self._deliver_to_consumer(queue, message)
         except BaseException:
@@ -1045,10 +1034,7 @@ class Channel:
             if fields[0]:
                 payload = json_loads(fields[0])
                 restore_count = int(fields[1] or 0)
-                if restore_count > 0:
-                    headers = payload.setdefault("headers", {})
-                    headers["x-restore-count"] = restore_count
-                message = self._create_message(queue, payload, delivery_tag)
+                message = self._create_message(queue, payload, delivery_tag, restore_count)
                 await self._deliver_to_consumer(queue, message)
                 return True
             # Expired — clean up index entry
@@ -1130,8 +1116,16 @@ class Channel:
         queue: str,
         payload: dict,
         delivery_tag: str,
+        restore_count: int = 0,
     ) -> Message:
-        """Create a Message from decoded payload dict."""
+        """Create a Message from decoded payload dict.
+
+        The AMQP redelivery flags are derived from ``restore_count`` rather than
+        a stored field of their own, so every path that can redeliver moves one
+        counter. ``delivery_info['redelivered']`` is where kombu's own redis
+        transport puts the flag and the only place celery looks for it when
+        applying ``worker_deduplicate_successful_tasks``.
+        """
         body = payload.get("body", "")
         content_type = payload.get("content-type", "application/json")
         content_encoding = payload.get("content-encoding", "utf-8")
@@ -1148,12 +1142,19 @@ class Channel:
         elif isinstance(body, (dict, list)):
             body = json_dumps(body).encode("utf-8")
 
+        if restore_count > 0:
+            headers["x-restore-count"] = restore_count
+
         return Message(
             body=body,
             delivery_tag=delivery_tag,
             content_type=content_type,
             content_encoding=content_encoding,
-            delivery_info={"exchange": "", "routing_key": queue},
+            delivery_info={
+                "exchange": "",
+                "routing_key": queue,
+                "redelivered": restore_count > 0,
+            },
             properties=properties,
             headers=headers,
             channel=self,
@@ -1439,11 +1440,7 @@ class Channel:
 
         queue_name, delivery_tag, payload_json, restore_count = self._parse_consume_result(result)
         payload = json_loads(payload_json)
-        if restore_count > 0:
-            headers = payload.setdefault("headers", {})
-            headers["x-restore-count"] = restore_count
-
-        message = self._create_message(queue_name, payload, delivery_tag)
+        message = self._create_message(queue_name, payload, delivery_tag, restore_count)
         if not no_ack:
             self._delivered[delivery_tag] = (queue_name, message)
         return message

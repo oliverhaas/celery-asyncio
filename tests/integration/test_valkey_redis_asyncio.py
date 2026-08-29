@@ -445,6 +445,60 @@ class TestDeliveryTracking:
 
         await channel.queue_purge(queue_name)
 
+    async def test_a_first_delivery_is_not_flagged_as_redelivered(self, channel):
+        """PORT-PLAN fix 5."""
+        queue_name = "test_first_delivery_not_redelivered"
+        await channel.queue_purge(queue_name)
+        await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+
+        msg = await channel.get(queue_name, no_ack=False)
+        assert msg.delivery_info["redelivered"] is False
+        assert "x-restore-count" not in msg.headers
+
+        await msg.ack()
+        await channel.queue_purge(queue_name)
+
+    async def test_a_restored_message_is_flagged_as_redelivered(self, channel):
+        """PORT-PLAN fix 5.
+
+        celery gates ``worker_deduplicate_successful_tasks`` on
+        ``delivery_info['redelivered']``, so the counter has to surface there.
+        """
+        queue_name = "test_restore_sets_redelivered"
+        await channel.queue_purge(queue_name)
+        await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+
+        first = await channel.get(queue_name, no_ack=False)
+        await expire_visibility(channel, queue_name, first.delivery_tag)
+        await run_sweep(channel, queue_name)
+
+        second = await channel.get(queue_name, no_ack=False)
+        assert second.delivery_info["redelivered"] is True
+        assert second.headers["x-restore-count"] == 1
+
+        await second.ack()
+        await channel.queue_purge(queue_name)
+
+    async def test_rejecting_with_requeue_counts_as_a_redelivery(self, channel):
+        """PORT-PLAN fix 5.
+
+        A reject-with-requeue is a redelivery in AMQP, the same as a visibility
+        timeout restore, so it moves the same counter.
+        """
+        queue_name = "test_requeue_counts"
+        await channel.queue_purge(queue_name)
+        await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+
+        first = await channel.get(queue_name, no_ack=False)
+        await first.reject(requeue=True)
+
+        second = await channel.get(queue_name, no_ack=False)
+        assert second.delivery_info["redelivered"] is True
+        assert second.headers["x-restore-count"] == 1
+
+        await second.ack()
+        await channel.queue_purge(queue_name)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

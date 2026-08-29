@@ -1,5 +1,5 @@
 -- Lua script for requeuing a single rejected message to its queue.
--- Sets redelivered=1 and adds to queue with appropriate score.
+-- Counts the redelivery and adds to queue with appropriate score.
 -- Uses routing_key from the hash as the queue name.
 -- KEYS: [1] = message_key
 -- ARGV: [1] = leftmost (1 or 0), [2] = priority_multiplier, [3] = message_ttl,
@@ -25,12 +25,6 @@ if not priority or not routing_key then
     return 0
 end
 
--- Mark as redelivered
-redis.call('HSET', message_key, 'redelivered', '1')
-if message_ttl >= 0 then
-    redis.call('EXPIRE', message_key, message_ttl)
-end
-
 -- Get current time
 local now_result = redis.call('TIME')
 local now_sec = tonumber(now_result[1])
@@ -45,13 +39,26 @@ else
     score = (255 - priority) * priority_multiplier + now_ms
 end
 
--- Add to queue (routing_key with global prefix and queue: prefix)
--- NX: only add if not already in queue. If enqueue_due_messages already
--- re-enqueued after VT expiry, leave the existing entry undisturbed.
+-- Add to queue (routing_key with global prefix and queue: prefix).
+-- NX reports whether the tag was actually absent, exactly as in the sweep:
+-- when enqueue_due_messages already re-enqueued after VT expiry, the existing
+-- entry stays undisturbed and the sweep already counted that redelivery, so
+-- counting it again here would inflate restore_count.
 local queue_key = global_keyprefix .. queue_key_prefix .. routing_key
 -- Extract delivery tag by stripping the known prefix (global_keyprefix + message_key_prefix)
 local tag = string.sub(message_key, #global_keyprefix + #message_key_prefix + 1)
-redis.call('ZADD', queue_key, 'NX', score, tag)
+local restored = redis.call('ZADD', queue_key, 'NX', score, tag) == 1
+
+if restored then
+    -- Reject-with-requeue is a redelivery just like a visibility timeout
+    -- restore, and this is the counter the AMQP redelivered flag is derived
+    -- from at consume time.
+    redis.call('HINCRBY', message_key, 'restore_count', 1)
+end
+
+if message_ttl >= 0 then
+    redis.call('EXPIRE', message_key, message_ttl)
+end
 
 -- Update messages_index with new queue_at (now + visibility_timeout)
 local index_key = global_keyprefix .. messages_index_prefix .. routing_key
