@@ -11,8 +11,8 @@ nothing gets re-triaged from scratch. The kombu half of the same exercise lives 
 **Status: the sweep is done.** Every commit that applies here has been ported and each one is
 pinned by a test that fails without it. One verdict is still unwritten (`cb08d5042`, under "Still
 open"), and the ports turned up ten fork-only defects and gaps along the way, listed under "Found
-along the way". The last of those, one broker connection per published task, is the biggest thing
-this exercise found and is not fixed yet.
+along the way", all of them fixed. The last of those, one broker connection per published task, is
+the biggest thing this exercise found.
 
 ## How to read a verdict
 
@@ -192,14 +192,17 @@ scheduler owns a connection, this one owns nothing, so a port that reaches for `
 has to be rethought rather than translated.
 
 **One broker connection per published task, never closed.** Instrumenting `kombu.Connection` over
-five `.delay()` calls gives `{'init': 7, 'connect': 5, 'close': 0}`, and the `.adelay()` path is
-identical. `app._asend_task_message` calls `self.connection_for_write()` when it is passed no
-connection, instead of the shared `app.async_connection` that `_prepare_task_message` already uses
-and that `ensure_async_connection()` exists to hand out. Not fixed yet, and not an upstream port:
-`asgiref.async_to_sync` builds a fresh event loop per call from a purely-sync caller and asyncio
-transports are loop-bound, so the shared connection has to be keyed by loop rather than by app.
-This is the largest single finding of the sweep, and it should land before any benchmark against
-upstream celery, since connection setup would otherwise dominate what the numbers measure.
+five `.delay()` calls gave `{'init': 7, 'connect': 5, 'close': 0}`, and the `.adelay()` path was
+identical. `app._asend_task_message` called `self.connection_for_write()` when passed no connection,
+instead of the shared `app.async_connection` that `_prepare_task_message` already used. Sharing the
+object alone would not have helped, though: `asgiref.async_to_sync` builds a fresh event loop per
+call from a purely-sync caller, and an asyncio transport belongs to the loop that opened it, so the
+loop owning the socket was gone before the next send began. Fixed in `0372d0f57` with a process-wide
+`LoopRunner` (`celery/utils/eventloop.py`) that keeps one loop alive for sync sends, plus a
+per-loop connection cache on the app. Five sends now give `{'init': 2, 'connect': 1}`, flat at one
+for 1, 5 and 50. This is the largest single finding of the sweep, and it had to land before any
+benchmark against upstream celery, since connection setup would otherwise have dominated what the
+numbers measure.
 
 ## Not applicable
 
