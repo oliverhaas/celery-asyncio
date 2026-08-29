@@ -405,6 +405,30 @@ class TestDeliveryTracking:
         await msg.ack()
         await channel.queue_purge(queue_name)
 
+    async def test_a_backlogged_message_is_not_counted_as_redelivered(self, channel):
+        """PORT-PLAN fix 3."""
+        queue_name = "test_backlog_not_redelivered"
+        await channel.queue_purge(queue_name)
+        await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+
+        index_key = channel._messages_index_key(queue_name)
+        [tag_raw] = await channel.client.zrange(index_key, 0, -1)
+        tag = tag_raw.decode() if isinstance(tag_raw, bytes) else tag_raw
+
+        # Nobody consumed it. It is still in the queue, waiting behind a
+        # backlog, and its deadline passes. That is not a redelivery.
+        await expire_visibility(channel, queue_name, tag)
+        enqueued, _dropped = await run_sweep(channel, queue_name)
+
+        assert enqueued == 0
+        counter = await channel.client.hget(channel._message_key(tag), "restore_count")
+        assert int(counter or 0) == 0
+
+        # The deadline still moves forward, or every cycle re-checks the tag.
+        assert await channel.client.zscore(index_key, tag) > 0
+
+        await channel.queue_purge(queue_name)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
