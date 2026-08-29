@@ -1399,6 +1399,20 @@ class _chain(Signature):
                 # when groups are nested, they are unrolled - all tasks within
                 # groups should be called in parallel
                 task = maybe_unroll_group(task)
+                # An empty group in the middle of a chain has nothing to run
+                # and no result to pass on, so it would otherwise be upgraded
+                # to a chord whose header never completes and stall everything
+                # behind it. Skipped only when it is not the sole step:
+                # `chain(group())` still has to produce a result. A generator-
+                # backed group is left alone, since asking whether it is empty
+                # would consume it (upstream bf1cf69e2).
+                if (
+                    isinstance(task, group)
+                    and isinstance(task.tasks, (list, tuple))
+                    and not task.tasks
+                    and (steps or prev_task)
+                ):
+                    continue
 
             # first task gets partial args from chain
             if clone:
@@ -1440,12 +1454,14 @@ class _chain(Signature):
                         root_id=root_id,
                         app=app,
                     )
-                if tasks:
-                    prev_task = tasks[-1]
-                    prev_res = results[-1]
-                else:
-                    prev_task = None
-                    prev_res = None
+                # prev_task has to be reset after the pop above, so that a
+                # chord is not linked to its own body under use_link /
+                # task_protocol 1. prev_res must NOT be: it is deliberately a
+                # GroupResult when the previous step was a group, and
+                # overwriting it collapses the fan-out that as_tuple() then
+                # serializes, so a chain of consecutive groups round-trips as a
+                # single result (upstream a094d2a89, issue #8903).
+                prev_task = tasks[-1] if tasks else None
 
             if is_last_task:
                 # chain(task_id=id) means task id is set for the last task
@@ -1843,6 +1859,18 @@ class group(Signature):
         return self.apply_async(partial_args, **options)
 
     def __or__(self, other):
+        # An empty group as the body would give a chord nothing to call once
+        # the header finishes, so the header's results would never be
+        # collected. There is nothing to chord to, so this group is the whole
+        # expression. Generator-backed groups are left alone: checking whether
+        # one is empty consumes it (upstream bf1cf69e2).
+        if (
+            isinstance(other, group)
+            and not isinstance(other.tasks, _regen)
+            and isinstance(other.tasks, (list, tuple))
+            and not other.tasks
+        ):
+            return self
         # group() | task -> chord
         return chord(self, body=other, app=self._app)
 
@@ -2498,7 +2526,11 @@ class _chord(Signature):
         # secondly freeze all tasks in the body: those that should be called after the header
 
         body_result = None
-        if self.body:
+        # `is not None`, not truthiness: an empty group is a falsy body that is
+        # still present, and skipping it here returns None where callers
+        # traversing chord body results expect the body's GroupResult
+        # (upstream bf1cf69e2).
+        if self.body is not None:
             body_result = self.body.freeze(
                 _id, root_id=root_id, chord=chord, group_id=group_id, group_index=group_index
             )
