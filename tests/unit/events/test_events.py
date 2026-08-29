@@ -118,11 +118,15 @@ class test_EventDispatcher:
         eventer.on_send_buffered.assert_called_with()
         eventer.send("task-received", uuid=1)
         assert not eventer._group_buffer["task"]
-        eventer._publish.assert_has_calls(
-            [
-                call([], eventer.producer, "task.multi"),
-            ]
-        )
+        # The payload is a detached copy, so it still holds both events after
+        # the live buffer was cleared. It used to be the live list itself, which
+        # meant the recorded call was [] and, since publishing is a coroutine
+        # here, so was what actually went to the broker.
+        (published_events, published_producer, published_routing_key) = eventer._publish.call_args[0]
+        assert len(published_events) == 2
+        assert published_producer is eventer.producer
+        assert published_routing_key == "task.multi"
+        assert published_events is not prev_buffer
         # clear in place
         assert eventer._group_buffer["task"] is prev_buffer
         assert len(buf_received[0]) == 2
@@ -132,6 +136,69 @@ class test_EventDispatcher:
     def test_flush_no_groups_no_errors(self):
         eventer = self.app.events.Dispatcher(Mock())
         eventer.flush(errors=False, groups=False)
+
+    def test_group_flush_keeps_events_appended_during_the_publish(self):
+        # Appends that land while a publish is in flight belong to the next
+        # flush. Clearing the whole list destroyed them silently.
+        eventer = self.app.events.Dispatcher(Mock(), enabled=False, buffer_group={"task"}, buffer_limit=100)
+        eventer.producer = MockProducer()
+        eventer.enabled = True
+        buf = eventer._group_buffer["task"]
+
+        def append_during_publish(events, *args, **kwargs):
+            buf.append(Event("task-succeeded", uuid=99))
+
+        eventer._publish = Mock(name="_publish", side_effect=append_during_publish)
+        eventer.send("task-received", uuid=1)
+        eventer.send("task-received", uuid=2)
+
+        eventer.flush()
+
+        assert len(eventer._publish.call_args[0][0]) == 2
+        assert [e["uuid"] for e in buf] == [99]
+
+    def test_error_flush_keeps_entries_that_failed_to_republish(self):
+        # _publish re-buffers what it could not send, and clearing the buffer
+        # after the replay threw that away again.
+        eventer = self.app.events.Dispatcher(Mock(), enabled=False)
+        eventer.producer = MockProducer()
+        eventer.enabled = True
+        eventer._outbound_buffer.append((Event("task-sent", uuid=1), "task.sent"))
+
+        def rebuffer(event, producer, routing_key, **kwargs):
+            eventer._outbound_buffer.append((event, routing_key))
+
+        eventer._publish = Mock(name="_publish", side_effect=rebuffer)
+
+        eventer.flush(groups=False)
+
+        assert len(eventer._outbound_buffer) == 1
+
+    def test_buffered_entries_do_not_hold_on_to_the_exception(self):
+        # The exception pins its traceback and every frame below it, which for a
+        # dispatcher retrying against a dead broker is the leak.
+        producer = MockProducer()
+        producer.raise_on_publish = True
+        eventer = self.app.events.Dispatcher(Mock(), enabled=False, buffer_while_offline=True)
+        eventer.producer = producer
+        eventer.enabled = True
+
+        eventer.send("task-sent", uuid=1)
+
+        (entry,) = eventer._outbound_buffer
+        assert len(entry) == 2
+        assert not any(isinstance(part, BaseException) for part in entry)
+
+    def test_publish_without_a_producer_is_a_no_op(self):
+        # Stale timers keep calling a closed dispatcher after a reconnect. Each
+        # call used to raise AttributeError and land in the buffer.
+        eventer = self.app.events.Dispatcher(Mock(), enabled=False, buffer_while_offline=True)
+        eventer.enabled = True
+        eventer.producer = None
+
+        eventer.send("worker-heartbeat")
+
+        assert not eventer._outbound_buffer
 
     def test_enter_exit(self):
         conn = self.app.connection_for_write()

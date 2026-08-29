@@ -159,6 +159,11 @@ class EventDispatcher:
             return self._publish(event, producer, routing_key=type.replace("-", "."), **kwargs)
 
     def _publish(self, event, producer, routing_key, retry=False, retry_policy=None, utcoffset=utcoffset):
+        if producer is None:
+            # After a reconnect the old dispatcher is closed, but stale timers
+            # such as Heart keep calling this. Without the guard every one of
+            # them raised AttributeError and got buffered (upstream acce2acc7).
+            return
         exchange = self.exchange
         try:
             coro = producer.publish(
@@ -192,10 +197,13 @@ class EventDispatcher:
                     # Use thread-safe scheduling to the main consumer loop.
                     fut = asyncio.run_coroutine_threadsafe(coro, self._event_loop)
                     fut.add_done_callback(self._on_publish_done_future)
-        except Exception as exc:
+        except Exception:
             if not self.buffer_while_offline:
                 raise
-            self._outbound_buffer.append((event, routing_key, exc))
+            # No exception in the entry: it pins its traceback and every frame
+            # below it, which for a dispatcher publishing every couple of
+            # seconds against a dead broker is the leak (upstream 8b4b29c93).
+            self._outbound_buffer.append((event, routing_key))
 
     @staticmethod
     def _on_publish_done(task):
@@ -263,17 +271,33 @@ class EventDispatcher:
         """Flush the outbound buffer."""
         if errors:
             buf = list(self._outbound_buffer)
-            try:
-                with self.mutex:
-                    for event, routing_key, _ in buf:
-                        self._publish(event, self.producer, routing_key)
-            finally:
-                self._outbound_buffer.clear()
+            # Clear before republishing, not after: a failing _publish appends
+            # the entry back, and clearing afterwards threw that away again
+            # (upstream 10f24ce07).
+            self._outbound_buffer.clear()
+            with self.mutex:
+                for event, routing_key in buf:
+                    self._publish(event, self.producer, routing_key)
         if groups:
             with self.mutex:
                 for group, events in self._group_buffer.items():
-                    self._publish(events, self.producer, "%s.multi" % group)
-                    events[:] = []  # list.clear
+                    if not events:
+                        continue
+                    # Publish a detached copy. `producer.publish()` is a
+                    # coroutine here, so the payload is not read until the task
+                    # scheduled below actually runs, and handing over the live
+                    # list meant the clear on the next line emptied the batch
+                    # before anyone serialized it: every group-buffered flush
+                    # went out as `[]`. Upstream (97ed017c0) had the milder
+                    # version of this, where only the offline re-buffer was
+                    # lost.
+                    batch = list(events)
+                    self._publish(batch, self.producer, "%s.multi" % group)
+                    # Only what was published: events appended while the publish
+                    # was in flight belong to the next flush (upstream
+                    # f85031f61). Appends go to the tail and flushes are
+                    # serialized by the mutex, so the leading slice is exact.
+                    del events[: len(batch)]
 
     def extend_buffer(self, other):
         """Copy the outbound buffer of another instance."""

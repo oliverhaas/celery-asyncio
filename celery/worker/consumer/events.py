@@ -54,7 +54,11 @@ class Events(bootsteps.StartStopStep):
                 except Exception:
                     pass
             try:
-                dispatcher.close()
+                # disable(), not close(): close() only drops the producer, so
+                # the on_disabled callbacks never fire and Heart's timer keeps
+                # ticking against a dead dispatcher after every reconnect
+                # (upstream 8b4b29c93).
+                dispatcher.disable()
             except Exception:
                 pass
             c.event_dispatcher = None
