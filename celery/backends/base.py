@@ -15,6 +15,7 @@ import warnings
 from collections import namedtuple
 from datetime import timedelta
 from functools import partial
+from uuid import UUID
 from weakref import WeakValueDictionary
 
 from asgiref.sync import sync_to_async
@@ -281,7 +282,14 @@ class Backend:
                     not isinstance(errback.type.__header__, partial)
                     and arity_greater(errback.type.__header__, 1)
                 ):
-                    errback(request, exc, traceback)
+                    try:
+                        errback(request, exc, traceback)
+                    except Exception:
+                        # One errback blowing up must not cost the remaining
+                        # ones their turn. The old-style path below already
+                        # gets that from the group it is called through
+                        # (upstream 477c816f9).
+                        logger.exception("Errback %r raised an exception", errback.name)
                 else:
                     old_signature.append(errback)
             except NotRegistered:
@@ -1180,6 +1188,11 @@ class BaseKeyValueStoreBackend(Backend):
 
     def _get_key_for(self, prefix, id, key=""):
         key_t = self.key_t
+        if isinstance(id, UUID):
+            # A task id can arrive as a native UUID, e.g. from a serializer
+            # that decodes them. ensure_bytes passes a non-string through
+            # unchanged and bytes.join() then rejects it (upstream 6e0d68308).
+            id = str(id)
 
         return key_t("").join(
             [

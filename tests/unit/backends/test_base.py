@@ -2,6 +2,7 @@ import copy
 import re
 from contextlib import contextmanager
 from unittest.mock import ANY, MagicMock, Mock, call, patch, sentinel
+from uuid import UUID
 
 import pytest
 from kombu.serialization import prepare_accept_content
@@ -583,6 +584,29 @@ class test_BaseBackend_dict:
         b.mark_as_failure("id", exc, request=request)
         mock_group.assert_called_once_with(request.errbacks, app=self.app)
 
+    def test_new_style_errback_exception_does_not_halt_the_rest(self):
+        # A new-style errback was called bare, so the first one to raise took
+        # every errback behind it down with it (upstream 477c816f9).
+        b = BaseBackend(app=self.app)
+        b._store_result = Mock()
+        called = []
+
+        @self.app.task(shared=False)
+        def failing_errback(request, exc, traceback):
+            called.append("failing")
+            raise RuntimeError("errback failed")
+
+        @self.app.task(shared=False)
+        def ok_errback(request, exc, traceback):
+            called.append("ok")
+
+        request = Mock(name="request")
+        request.errbacks = [failing_errback.signature(), ok_errback.signature()]
+
+        b.mark_as_failure("id", KeyError(), request=request)
+
+        assert called == ["failing", "ok"]
+
     def test_mark_as_failure__chord(self):
         b = BaseBackend(app=self.app)
         b._store_result = Mock()
@@ -1119,6 +1143,14 @@ class test_KeyValueStoreBackend:
     def test_get_key_for_chord_none_group_id(self):
         with pytest.raises(ValueError):
             self.b.get_key_for_group(None)
+
+    @pytest.mark.parametrize("get_key", ["get_key_for_task", "get_key_for_group", "get_key_for_chord"])
+    def test_get_key_for_uuid_id(self, get_key):
+        # A native UUID reaches the backend from any serializer that decodes
+        # them; ensure_bytes passes it through unchanged and the bytes.join()
+        # below then raises TypeError (upstream 6e0d68308).
+        ident = UUID(uuid())
+        assert getattr(self.b, get_key)(ident) == getattr(self.b, get_key)(str(ident))
 
     def test_strip_prefix(self):
         x = self.b.get_key_for_task("x1b34")
