@@ -26,7 +26,8 @@ default selector) and ran `mingle: all alone` (no broker contamination).
 - Default CPython asyncio (`_UnixSelectorEventLoop`)
 - uvloop 0.22.1 (libuv-backed `uvloop.Loop`)
 
-## Methodology fix (vs prior RESULTS.md)
+<!-- keep:history -->
+### Sampler fix (May 2026)
 
 The sampler used to recreate `psutil.Process` objects for each child on
 every iteration. `cpu_percent(interval=None)` computes the delta against
@@ -48,7 +49,7 @@ What changed materially:
   dominant cost winner on mixed**; it now ties with aio configs at
   ~$0.05/M ideal Fargate.
 
-## Strand bug fixed
+### Strand bug fixed (May 2026)
 
 The May 14 mixed-workload table reported 21–48 stranded tasks per aio
 config (0.07–0.16 %). Fixed in kombu-asyncio
@@ -56,9 +57,11 @@ config (0.07–0.16 %). Fixed in kombu-asyncio
 consumer iterations) plus restore-on-cancel for cold paths.
 
 **Result: `n_stranded = 0` on all 54 runs of this matrix.**
+<!-- /keep -->
 
 ## Methodology notes
 
+<!-- keep:methodology -->
 * Each row is a single run on a laptop, not a dedicated bench machine.
   **Wall and TPS are stable across reruns (±5 %); `mean_cpu` is noisier**
   because the psutil sampler depends on which child processes exist at
@@ -70,6 +73,7 @@ consumer iterations) plus restore-on-cancel for cold paths.
   check is now part of the routine.
 * `mean_cpu` is summed across CPU cores. On the 4-core taskset, 100 %
   ≈ one core saturated; 400 % ≈ all four cores saturated.
+<!-- /keep -->
 
 ## Full results — mixed workload
 

@@ -419,6 +419,10 @@ def render() -> str:
         "",
         keep_block("known-issues", existing, "_Not written yet for this run._"),
         "",
+        "## History",
+        "",
+        keep_block("history", existing, "_Why earlier revisions of this file reported different numbers._"),
+        "",
     ]
     return "\n".join(parts)
 
