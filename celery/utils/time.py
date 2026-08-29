@@ -310,7 +310,7 @@ def humanize_seconds(secs: int, prefix: str = "", sep: str = "", now: str = "now
     return now
 
 
-def maybe_iso8601(dt: datetime | str | None) -> None | datetime:
+def maybe_iso8601(dt: datetime | str | None) -> datetime | None:
     """Either ``datetime | str -> datetime`` or ``None -> None``."""
     if not dt:
         return None

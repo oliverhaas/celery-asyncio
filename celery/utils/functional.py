@@ -2,6 +2,7 @@
 # https://github.com/celery/celery
 """Functional-style utilities."""
 
+import annotationlib
 import inspect
 from collections import UserList
 from collections.abc import Callable
@@ -328,6 +329,55 @@ def _argsfromspec(spec, replace_defaults=True):
     )
 
 
+def _getfullargspec(fun):
+    """Annotation-safe :func:`inspect.getfullargspec`.
+
+    Under PEP 649 annotations are lazy, and ``getfullargspec`` evaluates them
+    on access -- which raises for a type that is only imported under
+    ``TYPE_CHECKING``. None of the callers here want the annotations, so ask
+    for them as strings and they are never evaluated (upstream e49270e35).
+
+    ``follow_wrapped=False`` keeps ``getfullargspec``'s documented behaviour of
+    introspecting the callable it was handed. Without it a task built with
+    ``functools.wraps`` over a variadic wrapper -- the usual dependency
+    injection shape -- gets validated against the *inner* function's signature,
+    and ``apply_async`` then rejects arguments the wrapper would have taken
+    (upstream 4369baf04).
+
+    Bound methods are unwrapped to ``__func__`` so ``self`` stays in ``args``,
+    as ``getfullargspec`` had it.
+
+    Upstream gates all of this on 3.14+; this fork requires 3.14, so there is
+    no older path to keep.
+    """
+    target = getattr(fun, "__func__", fun)
+    sig = inspect.signature(target, follow_wrapped=False, annotation_format=annotationlib.Format.STRING)
+    args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults = [], None, None, [], [], {}
+    for name, param in sig.parameters.items():
+        kind = param.kind
+        if kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD):
+            args.append(name)
+            if param.default is not param.empty:
+                defaults.append(param.default)
+        elif kind == param.VAR_POSITIONAL:
+            varargs = name
+        elif kind == param.KEYWORD_ONLY:
+            kwonlyargs.append(name)
+            if param.default is not param.empty:
+                kwonlydefaults[name] = param.default
+        elif kind == param.VAR_KEYWORD:
+            varkw = name
+    return inspect.FullArgSpec(
+        args=args,
+        varargs=varargs,
+        varkw=varkw,
+        defaults=tuple(defaults) or None,
+        kwonlyargs=kwonlyargs,
+        kwonlydefaults=kwonlydefaults or None,
+        annotations={},
+    )
+
+
 def head_from_fun(fun: Callable[..., Any], bound: bool = False) -> str:
     """Generate signature function from actual function."""
     # we could use inspect.Signature here, but that implementation
@@ -346,7 +396,7 @@ def head_from_fun(fun: Callable[..., Any], bound: bool = False) -> str:
         name = fun.__name__
     definition = FUNHEAD_TEMPLATE.format(
         fun_name=name,
-        fun_args=_argsfromspec(inspect.getfullargspec(fun)),
+        fun_args=_argsfromspec(_getfullargspec(fun)),
         fun_value=1,
     )
     logger.debug(definition)
@@ -361,18 +411,18 @@ def head_from_fun(fun: Callable[..., Any], bound: bool = False) -> str:
 
 
 def arity_greater(fun, n):
-    argspec = inspect.getfullargspec(fun)
+    argspec = _getfullargspec(fun)
     return argspec.varargs or len(argspec.args) > n
 
 
 def fun_takes_argument(name, fun, position=None):
-    spec = inspect.getfullargspec(fun)
+    spec = _getfullargspec(fun)
     return spec.varkw or spec.varargs or (len(spec.args) >= position if position else name in spec.args)
 
 
 def fun_accepts_kwargs(fun):
     """Return true if function accepts arbitrary keyword arguments."""
-    return any(p for p in inspect.signature(fun).parameters.values() if p.kind == p.VAR_KEYWORD)
+    return _getfullargspec(fun).varkw is not None
 
 
 def maybe(typ, val):

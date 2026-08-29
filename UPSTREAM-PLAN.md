@@ -90,6 +90,9 @@ Then drop anything touching only the subsystems listed above.
 | `9f0a61c61` Sentinel ACL: the username never reached `master_for()` | `00ee290db` | Verbatim. `master_for()` opens a *new* connection to the master, so the sentinel's own credentials do not carry over to it. |
 | `0472aaccb` Configurable additional connection errors | `258a2ffd6` | Adapted, and shortened: upstream's four-branch normalisation collapses to one `isinstance` check. The option is read straight off the conf rather than through the `_transport_options` cached_property -- reading it from `__init__` would materialise the cache there and freeze every other transport option at construction time. Upstream hit the same trap and fixed it inside the PR; a test pins it here. The docs hunk is dropped, there is no `backends-and-brokers/` in this fork. |
 | `22a03fa13` redis-py DriverInfo | `258a2ffd6` | Adapted: upstream reaches for `redis` unconditionally, but this fork resolves the client library from the URL scheme and valkey-py has no `DriverInfo`, so the lookup goes through `self.redis` and falls back to the deprecated `lib_name`/`lib_version` pair. Both forms verified against the sync *and* async connection-pool constructors of both libraries. |
+| `e49270e35` NameError from TYPE_CHECKING-only annotations | `6de44b9e6` | Adapted. Upstream gates its 3.14 branch on `sys.version_info`; this fork requires 3.14, so the gate is dropped and only the new path is kept. `_getfullargspec` asks `inspect.signature` for `Format.STRING`, so lazy annotations are never evaluated, and `_get_annotations` in `app/base.py` tries the real objects first and settles for strings. Upstream fixed only `head_from_fun`; `arity_greater` and `fun_takes_argument` call the same helper here and are covered too. |
+| `66bcdebb4` `fun_accepts_kwargs` evaluates annotations eagerly | `6de44b9e6` | Folded into the same `_getfullargspec` helper. The shape that surfaces it is a signal receiver annotated `sender: Celery` with `Celery` imported under `TYPE_CHECKING`. |
+| `4369baf04` `head_from_fun` must not follow `__wrapped__` | `6de44b9e6` | Adapted as `follow_wrapped=False`, which restores `getfullargspec`'s documented behaviour. Upstream needed this as a follow-up because swapping in `inspect.signature` silently changed which callable gets introspected: a task built with `functools.wraps` over a variadic DI wrapper was validated against the *inner* signature, so `apply_async` rejected arguments the wrapper accepts. Bound methods are unwrapped to `__func__` for the same reason, to keep `self` in `args`. |
 
 ### Found along the way
 
@@ -122,6 +125,14 @@ pytest 9 vendored subtests into `_pytest/subtests.py` and the standalone distrib
 installed, so the guard skipped both modules whole -- 268 tests, for however long the venv has been
 on pytest 9. Removing the guard in `3e1646513` brought all 268 back, passing unmodified. Worth
 grepping for `importorskip` after any test-dependency bump.
+
+**And a third one.** `tests/unit/app/test_app.py` opens with `pydantic = pytest.importorskip("pydantic")`,
+but pydantic was in no dependency group, so the whole module went quiet -- 108 tests, not just the
+handful about pydantic tasks. The fork does support them (`app/base.py` has `pydantic_wrapper` and
+the `pydantic=` / `pydantic_strict=` / `pydantic_context=` / `pydantic_dump_kwargs=` task options),
+and upstream imports pydantic unconditionally in its test requirements. Adding `pydantic` to the dev
+group in `6de44b9e6` brought all 108 back, passing. Three modules in one sweep: a module-level
+`importorskip` on something nobody installs is indistinguishable from deleting the file.
 
 **`EagerResult` had no `aget()`.** It overrides `get()` to return `None` for a task that produced no
 result, but inherited `aget()` from `AsyncResult`, which reads the value straight out of the cache
@@ -218,12 +229,6 @@ control command · `7735d2ba9` friendly CLI errors instead of tracebacks · `cc3
 creating Django DB connections during cleanup · `a4f9beb41` close DB pools only in prefork mode,
 which here means never · `8ea903b6d` defensive `pool_cls.__module__` checks in
 `contrib/testing/worker.py`
-
-### Python 3.14 / PEP 649
-
-`4369baf04` `head_from_fun` follows `__wrapped__` on 3.14+ · `66bcdebb4` `fun_accepts_kwargs`
-evaluates annotations eagerly · `e49270e35` NameError from TYPE_CHECKING-only annotations. These
-three are one workstream. Check what the supported Python range actually is first.
 
 ### Beat and time
 

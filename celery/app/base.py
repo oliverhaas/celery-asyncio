@@ -2,6 +2,7 @@
 # https://github.com/celery/celery
 """Actual App instance implementation."""
 
+import annotationlib
 import functools
 import importlib
 import inspect
@@ -132,6 +133,22 @@ from .utils import (
 __all__ = ("Celery",)
 
 logger = get_logger(__name__)
+
+
+def _get_annotations(fun):
+    """Read a function's annotations without insisting they resolve.
+
+    Under PEP 649 annotations are lazy, and ``fun.__annotations__`` evaluates
+    them on access -- which raises for a type only imported under
+    ``TYPE_CHECKING``. Try for the real objects first, since that is what the
+    task class carried before, and settle for the strings if they cannot be
+    resolved (upstream e49270e35).
+    """
+    try:
+        return inspect.get_annotations(fun)
+    except NameError:
+        return inspect.get_annotations(fun, format=annotationlib.Format.STRING)
+
 
 BUILTIN_FIXUPS = {
     "celery.fixups.django:fixup",
@@ -652,7 +669,7 @@ class Celery:
                         "_decorated": True,
                         "__doc__": fun.__doc__,
                         "__module__": fun.__module__,
-                        "__annotations__": fun.__annotations__,
+                        "__annotations__": _get_annotations(fun),
                         "__header__": self.type_checker(fun, bound=bind),
                         "__wrapped__": run,
                     },

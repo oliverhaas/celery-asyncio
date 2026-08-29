@@ -36,7 +36,11 @@ def test_preload_options(subcommand_with_params: tuple[str, ...], cli_runner: Cl
         catch_exceptions=False,
     )
 
-    assert "No such option: --ini" in res_without_preload.output
+    # Two assertions rather than one on the whole sentence: click punctuates
+    # this message differently across versions (8.4 quotes the option name),
+    # and what matters is that the option was rejected, not how it was phrased.
+    assert "No such option" in res_without_preload.output
+    assert "--ini" in res_without_preload.output
     assert res_without_preload.exit_code == 2
 
     res_with_preload = cli_runner.invoke(

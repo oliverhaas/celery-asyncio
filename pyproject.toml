@@ -88,6 +88,9 @@ zstd = ["zstandard>=0.22.0"]
 dev = [
   "mypy==2.3.1",
   "pre-commit==4.6.2",
+  # tests/unit/app/test_app.py importorskips pydantic at module level, so
+  # without it the whole module -- not just the pydantic tests -- goes quiet.
+  "pydantic==2.13.1",
   "pytest==9.1.1",
   "pytest-asyncio==1.4.0",
   "pytest-cov==7.1.0",
@@ -146,6 +149,7 @@ ignore = [
   "C901",     # Complex structure: some task functions are inherently complex
   "COM812",   # Conflicts with ruff-format
   "COM818",   # Trailing comma on bare tuple
+  "CPY001",   # Copyright notice per file. The LICENSE file covers the package.
   "D",        # Docstrings — will add incrementally
   "DTZ",      # Datetime timezone — celery uses naive datetimes throughout
   "E402",     # Module-level import not at top — lazy imports
@@ -171,6 +175,7 @@ ignore = [
   "PLR0912",  # Too many branches: complex task routing logic
   "PLR0913",  # Too many args — task APIs need many options
   "PLR0915",  # Too many statements — complex functions
+  "PLR0917",  # Too many positional args, same reason as PLR0913 above
   "PLR1704",  # Redefining argument from local — context manager patterns
   "PLR1714",  # Consider merging comparisons
   "PLR2004",  # Magic values — task-specific constants

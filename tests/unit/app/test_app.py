@@ -803,6 +803,20 @@ class test_App:
 
             assert typing.get_type_hints(foo) == {"parameter": int, "return": type(None)}
 
+    def test_task_with_type_checking_annotation(self):
+        # Registering a task read `fun.__annotations__`, which under PEP 649
+        # resolves them -- so a parameter annotated with a type imported only
+        # under TYPE_CHECKING raised NameError at decoration time. Fall back to
+        # the strings when they cannot be resolved (upstream e49270e35).
+        namespace = {}
+        exec(compile("def foo(args: Sequence[str], x: int = 0): return args", "<deferred>", "exec"), namespace)
+
+        with self.Celery() as app:
+            task = app.task(namespace["foo"])
+
+            assert task.apply(args=(["hello"],)).result == ["hello"]
+            assert task.__annotations__["args"] == "Sequence[str]"
+
     def test_annotate_decorator(self):
         from celery.app.task import Task
 

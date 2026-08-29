@@ -1,10 +1,12 @@
 import collections
+import functools
 
 import pytest
 from kombu.utils.functional import lazy
 
 from celery.utils.functional import (
     DummyContext,
+    arity_greater,
     first,
     firstmethod,
     fun_accepts_kwargs,
@@ -280,6 +282,20 @@ class test_regen:
             assert r == ["foo", "bar"]
 
 
+def deferred_annotations(name, source):
+    """Build a function whose annotations name a type that does not exist.
+
+    That is the shape of a type imported only under ``TYPE_CHECKING``: fine at
+    type-check time, absent at runtime. Under PEP 649 annotations stay
+    unevaluated until something asks for them, so the function itself builds
+    happily and only introspection that resolves them blows up. The source has
+    to be exec'd rather than written inline, or the module would not import.
+    """
+    namespace = {}
+    exec(compile(source, "<deferred>", "exec"), namespace)
+    return namespace[name]
+
+
 class test_head_from_fun:
     def test_from_cls(self):
         class X:
@@ -372,8 +388,56 @@ class test_head_from_fun:
 
         g(b=3)
 
+    def test_type_checking_annotation(self):
+        # getfullargspec resolves annotations, so a TYPE_CHECKING-only type
+        # made task registration fail outright (upstream e49270e35).
+        f = deferred_annotations("f", "def f(x: Thing, y: int = 1) -> Thing: pass")
+
+        g = head_from_fun(f)
+
+        g(1)
+        g(1, 2)
+        with pytest.raises(TypeError):
+            g()
+
+    def test_wraps_variadic_wrapper(self):
+        # head_from_fun must introspect the callable it was handed, not the one
+        # behind __wrapped__. getfullargspec ignored __wrapped__ but
+        # inspect.signature follows it, so replacing one with the other
+        # regressed this (upstream 4369baf04). A DI decorator wrapping a
+        # function that takes framework-supplied params is the usual shape:
+        # apply_async would reject arguments the wrapper accepts happily.
+        @functools.wraps(_di_inner)
+        def wrapper(*args, **kwds):
+            pass
+
+        g = head_from_fun(wrapper)
+
+        g()
+        g(1)
+        g(1, 2, 3)
+        g(anything=1, at=2, all=3)
+
+
+def _di_inner(x, y, app, sa_session, kwarg=1):
+    pass
+
+
+class test_arity_greater:
+    def test_type_checking_annotation(self):
+        f = deferred_annotations("f", "def f(x: Thing, y: Thing) -> Thing: pass")
+
+        assert arity_greater(f, 1)
+        assert not arity_greater(f, 2)
+
 
 class test_fun_takes_argument:
+    def test_type_checking_annotation(self):
+        f = deferred_annotations("f", "def f(x: Thing, foo: Thing) -> Thing: pass")
+
+        assert fun_takes_argument("foo", f)
+        assert not fun_takes_argument("bar", f)
+
     def test_starkwargs(self):
         assert fun_takes_argument("foo", lambda **kw: 1)
 
@@ -479,6 +543,13 @@ class test_fun_accepts_kwargs:
     )
     def test_rejects(self, fun):
         assert not fun_accepts_kwargs(fun)
+
+    def test_type_checking_annotation(self):
+        # The shape that surfaced this: a signal receiver connected via
+        # `on_after_finalize.connect`, annotated `sender: Celery` with Celery
+        # imported only under TYPE_CHECKING (upstream 66bcdebb4).
+        assert fun_accepts_kwargs(deferred_annotations("f", "def f(sender: Celery, **kwargs: object) -> None: pass"))
+        assert not fun_accepts_kwargs(deferred_annotations("g", "def g(sender: Celery) -> None: pass"))
 
 
 @pytest.mark.parametrize(
