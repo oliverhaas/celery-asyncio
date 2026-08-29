@@ -182,20 +182,42 @@ Fanout bindings are already kept out of the binding table here (valkey_redis.py:
 the cleanup celery-redis-plus does on first declare, which deletes binding keys left by older
 versions.
 
-### 11. The queue a message was consumed from
+### 11. The queue a message was consumed from (closed, no port needed)
 
 celery-redis-plus stamps the popped queue into `delivery_info["queue"]` and resolves ack, requeue
 and heartbeat against it, because `routing_key` is the publish-time key and only names the queue
 under default direct routing.
 
-Here the Lua scripts read `routing_key` out of the message hash and build the queue key from it
-(`transport_requeue_message.lua:51`, `transport_enqueue_due_messages.lua:85`), so the shape of the
-problem differs. **Investigate before porting**, since this may or may not be reachable here.
+**Investigated: not reachable here, nothing to port.** Two independent reasons.
 
-### 12. Per-channel `blocking_timeout` snapshot
+`_put_message` stores `"routing_key": queue` (valkey_redis.py:663), and its three callers all pass
+a real queue name: `_direct_publish` and `_topic_publish` pass the queue resolved from the binding
+table, and the default-exchange branch passes the routing key, which under default direct routing
+*is* the queue name. So the hash field the Lua scripts read is the queue, not the publish-time key,
+despite its name.
 
-celery-redis-plus `c2b5f1d`. Low priority; this transport uses a transport-level block timeout,
-so it may not apply.
+Separately, the Python paths never consult `delivery_info` for a queue. `basic_ack` (1205),
+`basic_reject` (1229), `_update_messages_index` (1418) and `close` (1527) all read
+`self._delivered[tag]`, which was stamped with the popped queue at consume time.
+
+The `routing_key` hash field is misnamed for what it holds. Renaming it to `queue` would be
+honest, but it is a stored-format change for no behaviour gain, so not now.
+
+### 12. Per-channel `blocking_timeout` snapshot (closed, no port needed)
+
+**Investigated: does not apply, nothing to port.** celery-redis-plus `c2b5f1d` fixed two things:
+`self.connection.blocking_timeout or 1` coerced a configured `0` to `1`, and `close()` drained a
+pending poll that, with `0` meaning block-forever, never returned.
+
+Neither exists here. `_block_timeout` is read once per channel from transport options
+(valkey_redis.py:265) with no `or` coercion, and `close()` bounds its drain with
+`asyncio.wait_for` and cancels on expiry (1490, 1508) rather than issuing another blocking read.
+
+One difference worth recording, though it is not celery-redis-plus's bug: `0` means something
+else here. `_consume_regular` treats `timeout == 0` as "FAST poll only, do not fall through to
+BZMPOP" (valkey_redis.py:869), so `block_timeout: 0` makes the consumer loop spin instead of
+blocking forever, and the error backoff `sleep(min(self._block_timeout, 0.1))` becomes `sleep(0)`.
+There is no way to express block-forever. Either reject `0` at channel init or document it.
 
 ---
 
@@ -203,13 +225,18 @@ so it may not apply.
 
 - `delivery_limit` defaults to `20` and deletes the message when reached. Previously unlimited.
   Old behaviour is `delivery_limit: None`.
+- A reject with `requeue=True` now counts against `delivery_limit` and drops the message when it
+  is reached. Previously a consumer rejecting in a tight loop spun forever.
 - Hash field `restore_count` became `delivery_count`. A message published by the old version and
   consumed by the new one reads `nil` and restarts at 0, so the limit is not retroactive across
   an upgrade.
 - The `redelivered` hash field is no longer written. Leftovers on old messages are ignored.
-- Header `x-restore-count` became `x-delivery-count`, and moved from `properties["headers"]` to
-  the payload's top-level `headers`, where it is actually visible.
-- `delivery_info['redelivered']` is now set on redeliveries, so
+- Header `x-restore-count` became `x-delivery-count`. Its placement did not change.
+- `delivery_info['redelivered']` is now set on every delivery, `True` on redeliveries, so
   `worker_deduplicate_successful_tasks` can work.
-- `transport_ack_message.lua` takes three KEYS instead of two.
-- `_lookup` can raise `InconsistencyError` to publishers that name a direct exchange.
+- `transport_ack_message.lua` takes three KEYS instead of two, and
+  `transport_consume_message.lua` takes a second ARGV block of per-queue `no_ack` flags.
+- A `no_ack` delivery no longer leaves an index entry or a message hash behind, so pidbox and
+  reply queues stop seeing spurious redeliveries.
+- Publishing to a named direct exchange with no bindings raises `InconsistencyError` instead of
+  silently discarding the message. Topic and fanout are unchanged.
