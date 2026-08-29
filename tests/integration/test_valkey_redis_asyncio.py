@@ -429,6 +429,22 @@ class TestDeliveryTracking:
 
         await channel.queue_purge(queue_name)
 
+    async def test_a_no_ack_delivery_leaves_nothing_behind(self, channel):
+        """PORT-PLAN fix 4."""
+        queue_name = "test_no_ack_dequeues"
+        await channel.queue_purge(queue_name)
+        await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+
+        msg = await channel.get(queue_name, no_ack=True)
+        assert msg is not None
+
+        # Nothing will ever ack a no_ack delivery, so an index entry left here
+        # leaks and the next sweep redelivers the message.
+        assert await channel.client.zcard(channel._messages_index_key(queue_name)) == 0
+        assert await channel.client.exists(channel._message_key(msg.delivery_tag)) == 0
+
+        await channel.queue_purge(queue_name)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

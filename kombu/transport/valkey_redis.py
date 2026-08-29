@@ -206,6 +206,9 @@ class Channel:
         # Consumer state: tag → (queue, callback, no_ack)
         self._consumers: dict[str, tuple[str, Callable, bool]] = {}
         self.no_ack_consumers: set[str] | None = set()
+        # Queues whose consumers never ack, so a delivery from one is finished
+        # the moment it is popped. Consulted by the consume Lua script.
+        self._no_ack_queues: set[str] = set()
 
         # Exchange / binding state
         self._exchanges: dict[str, dict] = {}
@@ -690,8 +693,10 @@ class Channel:
 
         self._consumers[consumer_tag] = (queue, callback, no_ack)
 
-        if no_ack and self.no_ack_consumers is not None:
-            self.no_ack_consumers.add(consumer_tag)
+        if no_ack:
+            self._no_ack_queues.add(queue)
+            if self.no_ack_consumers is not None:
+                self.no_ack_consumers.add(consumer_tag)
 
         if queue in self._fanout_queues:
             self.active_fanout_queues.add(queue)
@@ -705,6 +710,10 @@ class Channel:
         entry = self._consumers.pop(consumer_tag, None)
         if entry:
             queue, _, _ = entry
+            # Recomputed rather than discarded: another consumer may still be
+            # reading the same queue with no_ack set.
+            if not any(q == queue and na for q, _cb, na in self._consumers.values()):
+                self._no_ack_queues.discard(queue)
             self.active_fanout_queues.discard(queue)
             if queue in self._fanout_queues:
                 exchange, _ = self._fanout_queues[queue]
@@ -879,6 +888,7 @@ class Channel:
                     str(new_queue_at),
                     MESSAGES_INDEX_PREFIX,
                     *queues,
+                    *("1" if q in self._no_ack_queues else "0" for q in queues),
                 ],
             )
         except Exception as exc:
@@ -964,15 +974,25 @@ class Channel:
         index_key = self._messages_index_key(queue)
         new_queue_at = time() + self._visibility_timeout + DEFAULT_REQUEUE_CHECK_INTERVAL
 
+        no_ack = queue in self._no_ack_queues
+
         try:
             async with self.client.pipeline(transaction=False) as pipe:
-                # Not xx=True: a delivery with no index entry is tracked by
-                # nothing and lost on a worker crash. This pipeline is not
-                # transactional, so a plain ZADD can write an entry for a
-                # message acked a moment ago; the empty-payload branch below
-                # ZREMs it again.
-                await pipe.zadd(index_key, {delivery_tag: new_queue_at})
+                if no_ack:
+                    # Nothing will ever ack this delivery, so an index entry
+                    # would leak and the next sweep would redeliver. Mirrors the
+                    # no_ack branch of the consume Lua script.
+                    await pipe.zrem(index_key, delivery_tag)
+                else:
+                    # Not xx=True: a delivery with no index entry is tracked by
+                    # nothing and lost on a worker crash. This pipeline is not
+                    # transactional, so a plain ZADD can write an entry for a
+                    # message acked a moment ago; the empty-payload branch below
+                    # ZREMs it again.
+                    await pipe.zadd(index_key, {delivery_tag: new_queue_at})
                 await pipe.hmget(message_key, "payload", "restore_count")
+                if no_ack:
+                    await pipe.delete(message_key)
                 results = await pipe.execute()
         except BaseException:
             await self._restore_to_queue(queue, delivery_tag, original_score)
@@ -1407,6 +1427,7 @@ class Channel:
                     str(new_queue_at),
                     MESSAGES_INDEX_PREFIX,
                     queue,
+                    "1" if no_ack else "0",
                 ],
             )
         except Exception:

@@ -19,15 +19,15 @@ at `ac52b681`.
 Correctness fixes that change no public API go first. Item 5 depends on 3; item 6 depends on 3,
 4 and 5, and must not land before 3 or a slow queue eats its own backlog.
 
-| # | Fix | Consequence today | API change |
-|---|---|---|---|
-| 1 | Ack does not remove the queue entry | duplicate execution | KEYS arity |
-| 2 | Delivery with no visibility deadline | silent message loss | none |
-| 3 | Backlog counted as a redelivery | wrong counter, feeds 5 and 6 | none |
-| 4 | `no_ack` deliveries stay in the index | spurious redelivery of pidbox/reply | ARGV arity |
-| 5 | `redelivered` written but never read | celery never sees redeliveries | hash field, headers |
-| 6 | RabbitMQ naming and `delivery_limit` semantics | reject loops never stop | option, header, default |
-| 7 | Direct exchange with no bindings loses the message | silent drop | raises to publishers |
+| # | Done | Fix | Consequence today | API change |
+|---|---|---|---|---|
+| 1 | yes | Ack does not remove the queue entry | duplicate execution | KEYS arity |
+| 2 | yes | Delivery with no visibility deadline | silent message loss | none |
+| 3 | yes | Backlog counted as a redelivery | wrong counter, feeds 5 and 6 | none |
+| 4 | yes | `no_ack` deliveries stay in the index | spurious redelivery of pidbox/reply | ARGV arity |
+| 5 | no | `redelivered` written but never read | celery never sees redeliveries | hash field, headers |
+| 6 | no | RabbitMQ naming and `delivery_limit` semantics | reject loops never stop | option, header, default |
+| 7 | no | Direct exchange with no bindings loses the message | silent drop | raises to publishers |
 
 Features, deferred until the seven land: 8 to 12.
 
