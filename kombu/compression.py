@@ -5,6 +5,7 @@
 import bz2
 import lzma
 import zlib
+from compression import zstd
 
 from kombu.utils.encoding import ensure_bytes
 
@@ -93,18 +94,6 @@ else:
 
 register(lzma.compress, lzma.decompress, "application/x-lzma", aliases=["lzma", "xz"])
 
-try:
-    import zstandard as zstd
-except ImportError:  # pragma: no cover
-    pass
-else:
-
-    def zstd_compress(body):
-        c = zstd.ZstdCompressor()
-        return c.compress(body)
-
-    def zstd_decompress(body):
-        d = zstd.ZstdDecompressor()
-        return d.decompress(body)
-
-    register(zstd_compress, zstd_decompress, "application/zstd", aliases=["zstd", "zstandard"])
+# PEP 784 put zstd in the stdlib as of 3.14, which is this package's floor, so
+# the third-party `zstandard` binding is neither needed nor declared any more.
+register(zstd.compress, zstd.decompress, "application/zstd", aliases=["zstd", "zstandard"])

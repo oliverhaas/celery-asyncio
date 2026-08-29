@@ -21,11 +21,23 @@ from kombu.utils.functional import (
 )
 
 
-class test_ChannelPromise:
-    def test_repr(self):
-        obj = Mock(name="cb")
-        assert "promise" in repr(ChannelPromise(obj))
-        obj.assert_not_called()
+def test_channel_promise_repr():
+    obj = Mock(name="cb")
+    assert "promise" in repr(ChannelPromise(obj))
+    obj.assert_not_called()
+
+
+def test_channel_promise_failing_contract_is_not_chained_on_an_internal_error():
+    def failing():
+        raise RuntimeError("failure for test")
+
+    with pytest.raises(RuntimeError, match="failure for test") as excinfo:
+        ChannelPromise(failing)()
+
+    # The AttributeError that drives the memoisation is an implementation
+    # detail and must not show up as "During handling of the above".
+    assert excinfo.value.__context__ is None
+    assert excinfo.value.__cause__ is None
 
 
 class test_shufflecycle:

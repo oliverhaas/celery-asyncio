@@ -10,6 +10,13 @@ def test_dir():
     assert dir(kombu)
 
 
+def test_every_name_in_all_is_importable():
+    import kombu.utils
+
+    for name in kombu.utils.__all__:
+        assert getattr(kombu.utils, name, None) is not None, name
+
+
 @pytest.mark.parametrize(
     "version,expected",
     [

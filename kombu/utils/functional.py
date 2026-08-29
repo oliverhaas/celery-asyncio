@@ -35,8 +35,12 @@ class ChannelPromise:
         try:
             return self.__value__
         except AttributeError:
-            value = self.__value__ = self.__contract__()
-            return value
+            pass
+        # Outside the except block on purpose: a contract that raises would
+        # otherwise be chained onto this AttributeError and the caller would
+        # see "During handling of the above exception" over an internal detail.
+        value = self.__value__ = self.__contract__()
+        return value
 
     def __repr__(self):
         try:

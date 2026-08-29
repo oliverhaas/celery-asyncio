@@ -11,6 +11,7 @@ from kombu.log import get_logger
 if TYPE_CHECKING:
     from collections.abc import Callable
     from logging import Logger
+    from types import TracebackType
     from typing import Any
 
     from kombu.transport.base import Transport
@@ -30,8 +31,6 @@ def setup_logging(loglevel: int | None = logging.DEBUG, loggers: list[str] | Non
 class Logwrapped:
     """Wrap all object methods, to log on call."""
 
-    __ignore = ("__enter__", "__exit__")
-
     def __init__(self, instance: Transport, logger: Logger | None = None, ident: str | None = None):
         self.instance = instance
         self.logger = get_logger(logger)
@@ -40,7 +39,7 @@ class Logwrapped:
     def __getattr__(self, key: str) -> Callable:
         meth = getattr(self.instance, key)
 
-        if not callable(meth) or key in self.__ignore:
+        if not callable(meth):
             return meth
 
         @wraps(meth)
@@ -60,6 +59,34 @@ class Logwrapped:
             return meth(*args, **kwargs)
 
         return __wrapped
+
+    # Python looks dunders up on the type, never on the instance, so __getattr__
+    # is not consulted for them and `with Logwrapped(channel)` used to raise
+    # TypeError. Both protocols are forwarded because everything worth wrapping
+    # here is an async context manager, while Connection is also a sync one.
+    def __enter__(self) -> Logwrapped:
+        self.instance.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        return self.instance.__exit__(exc_type, exc_val, exc_tb)
+
+    async def __aenter__(self) -> Logwrapped:
+        await self.instance.__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        return await self.instance.__aexit__(exc_type, exc_val, exc_tb)
 
     def __repr__(self) -> str:
         return repr(self.instance)

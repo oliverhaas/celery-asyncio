@@ -22,7 +22,7 @@ class test_compression:
         assert "application/x-lzma" in compression.encoders()
 
     def test_encoders__zstd(self):
-        pytest.importorskip("zstandard")
+        pytest.importorskip("compression.zstd")
 
         assert "application/zstd" in compression.encoders()
 
@@ -59,7 +59,7 @@ class test_compression:
         assert d == text
 
     def test_compress__decompress__zstd(self):
-        pytest.importorskip("zstandard")
+        pytest.importorskip("compression.zstd")
 
         text = b"The Brown Quick Fox Over The Lazy Dog Jumps"
         c, ctype = compression.compress(text, "zstd")
