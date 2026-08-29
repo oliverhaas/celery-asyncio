@@ -863,6 +863,33 @@ class test_tasks(TasksCase):
     def now(self):
         return self.app.now()
 
+    def test_task_body_reads_its_own_time_limits(self):
+        # A task that wants to budget its own work needs the limits it is
+        # running under, and only the positional `timelimit` pair was reaching
+        # the request before.
+        seen = {}
+
+        @self.app.task(bind=True, time_limit=30, soft_time_limit=10, shared=False)
+        def limited(self):
+            seen["hard"] = self.request.time_limit
+            seen["soft"] = self.request.soft_time_limit
+
+        limited.apply()
+
+        assert seen == {"hard": 30, "soft": 10}
+
+    def test_task_body_without_time_limits(self):
+        seen = {}
+
+        @self.app.task(bind=True, shared=False)
+        def unlimited(self):
+            seen["hard"] = self.request.time_limit
+            seen["soft"] = self.request.soft_time_limit
+
+        unlimited.apply()
+
+        assert seen == {"hard": None, "soft": None}
+
     def test_typing(self):
         @self.app.task()
         def add(x, y, kw=1):

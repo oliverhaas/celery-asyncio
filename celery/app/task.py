@@ -36,6 +36,9 @@ from .utils import appstr
 
 __all__ = ("Context", "Task")
 
+# Sentinel used by Context.update() to detect whether 'timelimit' was changed.
+_UNSET = object()
+
 #: extracts attributes related to publishing a message from an object.
 extract_exec_options = mattrgetter(
     "queue",
@@ -114,6 +117,8 @@ class Context:
     shadow = None
     taskset = None  # compat alias to group
     timelimit = None
+    time_limit = None
+    soft_time_limit = None
     utc = None
     stamped_headers = None
     stamps = None
@@ -134,7 +139,24 @@ class Context:
         return headers
 
     def update(self, *args, **kwargs):
-        return self.__dict__.update(*args, **kwargs)
+        # `timelimit` is the wire format, a [hard, soft] pair. `time_limit`
+        # and `soft_time_limit` are what a task body wants to read off
+        # `self.request` (upstream 1fe2a08d0). Compare identity before and
+        # after rather than scanning the arguments: every input form
+        # dict.update accepts replaces the stored object if the key was there.
+        old_timelimit = self.__dict__.get("timelimit", _UNSET)
+
+        self.__dict__.update(*args, **kwargs)
+
+        new_timelimit = self.__dict__.get("timelimit", _UNSET)
+        if new_timelimit is not old_timelimit:
+            if isinstance(new_timelimit, (list, tuple)) and len(new_timelimit) >= 2:
+                self.time_limit, self.soft_time_limit = new_timelimit[0], new_timelimit[1]
+            else:
+                # timelimit was given but is None or malformed: clear whatever
+                # a previous update put there.
+                self.time_limit = None
+                self.soft_time_limit = None
 
     def clear(self):
         return self.__dict__.clear()
@@ -374,6 +396,8 @@ class Task:
         ("serializer", "task_serializer"),
         ("rate_limit", "task_default_rate_limit"),
         ("priority", "task_default_priority"),
+        ("time_limit", "task_time_limit"),
+        ("soft_time_limit", "task_soft_time_limit"),
         ("track_started", "task_track_started"),
         ("acks_late", "task_acks_late"),
         ("acks_on_failure_or_timeout", "task_acks_on_failure_or_timeout"),
@@ -1050,6 +1074,11 @@ class Task:
             "callbacks": maybe_list(link),
             "errbacks": maybe_list(link_error),
             "headers": headers,
+            "timelimit": (
+                None
+                if self.time_limit is None and self.soft_time_limit is None
+                else [self.time_limit, self.soft_time_limit]
+            ),
             "ignore_result": options.get("ignore_result", False),
             "delivery_info": {
                 "is_eager": True,
