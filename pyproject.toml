@@ -42,23 +42,32 @@ Source = "https://github.com/oliverhaas/kombu-asyncio"
 amqp = ["aio-pika>=9.0.0"]
 valkey = ["valkey>=6.1.0"]
 redis = ["redis>=7.1.0"]
+# Sync context-manager support (Connection.__enter__ / __exit__)
+sync = ["asgiref>=3.8.0"]
 # Serialization formats
 msgpack = ["msgpack"]
 yaml = ["PyYAML>=3.10"]
 
 [dependency-groups]
 dev = [
-  "mypy==1.20.0",
-  "pre-commit==4.5.1",
-  "pytest==9.0.3",
-  "pytest-asyncio==1.3.0",
+  # Optional-extra packages: installed so their transports/serializers are
+  # both type-checked and exercised by the suite instead of skipped.
+  "aio-pika==9.5.7",
+  "asgiref==3.11.0",
+  "brotli==1.2.0",
+  "msgpack==1.1.2",
+  "pyyaml==6.0.3",
+  "mypy==2.3.1",
+  "pre-commit==4.6.2",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
   "pytest-cov==7.1.0",
   "pytest-mock==3.15.1",
   "pytest-xdist==3.8.0",
-  "redis==7.4.0",
+  "redis==8.1.0",
   "valkey==6.1.1",
-  "ruff==0.15.10",
-  "ty==0.0.29",
+  "ruff==0.16.5",
+  "ty==0.0.75",
 ]
 
 [tool.hatch.build.targets.sdist]
@@ -88,6 +97,7 @@ ignore = [
   "BLE001",   # Blind except: needed for transport error handling and graceful degradation
   "C901",     # Complex structure: some messaging functions are inherently complex
   "COM812",   # Conflicts with ruff-format
+  "CPY001",   # Copyright notice per file. The LICENSE file covers the package.
   "D",        # Docstrings — will add incrementally
   "E501",     # Line length handled by config
   "EM",       # Exception strings inline are fine
@@ -103,6 +113,7 @@ ignore = [
   "PLC0415",  # Dynamic imports for optional dependencies (aio-pika, redis, etc.)
   "PLR0912",  # Too many branches: complex routing logic
   "PLR0913",  # Too many args — messaging APIs need many options
+  "PLR0917",  # Too many positional args, same reason as PLR0913 above
   "PLR1704",  # Redefining argument from local — context manager patterns
   "PLR2004",  # Magic values like 0xFFFF are protocol constants
   "PLW0603",  # Global statement: needed for module-level singletons
@@ -165,6 +176,18 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "valkey.*"
+ignore_missing_imports = true
+
+# Optional extras and stub-less third-party packages.
+[[tool.mypy.overrides]]
+module = [
+    "aiormq.*",
+    "asgiref.*",
+    "brotli.*",
+    "django.*",
+    "msgpack.*",
+    "yaml.*",
+]
 ignore_missing_imports = true
 
 [tool.ty.environment]
