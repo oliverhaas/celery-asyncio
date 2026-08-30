@@ -195,6 +195,96 @@ def _modelled_cost_per_million(r: dict, rss_mb_per_process: float) -> float:
     return (cpu_seconds * VCPU_S_RATE + mem_gb_seconds * GB_S_RATE) / r["n_completed"] * 1_000_000
 
 
+# (result label, framework, shape, slots, delivery). Two of these transports
+# never acknowledge, so a dying worker drops its in-flight tasks.
+FW_ROWS = [
+    ("celery-aio", "celery-asyncio", "1 proc, 4 loop x 25 + 1 sync", 101, "at-least-once"),
+    ("celery-aio-p4", "celery-asyncio", "4 proc x (1 loop x 25)", 100, "at-least-once"),
+    ("celery-thr", "celery (upstream)", "1 proc, 100 threads", 100, "at-least-once"),
+    ("celery-thr-p4", "celery (upstream)", "4 proc x 25 threads", 100, "at-least-once"),
+    ("taskiq", "taskiq (list)", "4 proc x 25 async", 100, "at-most-once"),
+    ("taskiq-stream", "taskiq (stream)", "4 proc x 25 async", 100, "at-least-once"),
+    ("dramatiq", "dramatiq", "4 proc x 25 threads", 100, "at-least-once"),
+    ("arq", "arq", "4 proc x 25 async", 100, "at-least-once"),
+    ("djangoq", "django-q2", "32 processes", 32, "at-most-once"),
+]
+
+FW_VENVS = {
+    "celery-asyncio": (".venv-async-314t", "celery_asyncio"),
+    "celery (upstream)": (".venv-classic-314t", "celery"),
+    "taskiq (list)": (".venv-taskiq-314t", "taskiq"),
+    "taskiq (stream)": (".venv-taskiq-314t", "taskiq"),
+    "dramatiq": (".venv-dramatiq-314t", "dramatiq"),
+    "arq": (".venv-arq-314t", "arq"),
+    "django-q2": (".venv-djangoq-314t", "django_q2"),
+}
+
+
+def framework_table() -> tuple[str, list[str]]:
+    """One row per framework configuration, best of its repeats.
+
+    Reporting the best run rather than a mean keeps every number in a row from
+    the same measurement; the spread column says how much that choice mattered.
+    """
+    body, notes = [], []
+    measured = []
+    for label, name, shape, slots, delivery in FW_ROWS:
+        files = sorted((ROOT / "results").glob(f"fw-{label}-[0-9].json"))
+        runs = [json.loads(f.read_text()) for f in files]
+        runs = [r for r in runs if r.get("harness", 0) >= HARNESS_MIN]
+        if not runs:
+            notes.append(f"`fw-{label}` missing")
+            continue
+        best = max(runs, key=lambda r: r["throughput_tps"])
+        tps = [r["throughput_tps"] for r in runs]
+        spread = (max(tps) - min(tps)) / (sum(tps) / len(tps)) * 100
+        measured.append((name, best))
+        s = best["summary"]
+        venv, dist = FW_VENVS[name]
+        found = sorted((ROOT / venv).glob(f"lib/*/site-packages/{dist}-*.dist-info"))
+        version = found[-1].name.removesuffix(".dist-info").rsplit("-", 1)[-1] if found else "?"
+        body.append(
+            [
+                name,
+                version,
+                shape,
+                str(slots),
+                delivery,
+                f"{best['throughput_tps']:.0f}",
+                f"{spread:.1f} %",
+                f"{s['peak_rss_mb']:.0f} MB",
+                f"{s['peak_pss_mb']:.0f} MB",
+                f"{s['mean_cpu_pct']:.0f} %",
+                f"{best['throughput_tps'] / (s['mean_cpu_pct'] / 100):.0f}",
+                str(len(runs)),
+            ],
+        )
+        if str(best.get("gil_enabled")) == "True":
+            notes.append(f"`fw-{label}` ran with the GIL **enabled**; not comparable")
+        if best["n_stranded"]:
+            notes.append(f"`fw-{label}` stranded {best['n_stranded']} task(s)")
+    body.sort(key=lambda row: -float(row[5]))
+    table = _table(
+        [
+            "framework",
+            "version",
+            "shape",
+            "slots",
+            "delivery",
+            "TPS",
+            "spread",
+            "peak RSS",
+            "peak PSS",
+            "mean CPU",
+            "tasks/core·s",
+            "runs",
+        ],
+        ["l", "l", "l", "r", "l", "r", "r", "r", "r", "r", "r", "r"],
+        body,
+    )
+    return table, notes
+
+
 def _table(header: list[str], aligns: list[str], rows: list[list[str]]) -> str:
     sep = ["---:" if a == "r" else "---" for a in aligns]
     lines = ["| " + " | ".join(header) + " |", "| " + " | ".join(sep) + " |"]
@@ -437,6 +527,7 @@ def _git_date() -> str:
 
 def render() -> str:
     existing = keeps(RESULTS_MD.read_text()) if RESULTS_MD.exists() else {}
+    fw_table, fw_notes = framework_table()
     all_rows = [r for p in PROFILES for r in load_profile(p, include_uvloop=True)]
     counts = {p: len(load_profile(p, include_uvloop=True)) for p in PROFILES}
     total = sum(counts.values())
@@ -516,6 +607,20 @@ def render() -> str:
         uvloop_table(),
         "",
         keep_block("obs-uvloop", existing, "_Not written yet for this run._"),
+        "",
+        "## Other Python task frameworks",
+        "",
+        "The mixed workload again, on the free-threaded build, against four other"
+        " queues. Every row runs the same task body from `fw_common.py`, the same"
+        " Redis, the same 4 pinned cores, results disabled, and counts completions"
+        " by having the task bump one Redis key, so the extra round-trip is charged"
+        " to every framework equally. Each row is that framework's fastest shape"
+        " out of `sweep_fw.sh`.",
+        "",
+        fw_table,
+        "",
+        *([f"- {note}" for note in fw_notes] + [""] if fw_notes else []),
+        keep_block("obs-frameworks", existing, "_Not written yet for this run._"),
         "",
         "## Cost per task (AWS Fargate, Linux/x86, us-east-1)",
         "",
