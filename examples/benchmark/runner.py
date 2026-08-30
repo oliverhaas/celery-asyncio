@@ -6,7 +6,7 @@ combination. It:
   1. Starts a celery worker as a subprocess pinned to CPUs 0,1 via taskset
      (so the worker sees a "2-CPU server" regardless of host).
   2. Waits for the worker to be ready (polls celery inspect ping).
-  3. Samples CPU% and RSS of the worker process tree every 0.5s.
+  3. Samples CPU%, RSS and PSS of the worker process tree every 0.5s.
   4. Publishes the workload, then polls AsyncResult.ready() for all tasks.
   5. On completion, stops the worker and writes a JSON results file.
 
@@ -52,6 +52,21 @@ def wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
                 time.sleep(0.1)
     msg = f"timed out connecting to {host}:{port}"
     raise RuntimeError(msg)
+
+
+def _pss(p: psutil.Process) -> int:
+    """Proportional set size, or RSS where the kernel does not report it.
+
+    Summing RSS over a prefork tree counts every copy-on-write page the parent
+    shares with its children once per child, which on a 100-process pool roughly
+    doubles the reported footprint. PSS divides each shared page by the number of
+    processes mapping it, so the total is what the pool actually costs the host.
+    Single-process pools are unaffected: with nothing shared, PSS tracks RSS.
+    """
+    try:
+        return p.memory_full_info().pss
+    except AttributeError, psutil.Error:
+        return p.memory_info().rss
 
 
 def sample_loop(proc: psutil.Process, samples: list[dict], stop: threading.Event, interval: float) -> None:
@@ -103,11 +118,13 @@ def sample_loop(proc: psutil.Process, samples: list[dict], stop: threading.Event
 
         cpu_total = 0.0
         rss_total = 0
+        pss_total = 0
         n = 0
         for p in procs:
             try:
                 cpu_total += p.cpu_percent(interval=None)
                 rss_total += p.memory_info().rss
+                pss_total += _pss(p)
                 n += 1
             except psutil.NoSuchProcess, psutil.AccessDenied:
                 pass
@@ -117,6 +134,7 @@ def sample_loop(proc: psutil.Process, samples: list[dict], stop: threading.Event
                 "t": round(time.monotonic() - t0, 3),
                 "cpu_pct": round(cpu_total, 1),
                 "rss_mb": round(rss_total / (1024 * 1024), 1),
+                "pss_mb": round(pss_total / (1024 * 1024), 1),
                 "n_procs": n,
             },
         )
@@ -352,7 +370,8 @@ def main() -> None:
         print(
             f"[runner] {args.config}: {summary['complete_seconds']}s, "
             f"{summary['throughput_tps']} tps, "
-            f"peak_rss={s['peak_rss_mb']} MB, mean_cpu={s['mean_cpu_pct']}%{stall_note}",
+            f"peak_rss={s['peak_rss_mb']} MB, peak_pss={s['peak_pss_mb']} MB, "
+            f"mean_cpu={s['mean_cpu_pct']}%{stall_note}",
             flush=True,
         )
 
@@ -375,15 +394,28 @@ def main() -> None:
 
 def _summary(samples: list[dict]) -> dict:
     if not samples:
-        return {"peak_rss_mb": 0, "mean_rss_mb": 0, "peak_cpu_pct": 0, "mean_cpu_pct": 0}
+        return {
+            "peak_rss_mb": 0,
+            "mean_rss_mb": 0,
+            "peak_pss_mb": 0,
+            "mean_pss_mb": 0,
+            "peak_cpu_pct": 0,
+            "mean_cpu_pct": 0,
+        }
     rss = [s["rss_mb"] for s in samples]
+    # Results predating PSS sampling have no such key; fall back so an old
+    # JSON still summarises instead of raising.
+    pss = [s.get("pss_mb", s["rss_mb"]) for s in samples]
     cpu = [s["cpu_pct"] for s in samples]
     return {
         "peak_rss_mb": max(rss),
         "mean_rss_mb": round(sum(rss) / len(rss), 1),
+        "peak_pss_mb": max(pss),
+        "mean_pss_mb": round(sum(pss) / len(pss), 1),
         "peak_cpu_pct": max(cpu),
         "mean_cpu_pct": round(sum(cpu) / len(cpu), 1),
         "n_samples": len(samples),
+        "peak_procs": max(s.get("n_procs", 1) for s in samples),
     }
 
 

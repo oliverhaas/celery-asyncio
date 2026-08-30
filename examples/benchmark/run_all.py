@@ -58,7 +58,8 @@ def matrix() -> list[Run]:
     celery-asyncio: 4 loop workers x 25 concurrency = 100 in-flight async slots.
     For the sync variant we route through 4 sync threads instead.
     For the mixed variant we split: 2 loop x 50 + 2 sync = 100 + 2 slots.
-    Classic celery: prefork-4 (4 procs) or threads-4 (4 GIL-bound threads).
+    Classic celery: prefork-N (N procs) or threads-N (N GIL-bound threads),
+    at N in {1, 4, 25, 100}.
     """
     runs: list[Run] = []
 
@@ -85,6 +86,13 @@ def matrix() -> list[Run]:
         runs.append(Run(f"classic-prefork1-{suffix}", venv, "prefork", 1, None, None, None, "sync"))
         runs.append(Run(f"classic-prefork4-{suffix}", venv, "prefork", 4, None, None, None, "sync"))
         runs.append(Run(f"classic-threads4-{suffix}", venv, "threads", 4, None, None, None, "sync"))
+        # Concurrency matched to the aio pool's 100 in-flight slots, which the
+        # 4-wide configs above cannot reach: 4 slots is 4 slots no matter how
+        # cheap they are. 25 is the midpoint, so memory can be read as a curve
+        # against concurrency rather than two isolated points.
+        for conc in (25, 100):
+            runs.append(Run(f"classic-prefork{conc}-{suffix}", venv, "prefork", conc, None, None, None, "sync"))
+            runs.append(Run(f"classic-threads{conc}-{suffix}", venv, "threads", conc, None, None, None, "sync"))
 
     return runs
 
@@ -126,6 +134,10 @@ def run_one(r: Run, workload: Path, tasks: int, profile: str) -> tuple[bool, Pat
         r.variant,
         "--run-timeout",
         "1800",
+        # Forking 100 children takes tens of seconds, well past the runner's
+        # 30 s default, and a worker that boots slowly is not a failed cell.
+        "--ready-timeout",
+        "120",
     ]
     if r.pool:
         cmd += ["--pool", r.pool]

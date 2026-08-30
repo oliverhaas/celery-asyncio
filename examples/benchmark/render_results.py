@@ -49,19 +49,30 @@ CANONICAL_CONFIGS = [
     "classic-prefork4-314t",
     "classic-threads4-314",
     "classic-threads4-314t",
+    "classic-prefork25-314",
+    "classic-prefork25-314t",
+    "classic-threads25-314",
+    "classic-threads25-314t",
+    "classic-prefork100-314",
+    "classic-prefork100-314t",
+    "classic-threads100-314",
+    "classic-threads100-314t",
 ]
 
+# Shapes for the aio layouts, whose labels do not encode a single number.
+# The classic ones are read off the label instead (see CLASSIC_RE), because
+# substring matching cannot tell `prefork1` from `prefork100`.
 WORKER_SHAPES = {
-    "prefork1": "prefork × 1",
-    "prefork4": "prefork × 4",
-    "threads4": "threads × 4",
     "async-l4c25": "4 loop × 25 + 1 sync",
     "sync-s4": "4 sync threads",
     "mixed-l2c50-s2": "2 loop × 50 + 2 sync",
 }
 
-# Number of OS processes a config runs, for the per-process memory model.
-PROCESS_COUNTS = {"prefork4": 4, "prefork1": 1}
+# Concurrent task slots each layout offers, for reading memory against
+# concurrency. The aio pools carry one spare sync thread each.
+AIO_SLOTS = {"async-l4c25": 101, "sync-s4": 4, "mixed-l2c50-s2": 102}
+
+CLASSIC_RE = re.compile(r"classic-(?P<pool>prefork|threads)(?P<n>\d+)-")
 
 KEEP_RE = re.compile(r"<!-- keep:(?P<name>[\w-]+) -->\n(?P<body>.*?)\n<!-- /keep -->", re.DOTALL)
 
@@ -110,18 +121,34 @@ def profile_notes(profile: str) -> list[str]:
     return _LOADED[profile][1]
 
 
+def _classic(config: str) -> tuple[str, int] | None:
+    m = CLASSIC_RE.search(config)
+    return (m.group("pool"), int(m.group("n"))) if m else None
+
+
 def _describe_workers(config: str) -> str:
+    if (c := _classic(config)) is not None:
+        return f"{c[0]} × {c[1]}"
     for key, shape in WORKER_SHAPES.items():
         if key in config:
             return shape
     return ""
 
 
-def _process_count(config: str) -> int:
-    for key, n in PROCESS_COUNTS.items():
+def _slots(config: str) -> int:
+    """Tasks the config can have in flight at once."""
+    if (c := _classic(config)) is not None:
+        return c[1]
+    for key, n in AIO_SLOTS.items():
         if key in config:
             return n
     return 1
+
+
+def _process_count(config: str) -> int:
+    """OS processes the config runs: prefork forks one child per slot, the rest are threads."""
+    c = _classic(config)
+    return c[1] if c is not None and c[0] == "prefork" else 1
 
 
 def _ideal_cost_per_million(r: dict) -> float:
@@ -173,9 +200,11 @@ def main_table(profile: str) -> str:
                 "3.14t" if r["config"].endswith("-314t") else "3.14",
                 r["variant"],
                 _describe_workers(r["config"]),
+                str(_slots(r["config"])),
                 f"{r['complete_seconds']:.1f} s",
                 f"{r['throughput_tps']:.1f}",
                 f"{s['peak_rss_mb']:.0f} MB",
+                _mb(s, "peak_pss_mb"),
                 f"{s['mean_rss_mb']:.0f} MB",
                 f"{s['peak_cpu_pct']:.0f} %",
                 f"{s['mean_cpu_pct']:.0f} %",
@@ -188,15 +217,53 @@ def main_table(profile: str) -> str:
             "py",
             "variant",
             "workers",
+            "slots",
             "wall",
             "TPS",
             "peak RSS",
+            "peak PSS",
             "mean RSS",
             "peak CPU",
             "mean CPU",
             "stranded",
         ],
-        ["l", "l", "l", "l", "r", "r", "r", "r", "r", "r", "r"],
+        ["l", "l", "l", "l", "r", "r", "r", "r", "r", "r", "r", "r", "r"],
+        body,
+    )
+
+
+def _mb(summary: dict, key: str) -> str:
+    """A memory figure, or a dash for runs recorded before that metric existed."""
+    return f"{summary[key]:.0f} MB" if key in summary else "—"
+
+
+def memory_table(profile: str) -> str:
+    """Memory against concurrency, which is the only way prefork and threads compare fairly.
+
+    RSS is summed over the process tree, so a prefork pool is charged for every
+    copy-on-write page once per child. PSS is not, and is the column to read
+    when comparing a 100-process pool against a single-process one.
+    """
+    rows = sorted(load_profile(profile), key=lambda r: (_slots(r["config"]), r["config"]))
+    body = []
+    for r in rows:
+        s = r["summary"]
+        slots = _slots(r["config"])
+        per_slot = f"{s['peak_pss_mb'] / slots:.1f} MB" if "peak_pss_mb" in s else "—"
+        body.append(
+            [
+                r["config"],
+                str(slots),
+                str(s.get("peak_procs", _process_count(r["config"]))),
+                f"{s['peak_rss_mb']:.0f} MB",
+                _mb(s, "peak_pss_mb"),
+                per_slot,
+                f"{r['throughput_tps']:.1f}",
+            ]
+        )
+    return _table(
+        ["config", "slots", "procs", "peak RSS", "peak PSS", "PSS / slot", "TPS"],
+        ["l", "r", "r", "r", "r", "r", "r"],
         body,
     )
 
@@ -384,6 +451,23 @@ def render() -> str:
         parts += ["", "### Observations", "", keep_block(f"obs-{profile}", existing, "_Not written yet for this run._")]
 
     parts += [
+        "",
+        "## Memory against concurrency",
+        "",
+        "Every pool here is sized by how many tasks it can hold in flight, so"
+        " memory is only comparable at equal slot counts. `peak RSS` sums the"
+        " process tree and therefore charges a prefork pool once per child for"
+        " pages its children share; `peak PSS` splits each shared page across"
+        " the processes mapping it and is the figure to compare against a"
+        " single-process pool.",
+        "",
+    ]
+    for profile in PROFILES:
+        parts += [f"### {profile}", "", memory_table(profile), ""]
+    parts += [
+        "### Observations",
+        "",
+        keep_block("obs-memory", existing, "_Not written yet for this run._"),
         "",
         "## Cost per task (AWS Fargate, Linux/x86, us-east-1)",
         "",
