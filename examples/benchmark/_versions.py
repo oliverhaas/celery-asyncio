@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent
 
 # The fork ships under its own distribution names and installs editable, so
 # both spellings are probed and the source tree's git revision is recorded
-# alongside: 6.0.0a3 does not move between runs, but the commit does.
+# alongside: an alpha version does not move between runs, but the commit does.
 DISTRIBUTIONS = {
     "celery": ("celery-asyncio", "celery"),
     "kombu": ("kombu-asyncio", "kombu"),
