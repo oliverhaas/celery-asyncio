@@ -1,6 +1,7 @@
 """Integration tests for pure asyncio Redis transport."""
 
 import asyncio
+import os
 from time import time
 from unittest.mock import patch
 
@@ -12,7 +13,7 @@ from kombu.utils.json import dumps as json_dumps
 
 pytestmark = pytest.mark.asyncio(loop_scope="function")
 
-REDIS_URL = "redis://localhost:6379"
+REDIS_URL = os.environ.get("KOMBU_TEST_REDIS_URL", "redis://localhost:6379")
 
 
 @pytest.fixture
@@ -657,7 +658,7 @@ class TestDeliveryTracking:
                 "content-encoding": "utf-8",
                 "properties": {},
                 "headers": {"task": "proj.add", "id": "the-id"},
-            }
+            },
         ).encode()
         async with Connection(REDIS_URL, transport_options={"delivery_limit": 1}) as conn:
             channel = await conn.channel()
