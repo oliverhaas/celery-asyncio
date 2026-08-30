@@ -29,6 +29,14 @@ app.conf.update(
 )
 
 
+if os.environ.get("FW_STATE_PATCH") == "plainset":
+    # A/B: the `requests` dict already holds a strong ref for the same lifetime.
+    from celery.worker import state as _worker_state
+
+    _worker_state.reserved_requests = set()
+    _worker_state.active_requests = set()
+
+
 @app.task(name="fw.sync")
 def sync_task(cpu_iters: int, io_seconds: float, mem_kb: int) -> int:
     return fw_common.work_sync(cpu_iters, io_seconds, mem_kb)
