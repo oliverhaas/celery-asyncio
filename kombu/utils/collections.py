@@ -34,7 +34,12 @@ class EqualityDict(dict):
     def __getitem__(self, key):
         h = eqhash(key)
         if h not in self:
-            return self.__missing__(key)
+            # dict has no __missing__ of its own; mirror its behaviour so a
+            # plain EqualityDict raises KeyError instead of AttributeError.
+            missing = getattr(self, "__missing__", None)
+            if missing is None:
+                raise KeyError(key)
+            return missing(key)
         return super().__getitem__(h)
 
     def __setitem__(self, key, value):
