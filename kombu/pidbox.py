@@ -220,11 +220,10 @@ class Mailbox:
         self.queue_ttl = queue_ttl
         self.queue_expires = queue_expires
         self.queue_durable = queue_durable
-        # Exclusive by default since RabbitMQ 4.3.0 refuses to redeclare a
-        # non-exclusive queue another connection already owns, which is exactly
-        # what two nodes sharing a hostname do (upstream kombu 9bece764).
-        # Defaulting off durability means asking only for a durable mailbox
-        # still gets one, rather than the ValueError below.
+        # RabbitMQ 4.3.0 refuses to redeclare a non-exclusive queue another
+        # connection owns, which is what two nodes sharing a hostname do
+        # (upstream kombu 9bece764). Keying off durability lets a caller ask
+        # for a durable mailbox without tripping the ValueError below.
         if queue_exclusive is None:
             queue_exclusive = not queue_durable
         elif queue_exclusive and queue_durable:
