@@ -17,10 +17,12 @@ logger = get_logger(__name__)
 # How often to check memory (seconds).
 _MEMORY_CHECK_INTERVAL = 5.0
 
-# Module-level state for throttled checks.
-_last_memory_check = 0.0
+# Most messages the inner drain may take before the outer loop gets a turn.
+# Without a cap a deep backlog starves the restart checks below.
+_MAX_DRAIN_BATCH = 1000
 
-# Guard: only register the atexit restart handler once.
+# Guard: only register the atexit restart handler once. Process-global on
+# purpose -- atexit is process-global, and a restart execs over this process.
 _restart_registered = False
 
 
@@ -103,8 +105,6 @@ def _check_restart_conditions(obj, consumer, pool) -> str | None:
     Returns a reason string if draining should be initiated (or restart
     triggered), or None if nothing to do.
     """
-    global _last_memory_check
-
     app = obj.app
     now = time.monotonic()
 
@@ -126,8 +126,8 @@ def _check_restart_conditions(obj, consumer, pool) -> str | None:
 
     # --- max_memory_per_child ---
     max_memory = app.conf.worker_max_memory_per_child
-    if max_memory and (now - _last_memory_check) >= _MEMORY_CHECK_INTERVAL:
-        _last_memory_check = now
+    if max_memory and (now - getattr(obj, "_last_memory_check", 0.0)) >= _MEMORY_CHECK_INTERVAL:
+        obj._last_memory_check = now
         rss = _get_rss_kib()
         if rss > max_memory:
             reason_parts.append(f"memory limit exceeded (RSS {rss} KiB > {max_memory} KiB)")
@@ -189,7 +189,7 @@ async def asynloop(
             # Got one, now drain remaining available messages non-blocking
             # to fill the concurrency pipeline.
             batch = 0
-            while blueprint.state == 1:
+            while blueprint.state == 1 and batch < _MAX_DRAIN_BATCH:
                 try:
                     await connection.drain_events(timeout=0)
                     batch += 1
@@ -201,7 +201,8 @@ async def asynloop(
                     break
         except TimeoutError:
             pass
-        except OSError:
+        except OSError as exc:
+            logger.warning("Broker connection lost while draining events: %r", exc)
             break
 
         # Check restart conditions (max_tasks, max_memory, stuck threads).
