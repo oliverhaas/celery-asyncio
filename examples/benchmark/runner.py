@@ -39,6 +39,10 @@ from typing import Any
 import _versions
 import psutil
 
+# Bumped whenever a change makes results incomparable with earlier ones.
+# 5: rss and pss read together from smaps_rollup, so PSS cannot exceed RSS.
+HARNESS = 5
+
 
 def wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
     deadline = time.monotonic() + timeout
@@ -54,19 +58,33 @@ def wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
     raise RuntimeError(msg)
 
 
-def _pss(p: psutil.Process) -> int:
-    """Proportional set size, or RSS where the kernel does not report it.
+def read_memory(p: psutil.Process) -> tuple[int, int]:
+    """RSS and PSS for one process, read from a single kernel snapshot.
 
     Summing RSS over a prefork tree counts every copy-on-write page the parent
     shares with its children once per child, which on a 100-process pool roughly
     doubles the reported footprint. PSS divides each shared page by the number of
     processes mapping it, so the total is what the pool actually costs the host.
-    Single-process pools are unaffected: with nothing shared, PSS tracks RSS.
+
+    smaps_rollup carries both figures in one file. psutil reads rss from statm
+    and pss from smaps, and a worker allocating 8 MiB task buffers moves between
+    those two reads, which produced samples whose PSS exceeded their own RSS.
     """
     try:
-        return p.memory_full_info().pss
-    except AttributeError, psutil.Error:
-        return p.memory_info().rss
+        rss = pss = 0
+        with open(f"/proc/{p.pid}/smaps_rollup") as fh:
+            for line in fh:
+                if line.startswith("Rss:"):
+                    rss = int(line.split()[1]) * 1024
+                elif line.startswith("Pss:"):
+                    pss = int(line.split()[1]) * 1024
+                    break
+        if rss:
+            return rss, pss or rss
+    except OSError, ValueError:
+        pass
+    info = p.memory_info()
+    return info.rss, info.rss
 
 
 def sample_loop(proc: psutil.Process, samples: list[dict], stop: threading.Event, interval: float) -> None:
@@ -123,8 +141,9 @@ def sample_loop(proc: psutil.Process, samples: list[dict], stop: threading.Event
         for p in procs:
             try:
                 cpu_total += p.cpu_percent(interval=None)
-                rss_total += p.memory_info().rss
-                pss_total += _pss(p)
+                rss, pss = read_memory(p)
+                rss_total += rss
+                pss_total += pss
                 n += 1
             except psutil.NoSuchProcess, psutil.AccessDenied:
                 pass
@@ -193,6 +212,74 @@ def _worker_loop(boot_path: Path) -> str | None:
     return None
 
 
+def run_steady_state(
+    app: Any,
+    tasks_spec: list[dict],
+    task_for: Any,
+    queue: str,
+    duration: float,
+    warmup: float,
+    backlog: int,
+) -> dict:
+    """Publish continuously and count completions over a fixed window.
+
+    A fixed task count gives the fastest configs the shortest measurement: at
+    1400 TPS ten thousand tasks are gone in seven seconds, while a four-slot
+    io-bound config spends twenty minutes on the identical work. Measuring for
+    a fixed time instead gives every config the same statistical weight.
+
+    Completions are counted with DBSIZE on the result backend, which is one
+    command regardless of how many tasks are outstanding. Polling ready() per
+    task would put the driver's own load in the middle of the measurement.
+    """
+    import redis
+
+    client = redis.Redis.from_url(app.conf.result_backend)
+    base = client.dbsize()
+    published = 0
+    n_spec = len(tasks_spec)
+    stop_pub = threading.Event()
+
+    def publisher() -> None:
+        nonlocal published
+        while not stop_pub.is_set():
+            if published - (client.dbsize() - base) < backlog:
+                for _ in range(500):
+                    spec = tasks_spec[published % n_spec]
+                    task_for(published).apply_async(kwargs=spec["kwargs"], queue=queue)
+                    published += 1
+            else:
+                stop_pub.wait(0.02)
+
+    pub_thread = threading.Thread(target=publisher, daemon=True)
+    t_start = time.monotonic()
+    pub_thread.start()
+
+    time.sleep(warmup)
+    done0, tw0 = client.dbsize() - base, time.monotonic()
+    time.sleep(duration)
+    done1, tw1 = client.dbsize() - base, time.monotonic()
+
+    stop_pub.set()
+    pub_thread.join(timeout=30)
+
+    completed = done1 - done0
+    window = tw1 - tw0
+    if completed <= 0:
+        msg = f"no tasks completed during the {duration}s window (worker dead or starved?)"
+        raise RuntimeError(msg)
+    return {
+        "window_start": tw0 - t_start,
+        "window_end": tw1 - t_start,
+        "window_seconds": round(window, 3),
+        "warmup_seconds": warmup,
+        "n_completed_in_window": completed,
+        "n_published": published,
+        "n_outstanding_at_end": published - (client.dbsize() - base),
+        "throughput_tps": round(completed / window, 1),
+    }
+
+
 def import_tasks() -> tuple[Any, Any, Any]:
     """Import the app + tasks from the bench directory."""
     sys.path.insert(0, str(Path(__file__).parent))
@@ -229,6 +316,14 @@ def main() -> None:
         help="if n_done has not advanced for this long AND >=99%% complete, declare done (kombu-asyncio leaks ~0.2%% of tasks).",
     )
     ap.add_argument("--queue", default="bench")
+    ap.add_argument(
+        "--duration",
+        type=float,
+        default=60.0,
+        help="seconds to measure after warmup; 0 drains a fixed task count instead",
+    )
+    ap.add_argument("--warmup", type=float, default=10.0, help="seconds to discard before measuring")
+    ap.add_argument("--backlog", type=int, default=4000, help="tasks kept outstanding so the pool never starves")
     args = ap.parse_args()
 
     workload_doc = json.loads(args.workload.read_text())
@@ -311,6 +406,59 @@ def main() -> None:
                 return mixed_async
             return mixed_async if idx % 2 == 0 else mixed_sync
 
+        if args.duration > 0:
+            measured = run_steady_state(
+                app,
+                tasks_spec,
+                task_for,
+                args.queue,
+                args.duration,
+                args.warmup,
+                args.backlog,
+            )
+            stop.set()
+            sampler.join(timeout=2.0)
+            # Warmup covers a pool still forking children and filling prefetch.
+            window = [s for s in samples if measured["window_start"] <= s["t"] <= measured["window_end"]]
+            summary = {
+                "config": args.config,
+                "harness": HARNESS,
+                "mode": "duration",
+                "variant": args.variant,
+                "pool": args.pool,
+                "concurrency": args.concurrency,
+                "loop_workers": args.loop_workers,
+                "loop_concurrency": args.loop_concurrency,
+                "sync_workers": args.sync_workers,
+                "python": sys.version.split()[0],
+                "executable": sys.executable,
+                "versions": _versions.probe(_versions.venv_for(args.config)),
+                "worker_loop": _worker_loop(boot_path),
+                "worker_bin": args.worker_bin,
+                "taskset": args.taskset,
+                "duration_seconds": args.duration,
+                "n_tasks": measured["n_completed_in_window"],
+                "n_completed": measured["n_completed_in_window"],
+                "n_stranded": 0,
+                "stalled": False,
+                "complete_seconds": measured["window_seconds"],
+                "throughput_tps": measured["throughput_tps"],
+                "steady_state": measured,
+                "sample_result": None,
+                "samples": window,
+                "summary": _summary(window),
+            }
+            args.output.write_text(json.dumps(summary, indent=2))
+            st = summary["summary"]
+            print(
+                f"[runner] {args.config}: {measured['n_completed_in_window']} tasks in "
+                f"{measured['window_seconds']}s, {summary['throughput_tps']} tps, "
+                f"peak_rss={st['peak_rss_mb']} MB, peak_pss={st['peak_pss_mb']} MB, "
+                f"mean_cpu={st['mean_cpu_pct']}%",
+                flush=True,
+            )
+            return
+
         t_publish_start = time.monotonic()
         results = []
         for i, t in enumerate(tasks_spec):
@@ -361,6 +509,8 @@ def main() -> None:
 
         summary = {
             "config": args.config,
+            "harness": HARNESS,
+            "mode": "fixed-count",
             "variant": args.variant,
             "pool": args.pool,
             "concurrency": args.concurrency,

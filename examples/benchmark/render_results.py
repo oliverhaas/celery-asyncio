@@ -59,6 +59,14 @@ CANONICAL_CONFIGS = [
     "classic-threads100-314t",
 ]
 
+# uvloop was measured at noise level on every profile, so it is a single
+# comparison of its own rather than a doubled row in every table.
+UVLOOP_BASE = "aio-async-l4c25"
+
+# Results from an older harness are not comparable and must not share a table.
+HARNESS_MIN = 5
+MAIN_CONFIGS = [c for c in CANONICAL_CONFIGS if "-uvloop-" not in c]
+
 # Shapes for the aio layouts, whose labels do not encode a single number.
 # The classic ones are read off the label instead (see CLASSIC_RE), because
 # substring matching cannot tell `prefork1` from `prefork100`.
@@ -93,26 +101,31 @@ def _read_profile(profile: str) -> tuple[list[dict], list[str]]:
     if not runs:
         return [], [f"no results at all ({len(missing)} configs missing)"]
 
-    # One profile is one workload driven against every config, so every run in it
-    # must cover the same n_tasks. A leftover from an earlier smoke run has fewer,
-    # finishes in a fraction of the wall-clock, and would otherwise sort straight
-    # to the top of the table as if it were the fastest config in the matrix.
-    # The full count is the anchor rather than the most common one: a profile the
-    # matrix is still working through can hold more stale files than fresh ones.
-    expected = max(Counter(r["n_tasks"] for r in runs))
+    # Mixing measurement methods in one table is how earlier revisions went wrong.
     notes = [
-        f"`{r['config']}` dropped: {r['n_tasks']} tasks, not {expected} (stale run)"
+        f"`{r['config']}` dropped: harness {r.get('harness', 0)}, not {HARNESS_MIN} (stale run)"
         for r in runs
-        if r["n_tasks"] != expected
+        if r.get("harness", 0) < HARNESS_MIN
+    ]
+    runs = [r for r in runs if r.get("harness", 0) >= HARNESS_MIN]
+    if not runs:
+        return [], notes + [f"no results from harness {HARNESS_MIN}"]
+
+    expected = max(Counter(r["duration_seconds"] for r in runs))
+    notes += [
+        f"`{r['config']}` dropped: {r['duration_seconds']}s window, not {expected}s"
+        for r in runs
+        if r["duration_seconds"] != expected
     ]
     notes += [f"`{config}` missing" for config in missing]
-    return [r for r in runs if r["n_tasks"] == expected], notes
+    return [r for r in runs if r["duration_seconds"] == expected], notes
 
 
-def load_profile(profile: str) -> list[dict]:
+def load_profile(profile: str, include_uvloop: bool = False) -> list[dict]:
     if profile not in _LOADED:
         _LOADED[profile] = _read_profile(profile)
-    return _LOADED[profile][0]
+    rows = _LOADED[profile][0]
+    return rows if include_uvloop else [r for r in rows if "-uvloop-" not in r["config"]]
 
 
 def profile_notes(profile: str) -> list[str]:
@@ -190,7 +203,7 @@ def _table(header: list[str], aligns: list[str], rows: list[list[str]]) -> str:
 
 
 def main_table(profile: str) -> str:
-    rows = sorted(load_profile(profile), key=lambda r: r["complete_seconds"])
+    rows = sorted(load_profile(profile), key=lambda r: -r["throughput_tps"])
     body = []
     for r in rows:
         s = r["summary"]
@@ -201,7 +214,7 @@ def main_table(profile: str) -> str:
                 r["variant"],
                 _describe_workers(r["config"]),
                 str(_slots(r["config"])),
-                f"{r['complete_seconds']:.1f} s",
+                f"{r['n_tasks']:,}".replace(",", " "),
                 f"{r['throughput_tps']:.1f}",
                 f"{s['peak_rss_mb']:.0f} MB",
                 _mb(s, "peak_pss_mb"),
@@ -209,7 +222,7 @@ def main_table(profile: str) -> str:
                 f"{s['peak_cpu_pct']:.0f} %",
                 f"{s['mean_cpu_pct']:.0f} %",
                 str(r["n_stranded"]),
-            ]
+            ],
         )
     return _table(
         [
@@ -218,7 +231,7 @@ def main_table(profile: str) -> str:
             "variant",
             "workers",
             "slots",
-            "wall",
+            "tasks",
             "TPS",
             "peak RSS",
             "peak PSS",
@@ -259,13 +272,36 @@ def memory_table(profile: str) -> str:
                 _mb(s, "peak_pss_mb"),
                 per_slot,
                 f"{r['throughput_tps']:.1f}",
-            ]
+            ],
         )
     return _table(
         ["config", "slots", "procs", "peak RSS", "peak PSS", "PSS / slot", "TPS"],
         ["l", "r", "r", "r", "r", "r", "r"],
         body,
     )
+
+
+def uvloop_table() -> str:
+    """stdlib selector loop against uvloop, same config, one row per build."""
+    by_config = {r["config"]: r for r in load_profile("mixed", include_uvloop=True)}
+    body = []
+    for suffix, label in (("-314", "3.14"), ("-314t", "3.14t")):
+        base = by_config.get(f"{UVLOOP_BASE}{suffix}")
+        uv = by_config.get(f"{UVLOOP_BASE}-uvloop{suffix}")
+        if not base or not uv:
+            continue
+        delta = (uv["throughput_tps"] - base["throughput_tps"]) / base["throughput_tps"] * 100
+        body.append(
+            [
+                label,
+                f"{base['throughput_tps']:.1f}",
+                f"{uv['throughput_tps']:.1f}",
+                f"{delta:+.1f} %",
+            ],
+        )
+    if not body:
+        return "_No uvloop pair measured._"
+    return _table(["python", "selector loop TPS", "uvloop TPS", "delta"], ["l", "r", "r", "r"], body)
 
 
 def cost_table(profile: str) -> str:
@@ -285,7 +321,7 @@ def cost_table(profile: str) -> str:
                 f"${_ideal_cost_per_million(r):.2f}",
                 f"${_provisioned_cost_per_million(r):.2f}",
                 f"{vcpu_slot:g} vCPU / {gb_slot:g} GB",
-            ]
+            ],
         )
     return _table(
         ["config", "TPS", "vCPU·s / 1 k", "MB·s / 1 k", "ideal $/1M", "prov $/1M", "Fargate slot"],
@@ -308,7 +344,7 @@ def modelled_table(profile: str, rss_mb: float) -> str:
                 f"{rss_mb * procs:,.0f} MB".replace(",", " "),
                 f"{r['throughput_tps']:.1f}",
                 f"${_modelled_cost_per_million(r, rss_mb):.3f}",
-            ]
+            ],
         )
     return _table(
         ["config", "procs", "RSS modelled", "TPS", f"ideal $/1M @ {rss_mb:.0f} MB"],
@@ -320,7 +356,7 @@ def modelled_table(profile: str, rss_mb: float) -> str:
 def crossover_table(profile: str, rss_values: tuple[int, ...] = (100, 800, 1500, 2500, 5000)) -> str:
     """Best prefork config against best aio config as per-process RSS grows."""
     rows = load_profile(profile)
-    prefork = [r for r in rows if "prefork4" in r["config"]]
+    prefork = [r for r in rows if "-prefork" in r["config"]]
     aio = [r for r in rows if r["config"].startswith("aio-")]
     if not prefork or not aio:
         return "_(not enough results to compute a crossover.)_"
@@ -382,7 +418,7 @@ def _profile_bullets() -> list[str]:
     lines.append(f"- `mixed`: balanced mix exercising all three dimensions: {mix}.")
     cpu = workload.CPU_ONLY_DEFAULT
     lines.append(
-        f"- `cpu-only`: 100 % cpu_heavy (`cpu_iters={cpu['cpu_iters']:,}`). Stresses the GIL.".replace(",", " ")
+        f"- `cpu-only`: 100 % cpu_heavy (`cpu_iters={cpu['cpu_iters']:,}`). Stresses the GIL.".replace(",", " "),
     )
     io = workload.IO_ONLY_DEFAULT
     lines.append(f"- `io-only`: 100 % I/O sleep (`io_seconds={io['io_seconds']}`). Stresses concurrency.")
@@ -391,15 +427,18 @@ def _profile_bullets() -> list[str]:
 
 def _git_date() -> str:
     proc = subprocess.run(
-        ["git", "-C", str(ROOT), "log", "-1", "--format=%cs"], capture_output=True, text=True, check=False
+        ["git", "-C", str(ROOT), "log", "-1", "--format=%cs"],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return proc.stdout.strip() or "unknown"
 
 
 def render() -> str:
     existing = keeps(RESULTS_MD.read_text()) if RESULTS_MD.exists() else {}
-    all_rows = [r for p in PROFILES for r in load_profile(p)]
-    counts = {p: len(load_profile(p)) for p in PROFILES}
+    all_rows = [r for p in PROFILES for r in load_profile(p, include_uvloop=True)]
+    counts = {p: len(load_profile(p, include_uvloop=True)) for p in PROFILES}
     total = sum(counts.values())
     stranded = sum(r["n_stranded"] for r in all_rows)
 
@@ -419,9 +458,7 @@ def render() -> str:
         "",
         *_profile_bullets(),
         "",
-        "Each profile runs against every config, under both the default CPython"
-        " selector loop and uvloop (`BENCH_UVLOOP=1`). Every worker logs its"
-        " actual loop class at startup, so activation is checked rather than assumed.",
+        "Every worker logs its actual event-loop class at startup, so which loop ran is checked rather than assumed.",
         "",
         "## Methodology notes",
         "",
@@ -435,12 +472,13 @@ def render() -> str:
     for profile in PROFILES:
         rows = load_profile(profile)
         notes = profile_notes(profile)
-        n_tasks = f"{rows[0]['n_tasks']:,}".replace(",", " ") if rows else ""
+        window = f"{rows[0]['duration_seconds']:.0f}" if rows else ""
         parts += [
             "",
             f"## Full results, {profile} workload",
             "",
-            f"{len(rows)} of {len(CANONICAL_CONFIGS)} configs, {n_tasks} tasks each, sorted by wall-clock."
+            f"{len(rows)} of {len(MAIN_CONFIGS)} configs, {window} s measured per config"
+            f" after a 10 s warmup, sorted by throughput."
             if rows
             else "No results yet.",
             "",
@@ -468,6 +506,16 @@ def render() -> str:
         "### Observations",
         "",
         keep_block("obs-memory", existing, "_Not written yet for this run._"),
+        "",
+        "## uvloop",
+        "",
+        f"`{UVLOOP_BASE}` on the mixed workload, with and without"
+        " `BENCH_UVLOOP=1`. This is the whole uvloop result; it is not carried"
+        " through the other tables.",
+        "",
+        uvloop_table(),
+        "",
+        keep_block("obs-uvloop", existing, "_Not written yet for this run._"),
         "",
         "## Cost per task (AWS Fargate, Linux/x86, us-east-1)",
         "",

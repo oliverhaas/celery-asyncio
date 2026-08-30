@@ -111,7 +111,7 @@ def flush_broker() -> None:
     )
 
 
-def run_one(r: Run, workload: Path, tasks: int, profile: str) -> tuple[bool, Path]:
+def run_one(r: Run, workload: Path, tasks: int, profile: str, duration: float, warmup: float) -> tuple[bool, Path]:
     venv = Venv.from_dir(r.venv)
     profile_slug = profile.replace("-", "_")
     if not venv.celery_bin.exists():
@@ -132,6 +132,10 @@ def run_one(r: Run, workload: Path, tasks: int, profile: str) -> tuple[bool, Pat
         str(venv.celery_bin),
         "--variant",
         r.variant,
+        "--duration",
+        str(duration),
+        "--warmup",
+        str(warmup),
         "--run-timeout",
         "1800",
         # Forking 100 children takes tens of seconds, well past the runner's
@@ -166,7 +170,9 @@ def run_one(r: Run, workload: Path, tasks: int, profile: str) -> tuple[bool, Pat
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tasks", type=int, default=10000)
+    ap.add_argument("--tasks", type=int, default=10000, help="size of the task spec pool the publisher cycles through")
+    ap.add_argument("--duration", type=float, default=60.0, help="measurement window per config, after warmup")
+    ap.add_argument("--warmup", type=float, default=10.0)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--only", nargs="*", help="run only configs whose label matches one of these substrings")
     ap.add_argument(
@@ -176,10 +182,16 @@ def main() -> None:
         help="workload profile: 'mixed' (default), 'cpu-only' (showcase GIL impact on threads), 'io-only' (showcase asyncio concurrency)",
     )
     ap.add_argument(
-        "--cpu-iters", type=int, default=None, help="override cpu_iters for cpu-only profile (default 20000 ≈ 5 ms)"
+        "--cpu-iters",
+        type=int,
+        default=None,
+        help="override cpu_iters for cpu-only profile (default 20000 ≈ 5 ms)",
     )
     ap.add_argument(
-        "--io-seconds", type=float, default=None, help="override io_seconds for io-only profile (default 0.1 s)"
+        "--io-seconds",
+        type=float,
+        default=None,
+        help="override io_seconds for io-only profile (default 0.1 s)",
     )
     args = ap.parse_args()
 
@@ -210,17 +222,17 @@ def main() -> None:
     if args.only:
         runs = [r for r in runs if any(sub in r.label for sub in args.only)]
 
-    print(f"[run_all] running {len(runs)} configs with {args.tasks} tasks each")
+    print(f"[run_all] running {len(runs)} configs, {args.duration}s measured after {args.warmup}s warmup", flush=True)
     results: list[dict] = []
     for r in runs:
         flush_broker()
-        ok, out = run_one(r, workload, args.tasks, args.profile)
+        ok, out = run_one(r, workload, args.tasks, args.profile, args.duration, args.warmup)
         if ok and out.exists():
             results.append(json.loads(out.read_text()))
 
     # Print summary table.
     print("\n" + "=" * 110)
-    print(f"SUMMARY ({args.profile} profile, {args.tasks} tasks)")
+    print(f"SUMMARY ({args.profile} profile, {args.duration}s window)")
     print("=" * 110)
     print(f"{'config':<32} {'variant':<8} {'time':>8} {'tps':>8} {'peak_rss':>10} {'mean_cpu':>10} {'stranded':>10}")
     print("-" * 110)
