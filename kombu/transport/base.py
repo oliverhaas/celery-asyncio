@@ -174,6 +174,13 @@ class Channel(ABC):
         """
         ...
 
+    async def basic_qos(self, prefetch_count: int = 0) -> None:  # noqa: B027
+        """Set the channel prefetch count.
+
+        Concrete on purpose rather than abstract: a transport with nothing to
+        prefetch should not have to implement it.
+        """
+
     # Async context manager support
 
     async def __aenter__(self):

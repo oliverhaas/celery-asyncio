@@ -4,6 +4,7 @@ All Redis operations are mocked — no Redis server required.
 """
 
 import asyncio
+from collections import deque
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,6 +18,7 @@ from kombu.transport.valkey_redis import (
     DEFAULT_REQUEUE_CHECK_INTERVAL,
     DEFAULT_VISIBILITY_TIMEOUT,
     DROPPED_REPORT_LIMIT,
+    MAX_CONSUME_BATCH,
     MESSAGE_KEY_PREFIX,
     MESSAGES_INDEX_PREFIX,
     MIN_BINDING_LIFETIME,
@@ -2610,8 +2612,9 @@ class TestFastConsumeErrors:
         assert args[1] == MESSAGE_KEY_PREFIX
         # args[2] = new_queue_at (float string)
         assert args[3] == MESSAGES_INDEX_PREFIX
-        assert args[4] == "q1"
-        assert args[5] == "q2"
+        assert args[4] == "1"  # batch size, no prefetch set
+        assert args[5] == "q1"
+        assert args[6] == "q2"
 
 
 # ---------------------------------------------------------------------------
@@ -2928,3 +2931,93 @@ class TestRecoverEdgeCases:
         await ch.basic_recover(requeue=True)
         # Only tag1 should be requeued, not ftag1
         ch._requeue_by_tag.assert_called_once_with("tag1", leftmost=True)
+
+
+class TestPrefetchBatching:
+    """basic_qos turns one consume round-trip into a batch that is handed out
+    from a local buffer, so N messages cost one script call instead of N.
+    """
+
+    def _channel(self):
+        ch = Channel.__new__(Channel)
+        ch._global_keyprefix = ""
+        ch._visibility_timeout = 100
+        ch._requeue_check_interval = 10
+        ch._no_ack_queues = set()
+        ch._delivered = {}
+        ch._prefetch_count = 0
+        ch._prefetch_buffer = deque()
+        ch._get_consume_script = AsyncMock()
+        ch._deliver_claimed = AsyncMock(return_value=True)
+        ch._queue_key = lambda q: f"queue:{q}"
+        return ch
+
+    @pytest.mark.asyncio
+    async def test_batch_size_follows_prefetch_count(self):
+        ch = self._channel()
+        script = AsyncMock(return_value=None)
+        ch._get_consume_script.return_value = script
+
+        await ch.basic_qos(prefetch_count=8)
+        await ch._fast_consume(["q1"])
+
+        assert script.call_args[1]["args"][4] == "8"
+
+    @pytest.mark.asyncio
+    async def test_unacked_messages_do_not_shrink_the_batch(self):
+        """The count bounds the buffer, not the unacked set: a batch is fetched
+        only once the previous one has been handed out, so subtracting what the
+        consumer still owes would throttle batching to nothing under load.
+        """
+        ch = self._channel()
+        ch._delivered = {f"t{i}": ("q1", None) for i in range(9)}
+        script = AsyncMock(return_value=None)
+        ch._get_consume_script.return_value = script
+
+        await ch.basic_qos(prefetch_count=5)
+        await ch._fast_consume(["q1"])
+
+        assert script.call_args[1]["args"][4] == "5"
+
+    @pytest.mark.asyncio
+    async def test_batch_size_is_capped(self):
+        ch = self._channel()
+        script = AsyncMock(return_value=None)
+        ch._get_consume_script.return_value = script
+
+        await ch.basic_qos(prefetch_count=10_000)
+        await ch._fast_consume(["q1"])
+
+        assert script.call_args[1]["args"][4] == str(MAX_CONSUME_BATCH)
+
+    @pytest.mark.asyncio
+    async def test_extra_messages_are_buffered_then_drained(self):
+        ch = self._channel()
+        script = AsyncMock(
+            return_value=["q1", "t1", '{"a": 1}', "1", "q1", "t2", '{"a": 2}', "1"],
+        )
+        ch._get_consume_script.return_value = script
+
+        await ch.basic_qos(prefetch_count=4)
+        assert await ch._fast_consume(["q1"])
+
+        assert ch._deliver_claimed.await_args[0][1] == "t1"
+        assert len(ch._prefetch_buffer) == 1
+
+        assert await ch._fast_consume(["q1"])
+        assert ch._deliver_claimed.await_args[0][1] == "t2"
+        assert not ch._prefetch_buffer
+        assert script.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_buffer_is_restored_for_the_cancelled_queue_only(self):
+        ch = self._channel()
+        ch._prefetch_buffer.extend(
+            [("q1", "t1", "{}", 1), ("q2", "t2", "{}", 1)],
+        )
+        ch._restore_to_queue = AsyncMock()
+
+        await ch._restore_prefetch_buffer("q1")
+
+        ch._restore_to_queue.assert_awaited_once_with("q1", "t1")
+        assert list(ch._prefetch_buffer) == [("q2", "t2", "{}", 1)]

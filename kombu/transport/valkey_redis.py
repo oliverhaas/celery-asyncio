@@ -66,6 +66,7 @@ import base64
 import re
 import urllib.parse
 import uuid
+from collections import deque
 from pathlib import Path
 from time import time
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -124,6 +125,9 @@ DEFAULT_HEALTH_CHECK_INTERVAL = 25
 DEFAULT_STREAM_MAXLEN = 10000
 DEFAULT_REQUEUE_CHECK_INTERVAL = 60
 DEFAULT_REQUEUE_BATCH_LIMIT = 1000
+# Ceiling on one consume batch, so a large prefetch_count cannot make a single
+# script run hold the Redis event loop for long.
+MAX_CONSUME_BATCH = 100
 DEFAULT_MESSAGE_TTL = -1
 MIN_QUEUE_EXPIRES = 10_000
 # Fallback x-expires in seconds for queues declared without one. None keeps
@@ -310,6 +314,8 @@ class Channel:
         # Message tracking
         self._delivered: dict[str, tuple[str, Message]] = {}  # tag → (queue, msg)
         self._fanout_tags: set[str] = set()
+        self._prefetch_count = 0
+        self._prefetch_buffer: deque[tuple[str, str, str, int]] = deque()
         self._delivery_tag_counter = 0
 
         # Per-queue TTL state
@@ -1015,6 +1021,8 @@ class Channel:
             if not any(q == queue and na for q, _cb, na in self._consumers.values()):
                 self._no_ack_queues.discard(queue)
             self.active_fanout_queues.discard(queue)
+            if not any(q == queue for q, _cb, _na in self._consumers.values()):
+                await self._restore_prefetch_buffer(queue)
             if queue in self._fanout_queues:
                 exchange, _ = self._fanout_queues[queue]
                 self._fanout_to_queue.pop(exchange, None)
@@ -1173,8 +1181,29 @@ class Channel:
             self._consume_fast_mode = True  # Switch back to FAST
         return delivered
 
+    async def basic_qos(self, prefetch_count: int = 0) -> None:
+        """Set how many messages one consume round-trip may claim.
+
+        Redis cannot push, so this is a fetch batch size rather than AMQP's cap
+        on unacknowledged messages: the consume script claims up to this many
+        messages at once and they are handed out from a local buffer, saving a
+        round-trip each. It does not bound how many messages go unacknowledged,
+        which stays a matter for the consumer; what it bounds is the buffer,
+        since a batch is fetched only once the previous one has been handed out.
+        Claimed messages carry their visibility deadline from the moment the
+        script pops them, so a worker that dies holding a full buffer loses
+        nothing.
+        """
+        self._prefetch_count = max(int(prefetch_count), 0)
+
     async def _fast_consume(self, queues: list[str]) -> bool:
         """FAST mode: atomic Lua script for non-blocking consume."""
+        # Looping, so one undeliverable message cannot strand the rest behind it.
+        while self._prefetch_buffer:
+            if await self._deliver_claimed(*self._prefetch_buffer.popleft()):
+                return True
+
+        batch = max(min(self._prefetch_count, MAX_CONSUME_BATCH), 1)
         queue_keys = [self._queue_key(q) for q in queues]
         new_queue_at = time() + self._visibility_timeout + self._requeue_check_interval
 
@@ -1187,6 +1216,7 @@ class Channel:
                     MESSAGE_KEY_PREFIX,
                     str(new_queue_at),
                     MESSAGES_INDEX_PREFIX,
+                    str(batch),
                     *queues,
                     *("1" if q in self._no_ack_queues else "0" for q in queues),
                 ],
@@ -1198,7 +1228,17 @@ class Channel:
         if not result:
             return False
 
-        queue_name, delivery_tag, payload_json, delivery_count = self._parse_consume_result(result)
+        claimed = [self._parse_consume_result(result[i : i + 4]) for i in range(0, len(result), 4)]
+        self._prefetch_buffer.extend(claimed[1:])
+        return await self._deliver_claimed(*claimed[0])
+
+    async def _deliver_claimed(
+        self,
+        queue_name: str,
+        delivery_tag: str,
+        payload_json: str,
+        delivery_count: int,
+    ) -> bool:
         payload = json_loads(payload_json)
         message = self._create_message(queue_name, payload, delivery_tag, delivery_count)
         try:
@@ -1582,7 +1622,19 @@ class Channel:
                     args=[delivery_tag],
                 )
 
+    async def _restore_prefetch_buffer(self, queue: str | None = None) -> None:
+        """Put back messages claimed for this channel but never handed out."""
+        keep: deque[tuple[str, str, str, int]] = deque()
+        while self._prefetch_buffer:
+            claimed = self._prefetch_buffer.popleft()
+            if queue is not None and claimed[0] != queue:
+                keep.append(claimed)
+                continue
+            await self._restore_to_queue(claimed[0], claimed[1])
+        self._prefetch_buffer = keep
+
     async def basic_recover(self, requeue: bool = True) -> None:
+        await self._restore_prefetch_buffer()
         if requeue:
             for delivery_tag in list(self._delivered):
                 if delivery_tag not in self._fanout_tags:
@@ -1864,6 +1916,7 @@ class Channel:
                     MESSAGE_KEY_PREFIX,
                     str(new_queue_at),
                     MESSAGES_INDEX_PREFIX,
+                    "1",
                     queue,
                     "1" if no_ack else "0",
                 ],
@@ -1933,6 +1986,8 @@ class Channel:
                     await periodic_task
                 except (asyncio.CancelledError, Exception):  # fmt: skip
                     pass
+
+        await self._restore_prefetch_buffer()
 
         # Requeue unacked messages. The snapshot is iterated across awaits and
         # basic_ack runs on the same loop, so a tag can be acked mid-drain;

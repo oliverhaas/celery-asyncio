@@ -225,7 +225,7 @@ class Consumer:
         callbacks: List of callbacks to call when message is received.
         no_ack: Don't require message acknowledgment. Default is False.
         accept: List of accepted content types.
-        prefetch_count: Number of messages to prefetch. Not implemented yet.
+        prefetch_count: Number of messages to prefetch. Applied by `qos()`.
 
     Example:
         async with connection.Consumer([queue], callbacks=[on_message]) as consumer:
@@ -338,6 +338,11 @@ class Consumer:
             for tag in self._consumer_tags:
                 await self._channel.basic_cancel(tag)
         self._consumer_tags.clear()
+
+    async def qos(self, prefetch_count: int = 0) -> None:
+        """Set the prefetch count on this consumer's channel."""
+        channel = await self._ensure_channel()
+        await channel.basic_qos(prefetch_count=prefetch_count)
 
     async def recover(self, requeue: bool = True) -> None:
         """Recover unacknowledged messages."""

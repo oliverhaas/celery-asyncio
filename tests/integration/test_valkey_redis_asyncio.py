@@ -761,3 +761,65 @@ class TestConsumerCancellation:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestPrefetchBatching:
+    """One consume round-trip should claim a whole batch once basic_qos is set."""
+
+    async def _publish(self, channel, queue_name, count):
+        await channel.queue_purge(queue_name)
+        for i in range(count):
+            body = json_dumps({"n": i}).encode()
+            await channel.publish(
+                b'{"body": ' + body + b', "content-type": "application/json", '
+                b'"content-encoding": "utf-8", "properties": {}, "headers": {}}',
+                exchange="",
+                routing_key=queue_name,
+            )
+
+    async def test_one_script_call_serves_the_whole_batch(self, channel):
+        queue_name = "test_prefetch_batch"
+        await self._publish(channel, queue_name, 5)
+
+        delivered = []
+        await channel.basic_consume(
+            queue_name,
+            no_ack=True,
+            callback=lambda body, message: delivered.append(message),
+        )
+        await channel.basic_qos(prefetch_count=5)
+
+        script = await channel._get_consume_script()
+        calls = 0
+        original = script.__call__
+
+        async def counting(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return await original(*args, **kwargs)
+
+        with patch.object(channel, "_get_consume_script", return_value=counting):
+            for _ in range(5):
+                assert await channel._fast_consume([queue_name])
+
+        assert len(delivered) == 5
+        assert calls == 1
+
+    async def test_a_cancel_puts_the_unread_batch_back(self, channel):
+        queue_name = "test_prefetch_cancel"
+        await self._publish(channel, queue_name, 4)
+
+        delivered = []
+        tag = await channel.basic_consume(
+            queue_name,
+            no_ack=False,
+            callback=lambda body, message: delivered.append(message),
+        )
+        await channel.basic_qos(prefetch_count=4)
+        assert await channel._fast_consume([queue_name])
+        assert len(channel._prefetch_buffer) == 3
+
+        await channel.basic_cancel(tag)
+
+        assert not channel._prefetch_buffer
+        assert await channel.client.zcard(channel._queue_key(queue_name)) == 3

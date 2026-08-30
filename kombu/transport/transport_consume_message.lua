@@ -9,17 +9,21 @@
 -- KEYS: [queue:q1, queue:q2, ...] — queue sorted set keys (with global_keyprefix applied)
 -- ARGV: [1] = global_keyprefix, [2] = message_key_prefix,
 --       [3] = new_queue_at (now + visibility_timeout, as string number),
---       [4] = messages_index_prefix,
---       [5..4+N] = queue_name_1, queue_name_2, ... (raw names, in KEYS order)
---       [5+N..4+2N] = no_ack flag ('1'/'0') per queue, same order as KEYS
--- Returns: {queue_name, delivery_tag, payload, delivery_count} or nil
+--       [4] = messages_index_prefix, [5] = max messages to return,
+--       [6..5+N] = queue_name_1, queue_name_2, ... (raw names, in KEYS order)
+--       [6+N..5+2N] = no_ack flag ('1'/'0') per queue, same order as KEYS
+-- Returns: a flat {queue_name, delivery_tag, payload, delivery_count, ...} of
+-- up to `max messages` groups, or nil when nothing was available at all.
 
 local global_keyprefix = ARGV[1]
 local message_key_prefix = ARGV[2]
 local new_queue_at = tonumber(ARGV[3])
 local messages_index_prefix = ARGV[4]
+local wanted = tonumber(ARGV[5])
 local num_queues = #KEYS
-local max_attempts = 100
+local max_attempts = 100 + wanted
+local out = {}
+local found = 0
 
 for _attempt = 1, max_attempts do
     -- Find the queue with the lowest minimum score (highest priority message)
@@ -37,17 +41,17 @@ for _attempt = 1, max_attempts do
     end
 
     if not best_idx then
-        return nil  -- All queues empty
+        break  -- All queues empty
     end
 
     -- Atomically pop from the best queue
     local result = redis.call('ZPOPMIN', KEYS[best_idx], 1)
     if #result == 0 then
-        return nil  -- Shouldn't happen inside Lua, but be safe
+        break  -- Shouldn't happen inside Lua, but be safe
     end
 
     local tag = result[1]
-    local queue_name = ARGV[4 + best_idx]
+    local queue_name = ARGV[5 + best_idx]
 
     -- Fetch message data
     local message_key = global_keyprefix .. message_key_prefix .. tag
@@ -55,7 +59,7 @@ for _attempt = 1, max_attempts do
 
     if fields[1] then
         local index_key = global_keyprefix .. messages_index_prefix .. queue_name
-        if ARGV[4 + num_queues + best_idx] == '1' then
+        if ARGV[5 + num_queues + best_idx] == '1' then
             -- no_ack consumer: the message is finished the moment it is
             -- delivered. Dequeue it here instead of giving it a visibility
             -- deadline nobody will ever ack away, which would leak the index
@@ -70,7 +74,14 @@ for _attempt = 1, max_attempts do
             -- the hash exists and the whole script is atomic.
             redis.call('ZADD', index_key, new_queue_at, tag)
         end
-        return {queue_name, tag, fields[1], fields[2] or '0'}
+        out[#out + 1] = queue_name
+        out[#out + 1] = tag
+        out[#out + 1] = fields[1]
+        out[#out + 1] = fields[2] or '0'
+        found = found + 1
+        if found >= wanted then
+            break
+        end
     else
         -- Message hash expired (x-message-ttl): clean up index and try next
         local index_key = global_keyprefix .. messages_index_prefix .. queue_name
@@ -78,4 +89,8 @@ for _attempt = 1, max_attempts do
     end
 end
 
-return nil  -- Max attempts reached (too many expired messages)
+if found == 0 then
+    return nil  -- Nothing available
+end
+
+return out
