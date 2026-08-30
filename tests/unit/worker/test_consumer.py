@@ -106,7 +106,13 @@ class test_Consumer(ConsumerTestCase):
     )
     @patch("celery.worker.consumer.consumer.active_requests", new_callable=set)
     async def test_restore_prefetch_count_on_restart(
-        self, active_requests_mock, active_requests_count, expected_initial, expected_maximum, enabled, subtests
+        self,
+        active_requests_mock,
+        active_requests_count,
+        expected_initial,
+        expected_maximum,
+        enabled,
+        subtests,
     ):
         self.app.conf.worker_enable_prefetch_count_reduction = enabled
 
@@ -515,7 +521,11 @@ class test_Consumer(ConsumerTestCase):
     @pytest.mark.parametrize("broker_connection_retry_on_startup", [None, False])
     @pytest.mark.parametrize("first_connection_attempt", [True, False])
     async def test_ensure_connected(
-        self, subtests, broker_connection_retry, broker_connection_retry_on_startup, first_connection_attempt
+        self,
+        subtests,
+        broker_connection_retry,
+        broker_connection_retry_on_startup,
+        first_connection_attempt,
     ):
         c = self.get_consumer()
         c.first_connection_attempt = first_connection_attempt
@@ -547,7 +557,11 @@ class test_Consumer(ConsumerTestCase):
 )
 class test_Consumer_WorkerShutdown(ConsumerTestCase):
     async def test_start_raises_connection_error(
-        self, broker_connection_retry_on_startup, is_connection_loss_on_startup, caplog, subtests
+        self,
+        broker_connection_retry_on_startup,
+        is_connection_loss_on_startup,
+        caplog,
+        subtests,
     ):
         c = self.get_consumer()
         c.first_connection_attempt = bool(is_connection_loss_on_startup)
@@ -721,6 +735,18 @@ class test_Tasks:
         assert c.qos is not None
         assert c.qos.value == 10
 
+    async def test_start_applies_the_prefetch_count_to_the_channel(self):
+        c = self.c
+        c.update_strategies = Mock()
+        c.on_decode_error = Mock()
+        c.initial_prefetch_count = 10
+        c.app.amqp.TaskConsumer = Mock()
+        c.app.amqp.TaskConsumer.return_value.qos = AsyncMock()
+
+        await Tasks(c).start(c)
+
+        c.task_consumer.qos.assert_awaited_once_with(prefetch_count=10)
+
 
 class test_Mingle:
     async def test_start_no_replies(self):
@@ -757,7 +783,7 @@ class test_Mingle:
                 "C@example.com": {
                     "error": "unknown method",
                 },
-            }
+            },
         )
 
         our_revoked = c.controller.state.revoked = LimitedSet()
@@ -1070,7 +1096,7 @@ class test_Connection:
                     "amqp://user:secret1@host-1:5672//",
                     "amqp://user:secret2@host-2:5672//",
                 ],
-            }
+            },
         )
 
         broker = step.info(c)["broker"]

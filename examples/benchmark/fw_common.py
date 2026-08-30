@@ -31,11 +31,13 @@ print(
 )
 
 import bench_counts
+import bench_dprof
 import bench_profile
 
 _label = os.environ.get("BENCH_PROFILE_LABEL", "worker")
 bench_profile.maybe_start(_label)
 bench_counts.maybe_start(_label)
+bench_dprof.maybe_start(_label)
 
 _CPU_INNER = 50
 

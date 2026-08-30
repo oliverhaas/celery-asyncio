@@ -372,8 +372,8 @@ The mixed workload again, on the free-threaded build, against four other queues.
 | --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | taskiq (stream) | 0.12.6 | 4 proc x 25 async | 100 | at-least-once | 1788 | 5.2 % | 582 MB | 427 MB | 398 % | 449 | 2 |
 | taskiq (list) | 0.12.6 | 4 proc x 25 async | 100 | at-most-once | 1769 | 0.5 % | 638 MB | 472 MB | 396 % | 446 | 2 |
+| celery-asyncio | 6.0.0a3 | 1 proc, 4 loop x 25 + 1 sync | 101 | at-least-once | 1655 | 5.0 % | 397 MB | 388 MB | 384 % | 431 | 4 |
 | dramatiq | 2.2.0 | 4 proc x 25 threads | 100 | at-least-once | 1593 | 0.5 % | 986 MB | 886 MB | 400 % | 399 | 2 |
-| celery-asyncio | 6.0.0a3 | 1 proc, 4 loop x 25 + 1 sync | 101 | at-least-once | 1504 | 0.1 % | 402 MB | 394 MB | 382 % | 394 | 2 |
 | celery-asyncio | 6.0.0a3 | 4 proc x (1 loop x 25) | 100 | at-least-once | 1412 | 0.6 % | 659 MB | 611 MB | 394 % | 358 | 2 |
 | celery (upstream) | 5.6.3 | 4 proc x 25 threads | 100 | at-least-once | 1397 | 0.1 % | 879 MB | 830 MB | 398 % | 351 | 2 |
 | celery (upstream) | 5.6.3 | 1 proc, 100 threads | 100 | at-least-once | 1193 | 0.6 % | 495 MB | 487 MB | 339 % | 352 | 2 |
@@ -415,13 +415,12 @@ of the stream runs. Whatever makes taskiq fast, it is not the missing ack.
 
 **What it is instead** shows up in the tasks/core-second column, which divides
 out the fact that some rows cannot fill four cores. taskiq gets 449 tasks per
-busy core-second, celery-asyncio 394, dramatiq 399, arq 362, upstream celery
-351. taskiq is roughly 14% cheaper per task than celery-asyncio at the same
-guarantee. That gap is per-task protocol overhead, not scheduling: celery's
-message path carries task events, the revoke set, ETA and countdown handling,
-retry state and the group/chord primitives, and taskiq's carries a task name and
-kwargs. This has not been profiled, so treat the attribution as a hypothesis and
-the 14% as the measurement.
+busy core-second, celery-asyncio 431, dramatiq 399, arq 362, upstream celery
+351. The first version of this table read 394 for celery-asyncio and called the
+gap per-task protocol overhead, on the reasoning that celery carries task
+events, the revoke set, ETA and countdown handling, retry state and the
+group/chord primitives while taskiq carries a task name and kwargs. That guess
+was wrong, and profiling said so; see "Where the per-task cost goes" below.
 
 django-q2's 401 tasks/core-second alongside 235% CPU is the opposite shape: the
 per-task cost is fine, but 32 processes still cannot fill four cores, and its
@@ -447,6 +446,91 @@ Everything here runs with results disabled, because dramatiq stores none by
 default and that is each framework's fastest configuration. Completions are
 counted by having the task itself `INCR` one Redis key, which adds one
 round-trip per task to every row equally.
+<!-- /keep -->
+
+## Where the per-task cost goes
+
+<!-- keep:obs-profile -->
+The framework table left taskiq about 14% cheaper per task than celery-asyncio
+and a guess about why. The guess was wrong. What follows is how it was measured
+and what the answer turned out to be, because two of the three methods gave
+confident wrong answers first.
+
+**A sampling profiler is not enough.** `bench_profile.py` samples every thread
+and buckets by package, which is sound. Its leaf attribution is not. It put 6.3%
+of on-CPU time in `_weakrefset._remove`, from the `WeakSet` that
+`celery/worker/state.py` keeps of reserved and active requests. A microbenchmark
+priced those callbacks at 0.47 us per task, and swapping both sets for plain
+sets measured 1482.9 TPS against a 1503.7 baseline, which is nothing. It made
+the same kind of claim about `json/decoder.py:__init__`, roughly 21 us per task
+against a microbenchmark's 0.13 us. Read that profiler's package split; do not
+read its top frames.
+
+**A ceiling first, then the gap.** `bench_ceiling.py` runs the same task bodies
+in the same pool shape with no framework at all, and costs 2.033 core-ms per
+task. celery-asyncio cost 2.51 and taskiq 2.18, so the thing to explain was
+about 480 us per task against taskiq's 150 us.
+
+**Counting beats guessing.** `bench_counts.py` uses `sys.monitoring` for exact
+Python call counts: celery-asyncio 595 per task, taskiq 830. celery-asyncio
+executes *fewer* Python calls than the framework beating it, which kills the
+protocol-overhead story outright. What differed was Redis traffic. Redis'
+`INFO commandstats` charged celery-asyncio two transport round-trips per task,
+one `EVALSHA` to consume and one to acknowledge, against taskiq's one: its
+`XREADGROUP` fetches 100 messages at a time, so only the `XACK` is per-task.
+Adding one deliberate round-trip to the task body priced one at about 70 core-us
+and 3.2% of throughput.
+
+**What the deterministic profiler said.** `bench_dprof.py` counts and times
+every Python call through `sys.monitoring`, so there is no sampling bias, and it
+calibrates its own per-event overhead. Self-time on a single-loop worker, scaled
+onto the 2545 core-us the same configuration costs unprofiled:
+
+| bucket | core-us/task | share |
+| --- | ---: | ---: |
+| task body and bench counter | 1484 | 58.3 % |
+| redis-py client | 427 | 16.8 % |
+| stdlib asyncio, socket and loop | 405 | 15.9 % |
+| celery | 156 | 6.1 % |
+| kombu | 73 | 2.9 % |
+
+celery and kombu's own Python work is 229 us, 9% of the budget. The Redis client
+stack is 832 us at 3.04 commands per task, so the cost tracks the *number of
+commands*, and celery-asyncio was issuing three where taskiq issued two.
+
+**So the fix was batching, not trimming.** `prefetch_count` was never
+implemented on this transport: `celery/worker/consumer/tasks.py` defined
+`set_prefetch_count` as `pass`, nothing called `QoS.update()`, and
+`valkey_redis.py` had no reference to it. On AMQP prefetch works because
+RabbitMQ pushes; on Redis kombu pulls, one message per round-trip. The consume
+Lua script now takes a maximum message count, returns a batch, and the channel
+hands them out from a local buffer.
+
+| `worker_prefetch_multiplier` | median TPS | core-ms/task | EVALSHA/task | Redis CPU/task |
+| --- | ---: | ---: | ---: | ---: |
+| 0, one message per call | 1502 | 2.51 | 2.00 | 31.0 us |
+| 4 | 1587 | 2.42 | | |
+| 16 | 1583 | 2.39 | 1.01 | 19.5 us |
+
+Two round-trips per task became one, which is what taskiq's stream broker does,
+and the published row moved from 1504 to 1655 TPS and from 394 to 431 tasks per
+core-second. No separation between multiplier 4 and 16: the first batch captures
+essentially all of it.
+
+**One wrong turn worth recording.** The batch size started as
+`prefetch_count - len(self._delivered)`, an AMQP-style cap on unacknowledged
+messages. Logging the sizes showed 12070 calls asking for one message against
+248 asking for a hundred: unacknowledged messages fill to the cap under load and
+then the batching stops. The count now bounds the buffer instead, which is
+already self-limiting because a batch is fetched only once the previous one has
+been handed out. That is not AMQP's `prefetch_count` and `basic_qos` says so.
+
+**Left on the table.** redis-py 7.4's `observability/recorder.py` runs 27 times
+per task here, and with telemetry disabled every one of them calls
+`_get_or_create_collector()`, which walks the provider chain and returns `None`
+without caching that answer. `celery/app/trace.py` builds `saferepr(R)` on every
+successful task for a log line that `_does_info` discards at anything above INFO.
+Neither has been A/B'd; both are small.
 <!-- /keep -->
 
 ## Cost per task (AWS Fargate, Linux/x86, us-east-1)
