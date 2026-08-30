@@ -845,12 +845,10 @@ class Channel:
                 # connection_errors, so Connection.ensure redeclares and retries
                 # instead of losing the publish.
                 if not self._exchange_is_durable(exchange):
-                    # A transient direct exchange empties by design whenever its
-                    # consumers go away: a pidbox reply exchange loses its
-                    # binding the moment the control client leaves, and the
-                    # publisher redeclaring its own entities could never
-                    # recreate a binding that belonged to someone else, so the
-                    # retry loop would only churn.
+                    # A transient direct exchange empties by design once its
+                    # consumers leave (pidbox reply exchanges do this), and
+                    # redeclaring cannot recreate someone else's binding, so
+                    # retrying would only churn.
                     logger.info(
                         "Dropped message to transient exchange %r with routing key %r: binding table is empty.",
                         exchange,
