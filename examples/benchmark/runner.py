@@ -183,6 +183,16 @@ def wait_for_worker_ready(log_path: Path, timeout: float) -> bool:
     return False
 
 
+def _worker_loop(boot_path: Path) -> str | None:
+    """The event-loop class the worker process reported at startup, if it said."""
+    if not boot_path.exists():
+        return None
+    for line in boot_path.read_text(errors="replace").splitlines():
+        if "event loop:" in line:
+            return line.rsplit("event loop:", 1)[1].strip()
+    return None
+
+
 def import_tasks() -> tuple[Any, Any, Any]:
     """Import the app + tasks from the bench directory."""
     sys.path.insert(0, str(Path(__file__).parent))
@@ -227,6 +237,13 @@ def main() -> None:
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     log_path = args.output.with_suffix(".worker.log")
+    # Celery appends, and readiness is detected by finding " ready." in this
+    # file. A log left by an earlier run of the same config already contains
+    # that line, so the wait returned at once, the workload was published into
+    # a worker still booting, and its whole startup was billed to the result.
+    # That is worth ~10 s on the asyncio pool, which is the wrong side of the
+    # comparison this benchmark exists to make.
+    log_path.unlink(missing_ok=True)
 
     # Sanity-check the broker is up.
     wait_for_port("localhost", 6379, timeout=5)
@@ -242,14 +259,20 @@ def main() -> None:
     # taskset wrapper + the worker's child loop threads. Without this, if the
     # runner is killed mid-flight the worker can survive and silently keep
     # consuming tasks from later benchmark runs.
-    worker = subprocess.Popen(
-        cmd,
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        cwd=str(Path(__file__).parent),
-        start_new_session=True,
-    )
+    # celeryapp announces the event-loop class it ended up with on stderr, and
+    # discarding that stream made uvloop activation unverifiable for the process
+    # actually running the tasks: the driver imports celeryapp too, so its own
+    # line looks like confirmation while saying nothing about the worker.
+    boot_path = args.output.with_suffix(".boot.log")
+    with boot_path.open("w") as boot_log:
+        worker = subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=boot_log,
+            stderr=subprocess.STDOUT,
+            cwd=str(Path(__file__).parent),
+            start_new_session=True,
+        )
 
     try:
         ready = wait_for_worker_ready(log_path, timeout=args.ready_timeout)
@@ -350,6 +373,7 @@ def main() -> None:
             # time. Probing later reads whatever the venv holds by then, and a
             # result that outlives one setup_venvs.sh becomes unattributable.
             "versions": _versions.probe(_versions.venv_for(args.config)),
+            "worker_loop": _worker_loop(boot_path),
             "worker_bin": args.worker_bin,
             "taskset": args.taskset,
             "n_tasks": n_tasks,
