@@ -14,7 +14,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref }}
 
@@ -33,6 +33,12 @@ jobs:
       - name: Run ruff format check
         run: uv run ruff format --check
 
+      - name: Run mypy
+        run: uv run mypy kombu/
+
+      - name: Run ty
+        run: uv run ty check kombu/
+
       - name: Run tests
         run: uv run pytest tests/unit/ -x -q
 
@@ -45,7 +51,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref }}
 
