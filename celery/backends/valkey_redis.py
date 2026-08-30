@@ -209,8 +209,8 @@ return false
         if self.redis is None:
             try:
                 self.redis = resolve_lib(_resolve_url)
-            except ImportError:
-                raise ImproperlyConfigured(E_REDIS_MISSING.strip())
+            except ImportError as exc:
+                raise ImproperlyConfigured(E_REDIS_MISSING.strip()) from exc
 
         if self.connection_class_ssl is None:
             self.connection_class_ssl = getattr(self.redis, "SSLConnection", None)

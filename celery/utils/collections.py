@@ -80,7 +80,7 @@ class AttributeDictMixin:
         try:
             return self[k]
         except KeyError:
-            raise AttributeError(f"{type(self).__name__!r} object has no attribute {k!r}")
+            raise AttributeError(f"{type(self).__name__!r} object has no attribute {k!r}") from None
 
     def __setattr__(self, key: str, value) -> None:
         """`d[key] = value -> d.key = value`."""
@@ -123,7 +123,7 @@ class DictAttribute:
         try:
             return getattr(self.obj, key)
         except AttributeError:
-            raise KeyError(key)
+            raise KeyError(key) from None
 
     def __setitem__(self, key, value):
         setattr(self.obj, key, value)
@@ -187,7 +187,7 @@ class ChainMap(MutableMapping):
         try:
             return self.maps[0].pop(key, *default)
         except KeyError:
-            raise KeyError(f"Key not found in the first mapping: {key!r}")
+            raise KeyError(f"Key not found in the first mapping: {key!r}") from None
 
     def __missing__(self, key):
         raise KeyError(key)
@@ -211,7 +211,7 @@ class ChainMap(MutableMapping):
         try:
             del self.changes[self._key(key)]
         except KeyError:
-            raise KeyError(f"Key not found in first mapping: {key!r}")
+            raise KeyError(f"Key not found in first mapping: {key!r}") from None
 
     def clear(self):
         self.changes.clear()
@@ -329,7 +329,7 @@ class ConfigurationView(ChainMap, AttributeDictMixin):
             return self.__missing__(key)
         except KeyError:
             if len(keys) > 1:
-                raise KeyError("Key not found: {0!r} (with prefix: {0!r})".format(*keys))
+                raise KeyError("Key not found: {0!r} (with prefix: {0!r})".format(*keys)) from None
             raise
 
     def __setitem__(self, key, value):
@@ -593,7 +593,7 @@ class Evictable:
         try:
             self._pop_to_evict()  # type: ignore[attr-defined]
         except self.Empty:
-            raise IndexError()
+            raise IndexError() from None
 
 
 class Messagebuffer(Evictable):
@@ -623,7 +623,7 @@ class Messagebuffer(Evictable):
         except IndexError:
             if default:
                 return default[0]
-            raise self.Empty()
+            raise self.Empty() from None
 
     def _pop_to_evict(self):
         return self.take()

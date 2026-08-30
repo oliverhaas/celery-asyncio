@@ -550,8 +550,8 @@ def objgraph(state, num=200, max_depth=10, type="Request"):  # pragma: no cover
     """
     try:
         import objgraph as _objgraph
-    except ImportError:
-        raise ImportError("Requires the objgraph library")
+    except ImportError as exc:
+        raise ImportError("Requires the objgraph library") from exc
     logger.info("Dumping graph for type %r", type)
     with tempfile.NamedTemporaryFile(prefix="cobjg", suffix=".png", delete=False) as fh:
         objects = _objgraph.by_type(type)[:num]

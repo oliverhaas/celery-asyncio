@@ -71,8 +71,8 @@ class FilesystemBackend(KeyValueStoreBackend):
             self.set(key, b"test value")
             assert self.get(key) == b"test value"
             self.delete(key)
-        except OSError:
-            raise ImproperlyConfigured(E_PATH_INVALID)
+        except OSError as exc:
+            raise ImproperlyConfigured(E_PATH_INVALID) from exc
 
     def _filename(self, key):
         return self.sep.join((self.path, key))

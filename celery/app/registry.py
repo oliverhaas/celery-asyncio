@@ -45,7 +45,7 @@ class TaskRegistry(dict):
         try:
             self.pop(getattr(name, "name", name))
         except KeyError:
-            raise self.NotRegistered(name)
+            raise self.NotRegistered(name) from None
 
     # -- these methods are irrelevant now and will be removed in 4.0
     def regular(self):

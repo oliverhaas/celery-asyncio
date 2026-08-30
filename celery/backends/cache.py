@@ -74,7 +74,7 @@ class CacheBackend(KeyValueStoreBackend):
         try:
             self.Client, self.key_t = backends[self.backend]()
         except KeyError:
-            raise ImproperlyConfigured(UNKNOWN_BACKEND.format(self.backend, ", ".join(backends)))
+            raise ImproperlyConfigured(UNKNOWN_BACKEND.format(self.backend, ", ".join(backends))) from None
         self._encode_prefixes()  # rencode the keyprefixes
 
     def get(self, key):

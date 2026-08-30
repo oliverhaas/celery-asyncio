@@ -114,14 +114,14 @@ class Proxy:
             # not sure what this is about
             return getattr(loc, self.__name__)
         except AttributeError:  # pragma: no cover
-            raise RuntimeError(f"no object bound to {self.__name__}")
+            raise RuntimeError(f"no object bound to {self.__name__}") from None
 
     @property
     def __dict__(self):
         try:
             return self._get_current_object().__dict__
         except RuntimeError:  # pragma: no cover
-            raise AttributeError("__dict__")
+            raise AttributeError("__dict__") from None
 
     def __repr__(self):
         try:

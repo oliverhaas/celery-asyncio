@@ -38,7 +38,7 @@ def _consume_arguments(meta, method, args):
             except IndexError:
                 if meta.variadic:
                     break
-                raise click.UsageError(f"Command {method!r} takes arguments: {meta.signature}")
+                raise click.UsageError(f"Command {method!r} takes arguments: {meta.signature}") from None
             else:
                 yield name, typ(arg) if typ is not None else arg
     finally:

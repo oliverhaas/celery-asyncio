@@ -91,7 +91,7 @@ def add_unlock_chord_task(app):
                 exc=exc,
                 countdown=interval,
                 max_retries=max_retries,
-            )
+            ) from exc
         else:
             if not ready:
                 raise self.retry(countdown=interval, max_retries=max_retries)

@@ -340,7 +340,9 @@ def worker(
                 app.config_from_cmdline(ctx.args, namespace="worker")
             except (KeyError, ValueError) as e:
                 # TODO: Improve the error messages
-                raise click.UsageError(f"Unable to parse extra configuration from command line.\nReason: {e}", ctx=ctx)
+                raise click.UsageError(
+                    f"Unable to parse extra configuration from command line.\nReason: {e}", ctx=ctx
+                ) from e
         if kwargs.get("detach", False):
             argv = ["-m", "celery"] + sys.argv[1:]
             if "--detach" in argv:

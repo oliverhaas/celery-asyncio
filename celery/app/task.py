@@ -960,7 +960,7 @@ class Task:
         try:
             S.apply_async()
         except Exception as exc:
-            raise Reject(exc, requeue=False)
+            raise Reject(exc, requeue=False) from exc
         if throw:
             raise ret
         return ret
@@ -1035,7 +1035,7 @@ class Task:
         try:
             await S.aapply_async()
         except Exception as exc:
-            raise Reject(exc, requeue=False)
+            raise Reject(exc, requeue=False) from exc
         if throw:
             raise ret
         return ret

@@ -29,11 +29,11 @@ def hybrid_to_proto2(message, body):
         args, kwargs = body.get("args", ()), body.get("kwargs", {})
         kwargs.items
     except KeyError:
-        raise InvalidTaskError("Message does not have args/kwargs")
+        raise InvalidTaskError("Message does not have args/kwargs") from None
     except AttributeError:
         raise InvalidTaskError(
             "Task keyword arguments must be a mapping",
-        )
+        ) from None
 
     headers = {
         "lang": body.get("lang"),
@@ -74,11 +74,11 @@ def proto1_to_proto2(message, body):
         args, kwargs = body.get("args", ()), body.get("kwargs", {})
         kwargs.items
     except KeyError:
-        raise InvalidTaskError("Message does not have args/kwargs")
+        raise InvalidTaskError("Message does not have args/kwargs") from None
     except AttributeError:
         raise InvalidTaskError(
             "Task keyword arguments must be a mapping",
-        )
+        ) from None
     body.update(
         argsrepr=saferepr(args),
         kwargsrepr=saferepr(kwargs),

@@ -39,7 +39,7 @@ def bindings(ctx):
             try:
                 return conn.manager.get_bindings()
             except NotImplementedError:
-                raise click.UsageError("Your transport cannot list bindings.")
+                raise click.UsageError("Your transport cannot list bindings.") from None
 
     bindings_list = asyncio.run(_get_bindings())
 

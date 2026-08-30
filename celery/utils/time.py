@@ -272,7 +272,7 @@ def weekday(name: str) -> int:
         return WEEKDAYS[abbreviation]
     except KeyError:
         # Show original day name in exception, instead of abbr.
-        raise KeyError(name)
+        raise KeyError(name) from None
 
 
 def yearmonth(name: str) -> int:
@@ -287,7 +287,7 @@ def yearmonth(name: str) -> int:
         return YEARMONTHS[abbreviation]
     except KeyError:
         # Show original day name in exception, instead of abbr.
-        raise KeyError(name)
+        raise KeyError(name) from None
 
 
 def humanize_seconds(secs: float, prefix: str = "", sep: str = "", now: str = "now", microseconds: bool = False) -> str:

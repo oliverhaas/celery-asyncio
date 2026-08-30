@@ -186,7 +186,7 @@ class Pidfile:
             try:
                 return int(line.strip())
             except ValueError:
-                raise ValueError(f"pidfile {self.path} contents invalid.")
+                raise ValueError(f"pidfile {self.path} contents invalid.") from None
 
     def remove(self):
         """Remove the lock."""
@@ -394,7 +394,7 @@ def parse_uid(uid):
         try:
             return pwd.getpwnam(uid).pw_uid
         except AttributeError, KeyError:
-            raise KeyError(f"User does not exist: {uid}")
+            raise KeyError(f"User does not exist: {uid}") from None
 
 
 def parse_gid(gid):
@@ -405,7 +405,7 @@ def parse_gid(gid):
         try:
             return grp.getgrnam(gid).gr_gid
         except AttributeError, KeyError:
-            raise KeyError(f"Group does not exist: {gid}")
+            raise KeyError(f"Group does not exist: {gid}") from None
 
 
 def maybe_drop_privileges(uid=None, gid=None):

@@ -333,7 +333,7 @@ class crontab_parser:
                 try:
                     i = weekday(s)
                 except KeyError:
-                    raise ValueError(f"Invalid weekday literal {s!r}.")
+                    raise ValueError(f"Invalid weekday literal {s!r}.") from None
 
         max_val = self.min_ + self.max_ - 1
         if i > max_val:

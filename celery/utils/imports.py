@@ -99,7 +99,7 @@ def find_module(module, path=None, imp=None):
                     try:
                         mpart.__path__
                     except AttributeError:
-                        raise NotAPackage(package)
+                        raise NotAPackage(package) from None
             raise
 
 

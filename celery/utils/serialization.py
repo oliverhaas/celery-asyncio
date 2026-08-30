@@ -208,7 +208,7 @@ def strtobool(term, table=None):
         try:
             return table[term.lower()]
         except KeyError:
-            raise TypeError(f"Cannot coerce {term!r} to type bool")
+            raise TypeError(f"Cannot coerce {term!r} to type bool") from None
     return term
 
 

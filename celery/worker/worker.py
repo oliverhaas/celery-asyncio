@@ -163,11 +163,11 @@ class WorkController:
         try:
             self.app.amqp.queues.select(include)
         except KeyError as exc:
-            raise ImproperlyConfigured(SELECT_UNKNOWN_QUEUE.strip().format(include, exc))
+            raise ImproperlyConfigured(SELECT_UNKNOWN_QUEUE.strip().format(include, exc)) from exc
         try:
             self.app.amqp.queues.deselect(exclude)
         except KeyError as exc:
-            raise ImproperlyConfigured(DESELECT_UNKNOWN_QUEUE.strip().format(exclude, exc))
+            raise ImproperlyConfigured(DESELECT_UNKNOWN_QUEUE.strip().format(exclude, exc)) from exc
         if self.app.conf.worker_direct:
             self.app.amqp.queues.select_add(worker_direct(self.hostname))
 

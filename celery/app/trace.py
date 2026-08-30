@@ -615,7 +615,7 @@ def build_tracer(
             try:
                 kwargs.items
             except AttributeError:
-                raise InvalidTaskError("Task keyword arguments is not a mapping")
+                raise InvalidTaskError("Task keyword arguments is not a mapping") from None
 
             task_request = Context(request or {}, args=args, called_directly=False, kwargs=kwargs)
 
@@ -690,7 +690,7 @@ def build_tracer(
                                 task_request.id,
                                 exc_info=True,
                             )
-                            raise Reject(exc, requeue=True)
+                            raise Reject(exc, requeue=True) from exc
                         return trace_ok_t(R, I, T, Rstr)
 
             push_task(task)
@@ -968,7 +968,7 @@ def build_async_tracer(
             try:
                 kwargs.items
             except AttributeError:
-                raise InvalidTaskError("Task keyword arguments is not a mapping")
+                raise InvalidTaskError("Task keyword arguments is not a mapping") from None
 
             task_request = Context(request or {}, args=args, called_directly=False, kwargs=kwargs)
 
@@ -1043,7 +1043,7 @@ def build_async_tracer(
                                 task_request.id,
                                 exc_info=True,
                             )
-                            raise Reject(exc, requeue=True)
+                            raise Reject(exc, requeue=True) from exc
                         return trace_ok_t(R, I, T, Rstr)
 
             push_task(task)

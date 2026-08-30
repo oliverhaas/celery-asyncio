@@ -245,7 +245,7 @@ class Blueprint:
         try:
             return G.topsort()
         except KeyError as exc:
-            raise KeyError("unknown bootstep: %s" % exc)
+            raise KeyError("unknown bootstep: %s" % exc) from exc
 
     def claim_steps(self):
         return dict(self.load_step(step) for step in self.types)

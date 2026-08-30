@@ -64,7 +64,9 @@ def beat(ctx, detach=False, logfile=None, pidfile=None, uid=None, gid=None, umas
             app.config_from_cmdline(ctx.args)
         except (KeyError, ValueError) as e:
             # TODO: Improve the error messages
-            raise click.UsageError(f"Unable to parse extra configuration from command line.\nReason: {e}", ctx=ctx)
+            raise click.UsageError(
+                f"Unable to parse extra configuration from command line.\nReason: {e}", ctx=ctx
+            ) from e
 
     if not detach:
         maybe_drop_privileges(uid=uid, gid=gid)

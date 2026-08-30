@@ -149,8 +149,6 @@ ignore = [
   "B024",     # Abstract base class without abstract method
   "B026",     # Star-arg unpacking after keyword arg
   "B027",     # Empty method without abstract decorator
-  "B904",     # Raise from — 47 sites, mostly inherited. Adding a cause changes
-              # the traceback users see, so it gets its own pass.
   "BLE001",   # Blind except: needed for task error handling
   "C901",     # Complex structure: some task functions are inherently complex
   "COM812",   # Conflicts with ruff-format

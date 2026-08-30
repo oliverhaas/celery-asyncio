@@ -88,7 +88,7 @@ class Router:
                 try:
                     route["queue"] = self.queues[queue]
                 except KeyError:
-                    raise QueueNotFound(f"Queue {queue!r} missing from task_queues")
+                    raise QueueNotFound(f"Queue {queue!r} missing from task_queues") from None
         return route
 
     def lookup_route(self, name, args=None, kwargs=None, options=None, task_type=None):

@@ -769,7 +769,7 @@ class ResultSet(ResultBase):
         try:
             self.results.remove(result)
         except ValueError:
-            raise KeyError(result)
+            raise KeyError(result) from None
 
     def discard(self, result):
         """Remove result from the set if it is a member.

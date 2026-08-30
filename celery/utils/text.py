@@ -141,7 +141,7 @@ def simple_format(
             try:
                 resolver = keys[key]
             except KeyError:
-                raise ValueError(UNKNOWN_SIMPLE_FORMAT_KEY.format(key, s))
+                raise ValueError(UNKNOWN_SIMPLE_FORMAT_KEY.format(key, s)) from None
             if callable(resolver):
                 return resolver()
             return resolver

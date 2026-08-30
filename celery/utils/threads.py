@@ -129,7 +129,7 @@ class Local:
         try:
             return self.__storage__[self.__ident_func__()][name]
         except KeyError:
-            raise AttributeError(name)
+            raise AttributeError(name) from None
 
     def __setattr__(self, name, value):
         ident = self.__ident_func__()
@@ -143,7 +143,7 @@ class Local:
         try:
             del self.__storage__[self.__ident_func__()][name]
         except KeyError:
-            raise AttributeError(name)
+            raise AttributeError(name) from None
 
 
 class _LocalStack:
