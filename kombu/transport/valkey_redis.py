@@ -138,10 +138,9 @@ DEFAULT_DELIVERY_LIMIT: int | None = 20
 DROPPED_REPORT_LIMIT = 10
 
 # Floor under how long a binding survives without a refresh, in seconds.
-# A binding is scored with its queue's x-expires window, but the processes that
-# leave bindings behind are the ones that cannot refresh them: a celery control
-# client has no event loop, and x-expires on its reply queue is 10s, which is
-# shorter than the control call the binding has to outlive.
+# Bindings are scored with their queue's x-expires, but the processes leaving
+# them behind cannot refresh: a celery control client has no event loop, and its
+# reply queue's 10s x-expires is shorter than the call the binding must outlive.
 MIN_BINDING_LIFETIME = 300
 
 # Default server-side block duration for BZMPOP/XREAD inside a single consumer
