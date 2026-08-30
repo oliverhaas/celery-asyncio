@@ -618,11 +618,10 @@ class Channel:
         exchange_meta = self._exchanges.get(exchange, {})
         if exchange_meta.get("type") == "fanout":
             self._fanout_queues[queue] = (exchange, routing_key.replace("#", "*"))
-            # Delivery to a fanout exchange is one XADD to its stream and never
-            # consults the table, while every worker binds its own amq.gen-*
-            # pidbox and event queues to celeryev and reply.celery.pidbox. So
-            # the table only ever grows, one dead member per worker that has
-            # ever run. Drop what earlier versions accumulated.
+            # Fanout delivery is one XADD to the stream and never consults the
+            # table, yet every worker binds its own amq.gen-* queues to it, so
+            # the table only grows: one dead member per worker that ever ran.
+            # Drop what earlier versions accumulated.
             await self.client.delete(self._binding_key(exchange))
             return
 
