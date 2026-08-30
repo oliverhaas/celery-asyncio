@@ -103,6 +103,27 @@ class test_Connection:
         assert conn.is_connected
         await conn.close()
 
+    async def test_ensure_connection_retry_callbacks(self):
+        conn = Connection("memory://")
+        calls = []
+
+        async def connect_once():
+            if not calls:
+                calls.append("boom")
+                raise OSError("broker down")
+
+        conn.connect = connect_once
+        # celery passes `maybe_shutdown` here, which takes no arguments.
+        result = await conn.ensure_connection(
+            errback=lambda exc, interval: calls.append(("errback", interval)),
+            max_retries=3,
+            interval_start=0,
+            interval_step=0,
+            callback=lambda: calls.append("callback"),
+        )
+        assert result is conn
+        assert calls == ["boom", ("errback", 0), "callback"]
+
     async def test_drain_events_timeout(self):
         async with Connection("memory://") as conn:
             # With no consumers and a timeout, should raise TimeoutError

@@ -291,7 +291,11 @@ class Connection:
                     errback(exc, interval)
 
                 if callback:
-                    callback(exc, interval)
+                    # No arguments: this is upstream's between-retries hook, and
+                    # celery passes `maybe_shutdown`, which takes none. Calling it
+                    # like an errback turned every retry into a TypeError that
+                    # killed the worker outright.
+                    callback()
 
                 logger.warning(
                     "Connection failed, retrying in %.2fs: %r",
