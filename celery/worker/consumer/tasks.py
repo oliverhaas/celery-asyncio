@@ -35,15 +35,13 @@ class Tasks(bootsteps.StartStopStep):
             on_decode_error=c.on_decode_error,
         )
 
-        # Set up QoS (prefetch count management)
-        def set_prefetch_count(prefetch_count):
-            # In kombu-asyncio, QoS is simplified
-            pass
-
+        # On Redis the count is a fetch batch size, not a cap on unacked
+        # messages; see the transport's basic_qos.
         c.qos = QoS(
-            set_prefetch_count,
+            c.task_consumer.qos,
             c.initial_prefetch_count,
         )
+        await c.qos.update()
 
     async def stop(self, c):
         """Stop task consumer."""
