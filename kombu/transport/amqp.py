@@ -319,7 +319,14 @@ class Channel:
         else:
             aio_exchange = self._aio_channel.default_exchange
 
-        await aio_exchange.publish(aio_message, routing_key=routing_key)
+        # AMQP (and py-amqp before us) defaults `mandatory` to off, aio-pika
+        # defaults it to on; a returned message surfaces through aio-pika's
+        # return callbacks either way.
+        await aio_exchange.publish(
+            aio_message,
+            routing_key=routing_key,
+            mandatory=kwargs.get("mandatory", False),
+        )
 
     # ---- get (synchronous single fetch) ------------------------------------
 
