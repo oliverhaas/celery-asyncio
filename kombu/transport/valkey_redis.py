@@ -837,11 +837,10 @@ class Channel:
         if exchange:
             bindings = await self._load_bindings(exchange)
             if not bindings:
-                # A direct binding is known to exist by name, so an empty table
-                # means inconsistent state rather than nowhere to go (topic and
-                # fanout empty legitimately). InconsistencyError is in
-                # connection_errors, so Connection.ensure redeclares and retries
-                # instead of losing the publish.
+                # An empty table is inconsistent state here, not nowhere to go:
+                # a direct binding is known by name (topic and fanout may empty
+                # legitimately). InconsistencyError is a connection error, so
+                # Connection.ensure redeclares rather than lose the publish.
                 if not self._exchange_is_durable(exchange):
                     # A transient direct exchange empties by design once its
                     # consumers leave (pidbox reply exchanges do this), and
