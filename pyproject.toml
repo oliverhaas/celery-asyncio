@@ -1,6 +1,6 @@
 [project]
 name = "kombu-asyncio"
-version = "6.0.0a3"
+version = "6.0.0a4"
 description = "Pure asyncio messaging library for Python"
 readme = "README.md"
 license = "BSD-3-Clause"

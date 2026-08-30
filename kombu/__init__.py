@@ -18,7 +18,7 @@ import re
 from collections import namedtuple
 from typing import cast
 
-__version__ = "6.0.0a3"
+__version__ = "6.0.0a4"
 __author__ = "Oliver Haas"
 __contact__ = "ohaas@e1plus.de"
 __homepage__ = "https://github.com/oliverhaas/kombu-asyncio"
