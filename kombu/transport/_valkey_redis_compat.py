@@ -8,24 +8,34 @@ URL scheme selects the preferred library with fallback:
 """
 
 import types
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 _VALKEY_AVAILABLE = False
 _REDIS_AVAILABLE = False
 
-try:
+# The _AVAILABLE flags are the runtime gate; type checkers see the unguarded
+# imports so the module attributes below resolve without a None in every union.
+if TYPE_CHECKING:
+    import redis
     import valkey
 
     _VALKEY_AVAILABLE = True
-except ImportError:
-    valkey = None  # type: ignore[assignment]
-
-try:
-    import redis
-
     _REDIS_AVAILABLE = True
-except ImportError:
-    redis = None  # type: ignore[assignment]
+else:
+    try:
+        import valkey
+
+        _VALKEY_AVAILABLE = True
+    except ImportError:
+        valkey = None
+
+    try:
+        import redis
+
+        _REDIS_AVAILABLE = True
+    except ImportError:
+        redis = None
 
 
 def resolve_lib(url: str = "") -> types.ModuleType:

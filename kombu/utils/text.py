@@ -31,11 +31,8 @@ def fmatch_iter(needle: str, haystack: Iterable[str], min_ratio: float = 0.6) ->
 def fmatch_best(needle: str, haystack: Iterable[str], min_ratio: float = 0.6) -> str | None:
     """Fuzzy match - Find best match (scalar)."""
     try:
-        return sorted(
-            fmatch_iter(needle, haystack, min_ratio),
-            reverse=True,
-        )[0][1]
-    except IndexError:
+        return max(fmatch_iter(needle, haystack, min_ratio))[1]
+    except ValueError:
         return None
 
 

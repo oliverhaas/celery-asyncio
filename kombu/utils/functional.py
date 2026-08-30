@@ -6,10 +6,11 @@ import inspect
 import random
 import threading
 from collections import OrderedDict, UserDict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from functools import wraps
 from itertools import count, repeat
 from time import sleep, time
+from typing import Any, Protocol, cast
 
 from .encoding import safe_repr as _safe_repr
 
@@ -25,6 +26,17 @@ __all__ = (
 )
 
 KEYWORD_MARK = object()
+
+
+class _Memoized(Protocol):
+    """The wrapper :func:`memoize` returns: a callable plus its cache stats."""
+
+    hits: int
+    misses: int
+    clear: Callable[[], None]
+    original_func: Callable[..., Any]
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 class ChannelPromise:
@@ -60,6 +72,9 @@ class LRUCache(UserDict):
             cache.
     """
 
+    #: Narrower than UserDict's plain dict: the LRU order comes from popitem(last=False).
+    data: OrderedDict[Any, Any]
+
     def __init__(self, limit=None):
         self.limit = limit
         self.mutex = threading.RLock()
@@ -83,12 +98,12 @@ class LRUCache(UserDict):
         with self.mutex:
             return self.data.popitem(last)
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: Any, item: Any) -> None:
         # remove least recently used key.
         with self.mutex:
             if self.limit and len(self.data) >= self.limit:
                 self.data.pop(next(iter(self.data)))
-            self.data[key] = value
+            self.data[key] = item
 
     def __iter__(self):
         return iter(self.data)
@@ -160,22 +175,23 @@ def memoize(maxsize=None, keyfun=None, Cache=LRUCache):
                     value = cache[key]
             except KeyError:
                 value = fun(*args, **kwargs)
-                _M.misses += 1
+                memoized.misses += 1
                 with mutex:
                     cache[key] = value
             else:
-                _M.hits += 1
+                memoized.hits += 1
             return value
 
         def clear():
             """Clear the cache and reset cache statistics."""
             cache.clear()
-            _M.hits = _M.misses = 0
+            memoized.hits = memoized.misses = 0
 
-        _M.hits = _M.misses = 0
-        _M.clear = clear
-        _M.original_func = fun
-        return _M
+        memoized = cast("_Memoized", _M)
+        memoized.hits = memoized.misses = 0
+        memoized.clear = clear
+        memoized.original_func = fun
+        return memoized
 
     return _memoize
 

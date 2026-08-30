@@ -165,7 +165,7 @@ async def drain_consumer(
 
     try:
         async with consumer:
-            async for _ in eventloop(consumer._connection, limit=limit, timeout=timeout, ignore_timeouts=True):
+            async for _ in eventloop(consumer._connection, limit=limit, timeout=timeout, ignore_timeouts=True):  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
                 while acc:
                     yield acc.popleft()
     finally:

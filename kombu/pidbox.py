@@ -7,7 +7,7 @@ from collections import defaultdict, deque
 from copy import copy
 from itertools import count
 from time import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import Consumer, Exchange, Producer, Queue
 from .clocks import LamportClock
@@ -18,6 +18,9 @@ from .matcher import match
 from .utils.functional import maybe_evaluate, reprcall
 from .utils.objects import cached_property
 from .utils.uuid import uuid
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 REPLY_QUEUE_EXPIRES = 10
 
@@ -38,21 +41,31 @@ class Node:
     """Mailbox node."""
 
     #: hostname of the node.
-    hostname = None
+    hostname: str
 
     #: the :class:`Mailbox` this is a node for.
-    mailbox = None
+    mailbox: Mailbox
 
     #: map of method name/handlers.
-    handlers = None
+    handlers: dict[str, Callable[..., Any]]
 
     #: current context (passed on to handlers)
-    state = None
+    state: Any = None
 
     #: current channel.
-    channel = None
+    channel: Any = None
 
-    def __init__(self, hostname, state=None, channel=None, handlers=None, mailbox=None):
+    def __init__(
+        self,
+        hostname: str,
+        state: Any = None,
+        channel: Any = None,
+        handlers: dict[str, Callable[..., Any]] | None = None,
+        *,
+        # Required: __init__ dereferences it immediately, so a Node without a
+        # mailbox has never been constructible.
+        mailbox: Mailbox,
+    ):
         self.channel = channel
         self.mailbox = mailbox
         self.hostname = hostname
@@ -175,22 +188,22 @@ class Mailbox:
     reply_exchange_fmt = "reply.%s.pidbox"
 
     #: Name of application.
-    namespace = None
+    namespace: str
 
     #: Connection (if bound).
-    connection = None
+    connection: Any = None
 
     #: Exchange type (usually direct, or fanout for broadcast).
     type = "direct"
 
     #: exchange to send replies to.
-    reply_exchange = None
+    reply_exchange: Exchange
 
     #: Only accepts json messages by default.
-    accept = ["json"]
+    accept: list[str] = ["json"]
 
     #: Message serializer
-    serializer = None
+    serializer: str | None = None
 
     def __init__(
         self,
@@ -214,7 +227,7 @@ class Mailbox:
         self.clock = LamportClock() if clock is None else clock
         self.exchange = self._get_exchange(self.namespace, self.type)
         self.reply_exchange = self._get_reply_exchange(self.namespace)
-        self.unclaimed = defaultdict(deque)
+        self.unclaimed: defaultdict[str, deque] = defaultdict(deque)
         self.accept = self.accept if accept is None else accept
         self.serializer = self.serializer if serializer is None else serializer
         self.queue_ttl = queue_ttl

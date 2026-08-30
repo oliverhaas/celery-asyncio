@@ -55,8 +55,8 @@ class MatcherRegistry:
 
     def match(
         self,
-        data: bytes,
-        pattern: bytes,
+        data: str | bytes,
+        pattern: str | bytes,
         matcher: str | None = None,
         matcher_kwargs: dict[str, str] | None = None,
     ) -> bool:

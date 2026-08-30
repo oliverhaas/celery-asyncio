@@ -68,6 +68,7 @@ from .base import Transport as BaseTransport
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from collections.abc import Set as AbstractSet
 
     from kombu.entity import Exchange, Queue
 
@@ -415,7 +416,7 @@ class Channel(BaseChannel):
         self,
         queue: str,
         no_ack: bool = False,
-        accept: set[str] | None = None,
+        accept: AbstractSet[str] | None = None,
     ) -> Message | None:
         """Get a single message from a queue."""
         queue_pattern = f".{queue}.msg"
@@ -509,7 +510,7 @@ class Channel(BaseChannel):
 
     async def _deliver_message(
         self,
-        callback: Callable[[Message], Any],
+        callback: Callable[..., Any],
         message: Message,
     ) -> None:
         """Deliver a message to a callback."""
@@ -527,7 +528,7 @@ class Channel(BaseChannel):
         queue: str,
         data: bytes,
         no_ack: bool = False,
-        accept: set[str] | None = None,
+        accept: AbstractSet[str] | None = None,
         filepath: Path | None = None,
     ) -> Message:
         """Create a Message object from raw data."""
@@ -621,13 +622,16 @@ class Channel(BaseChannel):
         self._unacked.clear()
 
 
+_Channel = Channel
+
+
 class Transport(BaseTransport):
     """Pure asyncio filesystem transport.
 
     Uses the filesystem for message storage.
     """
 
-    Channel = Channel
+    Channel = _Channel
     default_port = None
 
     driver_type = "filesystem"
@@ -665,7 +669,7 @@ class Transport(BaseTransport):
         self._channels.clear()
         self._connected = False
 
-    async def create_channel(self) -> Channel:
+    async def create_channel(self) -> _Channel:
         """Create a new channel."""
         if not self._connected:
             await self.connect()

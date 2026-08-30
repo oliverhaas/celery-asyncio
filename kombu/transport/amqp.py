@@ -23,13 +23,18 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-try:
+if TYPE_CHECKING:
     import aio_pika
     import aio_pika.abc
     from aiormq import exceptions as aiormq_exc
-except ImportError:
-    aio_pika = None  # type: ignore[assignment]
-    aiormq_exc = None  # type: ignore[assignment]
+else:
+    try:
+        import aio_pika
+        import aio_pika.abc
+        from aiormq import exceptions as aiormq_exc
+    except ImportError:
+        aio_pika = None
+        aiormq_exc = None
 
 from kombu.log import get_logger
 from kombu.message import Message
@@ -84,7 +89,7 @@ def _get_exchange_type(type_name: str) -> aio_pika.ExchangeType:
     }.get(type_name, aio_pika.ExchangeType.DIRECT)
 
 
-def _expiration_to_millis(expiration: int | float | timedelta | datetime) -> int:
+def _expiration_to_millis(expiration: float | timedelta | datetime) -> int:
     """Normalise aio-pika's expiration to the AMQP wire format (milliseconds).
 
     Incoming messages carry a float in seconds (aio-pika decodes the header for
@@ -515,7 +520,7 @@ class Channel:
             },
             properties=properties,
             headers=dict(incoming.headers) if incoming.headers else {},
-            channel=self,
+            channel=self,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         )
 
     # ---- context manager ---------------------------------------------------
@@ -532,6 +537,9 @@ class Channel:
 # ---------------------------------------------------------------------------
 
 
+_Channel = Channel
+
+
 class Transport(BaseTransport):
     """AMQP transport using aio-pika.
 
@@ -540,7 +548,7 @@ class Transport(BaseTransport):
     by the broker (e.g. RabbitMQ).
     """
 
-    Channel = Channel
+    Channel = _Channel  # type: ignore[assignment]
     default_port = 5672
 
     driver_type = "amqp"
@@ -597,12 +605,12 @@ class Transport(BaseTransport):
         self._connection = None
         self._connected = False
 
-    async def create_channel(self) -> Channel:
+    async def create_channel(self) -> _Channel:  # type: ignore[override]  # ty: ignore[invalid-method-override]
         if not self._connected:
             await self.connect()
 
         publisher_confirms = self._options.get("publisher_confirms", True)
-        aio_channel = await self._connection.channel(
+        aio_channel = await self._connection.channel(  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
             publisher_confirms=publisher_confirms,
         )
 

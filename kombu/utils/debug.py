@@ -33,7 +33,7 @@ class Logwrapped:
 
     def __init__(self, instance: Transport, logger: Logger | None = None, ident: str | None = None):
         self.instance = instance
-        self.logger = get_logger(logger)
+        self.logger = get_logger(logger or __name__)
         self.ident = ident
 
     def __getattr__(self, key: str) -> Callable:
@@ -65,7 +65,7 @@ class Logwrapped:
     # TypeError. Both protocols are forwarded because everything worth wrapping
     # here is an async context manager, while Connection is also a sync one.
     def __enter__(self) -> Logwrapped:
-        self.instance.__enter__()
+        self.instance.__enter__()  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
         return self
 
     def __exit__(
@@ -74,7 +74,7 @@ class Logwrapped:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> bool | None:
-        return self.instance.__exit__(exc_type, exc_val, exc_tb)
+        return self.instance.__exit__(exc_type, exc_val, exc_tb)  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
     async def __aenter__(self) -> Logwrapped:
         await self.instance.__aenter__()

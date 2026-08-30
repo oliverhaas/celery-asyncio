@@ -36,6 +36,7 @@ from .base import Transport as BaseTransport
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from collections.abc import Set as AbstractSet
 
     from kombu.entity import Exchange, Queue
 
@@ -273,7 +274,7 @@ class Channel(BaseChannel):
         self,
         queue: str,
         no_ack: bool = False,
-        accept: set[str] | None = None,
+        accept: AbstractSet[str] | None = None,
     ) -> Message | None:
         """Get a single message from a queue."""
         q = self._get_queue(queue)
@@ -367,6 +368,7 @@ class Channel(BaseChannel):
                                 q_name = consumer_list[i][0]
                                 await self._get_queue(q_name).put(data)
                 return delivered
+            return False
         except Exception:
             # Cancel all tasks on error
             for task in wait_tasks:
@@ -375,7 +377,7 @@ class Channel(BaseChannel):
 
     async def _deliver_message(
         self,
-        callback: Callable[[Message], Any],
+        callback: Callable[..., Any],
         message: Message,
     ) -> None:
         """Deliver a message to a callback."""
@@ -393,7 +395,7 @@ class Channel(BaseChannel):
         queue: str,
         data: bytes,
         no_ack: bool = False,
-        accept: set[str] | None = None,
+        accept: AbstractSet[str] | None = None,
     ) -> Message:
         """Create a Message object from raw data."""
         try:
@@ -470,13 +472,16 @@ class Channel(BaseChannel):
         self._unacked.clear()
 
 
+_Channel = Channel
+
+
 class Transport(BaseTransport):
     """Pure asyncio in-memory transport.
 
     Uses asyncio.Queue for message storage within a single process.
     """
 
-    Channel = Channel
+    Channel = _Channel
     default_port = None
 
     driver_type = "memory"
@@ -500,7 +505,7 @@ class Transport(BaseTransport):
         self._channels.clear()
         self._connected = False
 
-    async def create_channel(self) -> Channel:
+    async def create_channel(self) -> _Channel:
         """Create a new channel."""
         if not self._connected:
             await self.connect()

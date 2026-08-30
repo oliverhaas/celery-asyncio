@@ -248,6 +248,7 @@ class Consumer:
         # Accept either a Connection or a Channel as the first argument.
         # If a Channel is passed (has basic_consume but not default_channel),
         # use it directly instead of going through Connection.default_channel().
+        self._channel: Channel | None
         if hasattr(connection, "basic_consume") and not hasattr(connection, "default_channel"):
             self._connection = getattr(connection, "connection", None)
             self._channel = channel or connection
@@ -280,7 +281,7 @@ class Consumer:
     async def _ensure_channel(self) -> Channel:
         """Ensure we have a channel."""
         if self._channel is None:
-            self._channel = await self._connection.default_channel()
+            self._channel = await self._connection.default_channel()  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute,call-non-callable]
         return self._channel
 
     async def declare(self) -> None:
@@ -387,7 +388,7 @@ class Consumer:
 
         try:
             drainer = self._connection or self._channel
-            await drainer.drain_events(timeout=self._iter_timeout)
+            await drainer.drain_events(timeout=self._iter_timeout)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
         except TimeoutError:
             pass
 
@@ -419,7 +420,7 @@ class Consumer:
 
             try:
                 drainer = self._connection or self._channel
-                await drainer.drain_events(timeout=1.0)
+                await drainer.drain_events(timeout=1.0)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
                 count += 1
                 yield
             except TimeoutError:

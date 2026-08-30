@@ -18,8 +18,10 @@ if TYPE_CHECKING:
 
 __all__ = ("LOG_LEVELS", "LogMixin", "get_loglevel", "setup_logging")
 
-LOG_LEVELS = dict(logging._nameToLevel)
-LOG_LEVELS.update(logging._levelToName)
+# Deliberately bidirectional: name -> level and level -> name in one mapping.
+LOG_LEVELS: dict[str | int, str | int] = {}
+LOG_LEVELS.update(logging._nameToLevel.items())
+LOG_LEVELS.update(logging._levelToName.items())
 LOG_LEVELS.setdefault("FATAL", logging.FATAL)
 LOG_LEVELS.setdefault(logging.FATAL, "FATAL")
 DISABLE_TRACEBACKS = os.environ.get("DISABLE_TRACEBACKS")
@@ -139,7 +141,7 @@ def setup_logging(loglevel=None, logfile=None):
         if hasattr(logfile, "write"):
             handler = logging.StreamHandler(logfile)
         else:
-            handler = WatchedFileHandler(logfile)
+            handler = WatchedFileHandler(logfile)  # ty: ignore[invalid-argument-type]
         logger.addHandler(handler)
         logger.setLevel(loglevel)
     return logger

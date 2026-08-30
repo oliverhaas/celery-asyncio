@@ -141,7 +141,7 @@ class LamportClock:
                     break  # Prev and Next's clocks differ
                 same.append(PN[0])
             # return first item sorted by process id
-            return sorted(same, key=lambda event: event[1])[0]
+            return min(same, key=lambda event: event[1])
         # clock values unique, return first item
         return h[0]
 

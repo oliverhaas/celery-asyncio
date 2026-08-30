@@ -4,6 +4,7 @@
 
 import sys
 from collections.abc import Callable
+from collections.abc import Set as AbstractSet
 from typing import TYPE_CHECKING, Any
 
 from .compression import decompress
@@ -63,7 +64,7 @@ class Message:
         properties: dict | None = None,
         headers: dict | None = None,
         postencode: str | None = None,
-        accept: set[str] | None = None,
+        accept: AbstractSet[str] | None = None,
         channel: "Channel | None" = None,  # noqa: UP037
         **kwargs: Any,
     ):
@@ -96,7 +97,7 @@ class Message:
 
     def _reraise_error(self, callback: Callable | None = None) -> None:
         try:
-            reraise(*self.errors[0])
+            reraise(*self.errors[0])  # type: ignore[index]  # ty: ignore[not-subscriptable]
         except Exception as exc:
             if not callback:
                 raise
@@ -123,7 +124,7 @@ class Message:
                     return
         if self.acknowledged:
             raise self.MessageStateError(f"Message already acknowledged with state: {self._state}")
-        await self.channel.basic_ack(self.delivery_tag, multiple=multiple)
+        await self.channel.basic_ack(self.delivery_tag, multiple=multiple)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         self._state = "ACK"
 
     async def ack_log_error(
@@ -179,7 +180,7 @@ class Message:
             raise self.MessageStateError("This message does not have a receiving channel")
         if self.acknowledged:
             raise self.MessageStateError(f"Message already acknowledged with state: {self._state}")
-        await self.channel.basic_reject(self.delivery_tag, requeue=requeue)
+        await self.channel.basic_reject(self.delivery_tag, requeue=requeue)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         self._state = "REJECTED"
 
     async def requeue(self) -> None:
@@ -197,7 +198,7 @@ class Message:
             raise self.MessageStateError("This message does not have a receiving channel")
         if self.acknowledged:
             raise self.MessageStateError(f"Message already acknowledged with state: {self._state}")
-        await self.channel.basic_reject(self.delivery_tag, requeue=True)
+        await self.channel.basic_reject(self.delivery_tag, requeue=True)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         self._state = "REQUEUED"
 
     def decode(self) -> Any:

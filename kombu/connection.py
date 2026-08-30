@@ -23,8 +23,12 @@ from .utils.url import maybe_sanitize_url
 
 if TYPE_CHECKING:
     from .entity import Queue
-    from .messaging import Consumer, Producer
-    from .simple import SimpleQueue
+
+    # Aliased: the same-named methods below shadow these inside the class body,
+    # which makes the bare names ambiguous in the return annotations.
+    from .messaging import Consumer as _Consumer
+    from .messaging import Producer as _Producer
+    from .simple import SimpleQueue as _SimpleQueue
     from .transport.base import Channel
 
 __all__ = ("Connection",)
@@ -146,9 +150,9 @@ class Connection:
         """
         if not self.is_connected:
             await self.connect()
-        ch = await self._transport.create_channel()
+        ch = await self._transport.create_channel()  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
         # Back-reference so channel.connection.client works
-        ch.connection = self
+        ch.connection = self  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
         return ch
 
     async def default_channel(self) -> Channel:
@@ -164,7 +168,7 @@ class Connection:
         self,
         channel: Channel | None = None,
         **kwargs: Any,
-    ) -> Producer:
+    ) -> _Producer:
         """Create a Producer for this connection.
 
         Args:
@@ -184,7 +188,7 @@ class Connection:
         queues: list[Queue],
         channel: Channel | None = None,
         **kwargs: Any,
-    ) -> Consumer:
+    ) -> _Consumer:
         """Create a Consumer for this connection.
 
         Args:
@@ -207,7 +211,7 @@ class Connection:
         exchange_opts: dict | None = None,
         channel: Channel | None = None,
         **kwargs: Any,
-    ) -> SimpleQueue:
+    ) -> _SimpleQueue:
         """Create a SimpleQueue for easy point-to-point messaging.
 
         Args:

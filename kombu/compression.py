@@ -5,13 +5,14 @@
 import bz2
 import lzma
 import zlib
+from collections.abc import Callable
 from compression import zstd
 
 from kombu.utils.encoding import ensure_bytes
 
-_aliases = {}
-_encoders = {}
-_decoders = {}
+_aliases: dict[str, str] = {}
+_encoders: dict[str, Callable] = {}
+_decoders: dict[str, Callable] = {}
 
 __all__ = (
     "compress",

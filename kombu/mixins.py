@@ -19,6 +19,10 @@ if TYPE_CHECKING:
 
 __all__ = ("ConsumerMixin", "ConsumerProducerMixin")
 
+# ConsumerMixin.Consumer shadows the imported name inside the class body, which
+# makes the bare name ambiguous in annotations there.
+_Consumer = Consumer
+
 logger = get_logger(__name__)
 debug, info, warn, error = (logger.debug, logger.info, logger.warning, logger.error)
 
@@ -113,7 +117,7 @@ class ConsumerMixin:
     #: of a task.
     should_stop: bool = False
 
-    def get_consumers(self, ConsumerFactory, channel: Channel) -> list[Consumer]:
+    def get_consumers(self, ConsumerFactory, channel: Channel) -> list[_Consumer]:
         """Return list of consumers.
 
         Override this method to define the consumers.
@@ -134,7 +138,7 @@ class ConsumerMixin:
         self,
         connection: Connection,
         channel: Channel,
-        consumers: list[Consumer],
+        consumers: list[_Consumer],
         **kwargs: Any,
     ) -> None:
         """Called when consumer is ready to receive messages."""

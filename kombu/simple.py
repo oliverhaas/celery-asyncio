@@ -208,7 +208,7 @@ class SimpleQueue:
             except TimeoutError:
                 pass  # drain_events timed out, loop and check remaining
 
-            if remaining is not None:
+            if timeout is not None:
                 elapsed = asyncio.get_event_loop().time() - start_time
                 remaining = timeout - elapsed
 

@@ -129,7 +129,9 @@ class Channel(ABC):
     async def basic_consume(
         self,
         queue: str,
-        callback: Callable[[Message], Any],
+        # Transports call this back as (body, message); Consumer.on_message
+        # callbacks take just (message).
+        callback: Callable[..., Any],
         consumer_tag: str | None = None,
         no_ack: bool = False,
     ) -> str:
@@ -181,6 +183,9 @@ class Channel(ABC):
         await self.close()
 
 
+_Channel = Channel
+
+
 class Transport(ABC):
     """Abstract base class for async transports.
 
@@ -189,7 +194,7 @@ class Transport(ABC):
     """
 
     #: The Channel class used by this transport
-    Channel: type[Channel]
+    Channel: type[_Channel]
 
     #: Default port for this transport
     default_port: int | None = None
@@ -233,7 +238,7 @@ class Transport(ABC):
         ...
 
     @abstractmethod
-    async def create_channel(self) -> Channel:
+    async def create_channel(self) -> _Channel:
         """Create a new channel."""
         ...
 

@@ -1,6 +1,5 @@
 """Exchange and Queue declarations for pure asyncio Kombu."""
 
-import numbers
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -24,7 +23,7 @@ def maybe_delivery_mode(
     """Get delivery mode by name (or none if undefined)."""
     modes = DELIVERY_MODES if modes is None else modes
     if v:
-        return v if isinstance(v, numbers.Integral) else modes[v]
+        return v if isinstance(v, int) else modes[v]
     return default
 
 

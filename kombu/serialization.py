@@ -9,6 +9,7 @@ import sys
 from collections import namedtuple
 from contextlib import contextmanager
 from io import BytesIO
+from typing import Any
 
 from .exceptions import ContentDisallowed, DecodeError, EncodeError, SerializerNotInstalled, reraise
 from .utils.compat import entrypoints
@@ -205,7 +206,9 @@ class SerializerRegistry:
             content_encoding = self._default_content_encoding
 
         with _reraise_errors(EncodeError):
-            payload = encoder(data)
+            # Never None in practice: this module calls _set_default_serializer
+            # at import time, which fills all three defaults.
+            payload = encoder(data)  # ty: ignore[call-non-callable]
         return content_type, content_encoding, payload
 
     def loads(self, data, content_type, content_encoding, accept=None, force=False, _trusted_content=TRUSTED_CONTENT):
@@ -391,7 +394,7 @@ registry._set_default_serializer("json")
 NOTSET = object()
 
 
-def enable_insecure_serializers(choices=NOTSET):
+def enable_insecure_serializers(choices: Any = NOTSET):
     """Enable serializers that are considered to be unsafe.
 
     Note:
@@ -409,7 +412,7 @@ def enable_insecure_serializers(choices=NOTSET):
                 pass
 
 
-def disable_insecure_serializers(allowed=NOTSET):
+def disable_insecure_serializers(allowed: Any = NOTSET):
     """Disable untrusted serializers.
 
     Will disable all serializers except ``json``

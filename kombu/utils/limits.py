@@ -26,13 +26,13 @@ class TokenBucket:
     """
 
     #: The rate in tokens/second that the bucket will be refilled.
-    fill_rate = None
+    fill_rate: float
 
     #: Maximum number of tokens in the bucket.
-    capacity = 1
+    capacity: float = 1.0
 
     #: Timestamp of the last time a token was taken out of the bucket.
-    timestamp = None
+    timestamp: float
 
     def __init__(self, fill_rate, capacity=1):
         self.capacity = float(capacity)

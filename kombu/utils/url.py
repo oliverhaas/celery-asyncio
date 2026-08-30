@@ -4,9 +4,8 @@
 # ruff: noqa: TID252, SIM118, ARG001
 
 import ssl
-from collections.abc import Mapping
 from functools import partial
-from typing import NamedTuple
+from typing import Any, NamedTuple
 from urllib.parse import parse_qsl, quote, unquote, urlparse
 
 from ..log import get_logger
@@ -21,16 +20,15 @@ class urlparts(NamedTuple):
     """Named tuple representing parts of the URL."""
 
     scheme: str
-    hostname: str
-    port: int
-    username: str
-    password: str
-    path: str
-    query: Mapping
+    hostname: str | None
+    port: int | None
+    username: str | None
+    password: str | None
+    path: str | None
+    query: dict[str, Any]
 
 
-def parse_url(url):
-    # type: (str) -> Dict
+def parse_url(url: str) -> dict[str, Any]:
     """Parse URL into mapping of components."""
     scheme, host, port, user, password, path, query = _parse_url(url)
     if query:
@@ -52,8 +50,7 @@ def parse_url(url):
     return dict(transport=scheme, hostname=host, port=port, userid=user, password=password, virtual_host=path, **query)
 
 
-def url_to_parts(url):
-    # type: (str) -> urlparts
+def url_to_parts(url: str) -> urlparts:
     """Parse URL into :class:`urlparts` tuple of components."""
     scheme = urlparse(url).scheme
     schemeless = url[len(scheme) + 3 :]
@@ -75,10 +72,19 @@ def url_to_parts(url):
 _parse_url = url_to_parts
 
 
-def as_url(scheme, host=None, port=None, user=None, password=None, path=None, query=None, sanitize=False, mask="**"):
-    # type: (str, str, int, str, str, str, str, bool, str) -> str
+def as_url(
+    scheme: str,
+    host: str | None = None,
+    port: int | None = None,
+    user: str | None = None,
+    password: str | None = None,
+    path: str | None = None,
+    query: Any = None,
+    sanitize: bool = False,
+    mask: str = "**",
+) -> str:
     """Generate URL from component parts."""
-    parts = [f"{scheme}://"]
+    parts: list[Any] = [f"{scheme}://"]
     if user or password:
         if user:
             parts.append(safequote(user))
@@ -95,22 +101,19 @@ def as_url(scheme, host=None, port=None, user=None, password=None, path=None, qu
     return "".join(str(part) for part in parts if part)
 
 
-def sanitize_url(url, mask="**"):
-    # type: (str, str) -> str
+def sanitize_url(url: str, mask: str = "**") -> str:
     """Return copy of URL with password removed."""
     return as_url(*_parse_url(url), sanitize=True, mask=mask)
 
 
-def maybe_sanitize_url(url, mask="**"):
-    # type: (Any, str) -> Any
+def maybe_sanitize_url(url: Any, mask: str = "**") -> Any:
     """Sanitize url, or do nothing if url undefined."""
     if isinstance(url, str) and "://" in url:
         return sanitize_url(url, mask)
     return url
 
 
-def parse_ssl_cert_reqs(query_value):
-    # type: (str) -> Any
+def parse_ssl_cert_reqs(query_value: str) -> Any:
     """Given the query parameter for ssl_cert_reqs, return the SSL constant or None."""
     if ssl_available:
         query_value_to_constant = {

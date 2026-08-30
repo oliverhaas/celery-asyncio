@@ -897,6 +897,7 @@ class Channel:
     async def _put_message(self, queue: str, raw_message: bytes) -> None:
         """Publish a message to a queue via sorted set with per-message hash."""
         # Parse envelope
+        payload: dict[str, Any]
         try:
             payload = json_loads(raw_message)
         except (ValueError, TypeError):  # fmt: skip
@@ -919,7 +920,7 @@ class Channel:
         eta_timestamp: float | None = props.get("eta")
         is_native_delayed = eta_timestamp is not None and (float(eta_timestamp) - now) > self._requeue_check_interval
         if is_native_delayed:
-            eta_timestamp = float(eta_timestamp)
+            eta_timestamp = float(eta_timestamp)  # type: ignore[arg-type]
         visible_at = eta_timestamp if is_native_delayed else now
 
         queue_score = _queue_score(priority, visible_at)
@@ -1499,7 +1500,7 @@ class Channel:
             },
             properties=properties,
             headers=headers,
-            channel=self,
+            channel=self,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         )
 
     async def _deliver_to_consumer(
@@ -1519,7 +1520,7 @@ class Channel:
         for q, callback, no_ack in self._consumers.values():
             if q == queue:
                 if not no_ack:
-                    self._delivered[message.delivery_tag] = (queue, message)
+                    self._delivered[message.delivery_tag] = (queue, message)  # type: ignore[index]  # ty: ignore[invalid-assignment]
 
                 try:
                     body = message.decode()
@@ -1925,11 +1926,11 @@ class Channel:
         self._xread_iter_task = None
 
         # Cancel periodic tasks
-        for task in (self._enqueue_task, self._heartbeat_task, self._expires_task):
-            if task and not task.done():
-                task.cancel()
+        for periodic_task in (self._enqueue_task, self._heartbeat_task, self._expires_task):
+            if periodic_task and not periodic_task.done():
+                periodic_task.cancel()
                 try:
-                    await task
+                    await periodic_task
                 except (asyncio.CancelledError, Exception):  # fmt: skip
                     pass
 
@@ -1965,6 +1966,9 @@ class Channel:
 # ---------------------------------------------------------------------------
 
 
+_Channel = Channel
+
+
 class Transport(BaseTransport):
     """Pure asyncio Valkey/Redis transport with priority queues, reliable fanout, and delayed delivery.
 
@@ -1976,7 +1980,7 @@ class Transport(BaseTransport):
     to prefer (with fallback if only one is installed).
     """
 
-    Channel = Channel
+    Channel = _Channel  # type: ignore[assignment]
     default_port = 6379
 
     driver_type = "redis"
@@ -2053,7 +2057,7 @@ class Transport(BaseTransport):
         try:
             CredentialProvider = self._lib.credentials.CredentialProvider
         except (AttributeError, ImportError):  # fmt: skip
-            CredentialProvider = None  # type: ignore[assignment, misc]
+            CredentialProvider = None
 
         if CredentialProvider is not None and not isinstance(credential_provider, CredentialProvider):
             raise ValueError(
@@ -2082,8 +2086,8 @@ class Transport(BaseTransport):
             **client_kw,
         )
 
-        await self._client.ping()
-        await self._subclient.ping()
+        await self._client.ping()  # type: ignore[attr-defined]
+        await self._subclient.ping()  # type: ignore[attr-defined]
         self._connected = True
         logger.debug("Connected via %s at %s (dual clients)", self._lib.__name__, self._url)
 
@@ -2102,7 +2106,7 @@ class Transport(BaseTransport):
 
         self._connected = False
 
-    async def create_channel(self) -> Channel:
+    async def create_channel(self) -> _Channel:  # type: ignore[override]  # ty: ignore[invalid-method-override]
         if not self._connected:
             await self.connect()
         channel = Channel(self, self._connection_id)

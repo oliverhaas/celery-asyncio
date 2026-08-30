@@ -10,10 +10,10 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any, TypeVar
 
-textual_types = ()
+textual_types: tuple[type, ...] = ()
 
 try:
-    from django.utils.functional import Promise
+    from django.utils.functional import Promise  # ty: ignore[unresolved-import]
 
     textual_types += (Promise,)
 except ImportError:
@@ -82,7 +82,8 @@ def loads(s, _loads=json.loads, decode_bytes=True, object_hook=object_hook):
     return _loads(s, object_hook=object_hook)
 
 
-DecoderT = EncoderT = Callable[[Any], Any]
+type DecoderT = Callable[[Any], Any]
+type EncoderT = Callable[[Any], Any]
 T = TypeVar("T")
 EncodedT = TypeVar("EncodedT")
 
@@ -91,7 +92,7 @@ def register_type[T, EncodedT](
     t: type[T],
     marker: str | None,
     encoder: Callable[[T], EncodedT],
-    decoder: Callable[[EncodedT], T] = lambda d: d,
+    decoder: Callable[[EncodedT], Any] = lambda d: d,
 ):
     """Add support for serializing/deserializing native python type.
 
@@ -127,7 +128,9 @@ def _register_default_types():
         uuid.UUID,
         "uuid",
         lambda o: {"hex": o.hex},
-        lambda o: uuid.UUID(**o),
+        # The encoder above only ever writes {"hex": ...}, but UUID's other
+        # keyword forms stay accepted for payloads written elsewhere.
+        lambda o: uuid.UUID(**o),  # ty: ignore[invalid-argument-type]
     )
 
 

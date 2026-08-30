@@ -14,7 +14,7 @@ _NOT_FOUND = object()
 class cached_property(_cached_property):
     """Implementation of Cached property."""
 
-    def __init__(self, fget=None, fset=None, fdel=None):
+    def __init__(self, fget, fset=None, fdel=None):
         super().__init__(fget)
         self.__set = fset
         self.__del = fdel
