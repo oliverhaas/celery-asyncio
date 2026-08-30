@@ -1311,10 +1311,9 @@ class Channel:
                     await pipe.zrem(index_key, delivery_tag)
                 else:
                     # Not xx=True: a delivery with no index entry is tracked by
-                    # nothing and lost on a worker crash. This pipeline is not
-                    # transactional, so a plain ZADD can write an entry for a
-                    # message acked a moment ago; the empty-payload branch below
-                    # ZREMs it again.
+                    # nothing and lost on a worker crash. Without a transaction
+                    # this can revive an entry for a just-acked message, which
+                    # the empty-payload branch below ZREMs again.
                     await pipe.zadd(index_key, {delivery_tag: new_queue_at})
                 await pipe.hmget(message_key, "payload", "delivery_count")
                 if no_ack:
