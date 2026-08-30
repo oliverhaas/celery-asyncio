@@ -839,13 +839,11 @@ class Channel:
         if exchange:
             bindings = await self._load_bindings(exchange)
             if not bindings:
-                # Only direct is special. An empty table is the normal AMQP
-                # state for a topic or fanout exchange whose queues were all
-                # unbound, but a direct binding is known to exist by name, so
-                # an empty one means the state is inconsistent rather than that
-                # the message has nowhere to go. InconsistencyError is in
-                # connection_errors, so Connection.ensure redeclares and
-                # retries instead of losing the publish.
+                # A direct binding is known to exist by name, so an empty table
+                # means inconsistent state rather than nowhere to go (topic and
+                # fanout empty legitimately). InconsistencyError is in
+                # connection_errors, so Connection.ensure redeclares and retries
+                # instead of losing the publish.
                 if not self._exchange_is_durable(exchange):
                     # A transient direct exchange empties by design whenever its
                     # consumers go away: a pidbox reply exchange loses its
