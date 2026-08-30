@@ -1,6 +1,17 @@
 # Changelog
 
-## v6.0.0a4 (unreleased)
+## v6.0.0a5
+
+### Fixed
+
+- Receiving an AMQP message with a TTL raised `AttributeError` (kombu-asyncio 6.0.0a5)
+
+### Changed
+
+- Every re-raise now names its cause, so a traceback points at the original error
+  instead of stopping at the exception celery raised in its place
+
+## v6.0.0a4
 
 Ported every applicable upstream fix from the sweep recorded in `UPSTREAM-PLAN.md`,
 and fixed the fork-only defects the sweep turned up along the way.

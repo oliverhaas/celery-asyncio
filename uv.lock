@@ -137,7 +137,7 @@ wheels = [
 
 [[package]]
 name = "celery-asyncio"
-version = "6.0.0a4"
+version = "6.0.0a5"
 source = { editable = "." }
 dependencies = [
     { name = "asgiref" },
@@ -235,7 +235,7 @@ requires-dist = [
     { name = "ephem", marker = "extra == 'solar'" },
     { name = "flower", marker = "extra == 'flower'", specifier = ">=2.0" },
     { name = "humanize", marker = "extra == 'flower'" },
-    { name = "kombu-asyncio", specifier = "==6.0.0a4" },
+    { name = "kombu-asyncio", specifier = "==6.0.0a5" },
     { name = "kombu-asyncio", extras = ["redis"], marker = "extra == 'hiredis'" },
     { name = "kombu-asyncio", extras = ["redis"], marker = "extra == 'redis'" },
     { name = "kombu-asyncio", extras = ["valkey"], marker = "extra == 'libvalkey'" },
@@ -601,11 +601,11 @@ wheels = [
 
 [[package]]
 name = "kombu-asyncio"
-version = "6.0.0a4"
+version = "6.0.0a5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d8/56/e98bdda167440b61c77fe7857a40375d49297c1410a5d2fcab484ccea39c/kombu_asyncio-6.0.0a4.tar.gz", hash = "sha256:27d428b0e5bc72dba4766d2b44faa8947eb06448caba41db3fb876683b33860f", size = 87842, upload-time = "2026-08-30T07:54:08.119Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ab/11/62b5572376c0bca774d4545f15e7a3745d215b7fbd1b01b1b7e18d537059/kombu_asyncio-6.0.0a5.tar.gz", hash = "sha256:0d151cb64a7c124826832a3b74a5db9e8ab1210c22882d206aabc3ab988da7d4", size = 89893, upload-time = "2026-08-30T14:37:26.794Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/6f/e0bac443f56cb7656a527aaae68d2efa76d79cebb289f61166076e1f5636/kombu_asyncio-6.0.0a4-py3-none-any.whl", hash = "sha256:ce686f8bd43b379fe133ff1180a794d93d94b8919298c8ff4187bc1b2c739640", size = 109324, upload-time = "2026-08-30T07:54:06.783Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/d0/2ed4c73b9ca508e64d85538f662d0193e7198f83aa5d47ee5a635edcea03/kombu_asyncio-6.0.0a5-py3-none-any.whl", hash = "sha256:2b17b137c875f33e21778f22233b8bb780dfc1b3415aafb0288175da9e192df0", size = 111266, upload-time = "2026-08-30T14:37:25.072Z" },
 ]
 
 [package.optional-dependencies]
