@@ -73,7 +73,7 @@ def _make_incoming_message(
     headers: dict | None = None,
     priority: int | None = None,
     delivery_mode: aio_pika.DeliveryMode | None = None,
-    expiration: timedelta | None = None,
+    expiration: float | timedelta | datetime | None = None,
     correlation_id: str | None = None,
     reply_to: str | None = None,
     message_id: str | None = None,
@@ -1061,7 +1061,7 @@ class TestChannelConvertMessage:
             delivery_tag=1,
             priority=5,
             delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-            expiration=timedelta(seconds=30),
+            expiration=30.0,
             correlation_id="corr-123",
             reply_to="reply-queue",
             message_id="msg-456",
@@ -1076,6 +1076,19 @@ class TestChannelConvertMessage:
         assert msg.properties["reply_to"] == "reply-queue"
         assert msg.properties["message_id"] == "msg-456"
         assert msg.properties["delivery_tag"] == "1"
+
+    def test_expiration_accepts_every_aio_pika_form(self, channel):
+        # aio-pika hands us a float of seconds on the incoming path, but the
+        # same attribute is a timedelta or an absolute datetime on messages we
+        # built ourselves.
+        for expiration in (30.0, timedelta(seconds=30)):
+            incoming = _make_incoming_message(expiration=expiration)
+            got = channel._convert_message(incoming, "q1", "1").properties["expiration"]
+            assert got == "30000", f"{expiration!r} -> {got}"
+
+        incoming = _make_incoming_message(expiration=datetime.now(UTC) + timedelta(seconds=30))
+        # Relative to now, so the exact value depends on how long the call took.
+        assert 29000 < int(channel._convert_message(incoming, "q1", "1").properties["expiration"]) <= 30000
 
     def test_none_properties_omitted(self, channel):
         incoming = _make_incoming_message(

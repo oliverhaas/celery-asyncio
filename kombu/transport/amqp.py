@@ -84,6 +84,20 @@ def _get_exchange_type(type_name: str) -> aio_pika.ExchangeType:
     }.get(type_name, aio_pika.ExchangeType.DIRECT)
 
 
+def _expiration_to_millis(expiration: int | float | timedelta | datetime) -> int:
+    """Normalise aio-pika's expiration to the AMQP wire format (milliseconds).
+
+    Incoming messages carry a float in seconds (aio-pika decodes the header for
+    us), but the same attribute holds a timedelta or an absolute datetime on
+    messages we built ourselves, so all four forms have to be handled.
+    """
+    if isinstance(expiration, timedelta):
+        return int(expiration.total_seconds() * 1000)
+    if isinstance(expiration, datetime):
+        return int((expiration - datetime.now(UTC)).total_seconds() * 1000)
+    return int(expiration * 1000)
+
+
 # ---------------------------------------------------------------------------
 # Channel
 # ---------------------------------------------------------------------------
@@ -473,7 +487,7 @@ class Channel:
         if incoming.delivery_mode is not None:
             properties["delivery_mode"] = incoming.delivery_mode.value
         if incoming.expiration is not None:
-            properties["expiration"] = str(int(incoming.expiration.total_seconds() * 1000))
+            properties["expiration"] = str(_expiration_to_millis(incoming.expiration))
         if incoming.correlation_id:
             properties["correlation_id"] = incoming.correlation_id
         if incoming.reply_to:
