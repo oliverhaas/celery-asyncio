@@ -38,3 +38,12 @@ uv add celery-asyncio[django]
 uv add celery-asyncio[msgpack]
 uv add celery-asyncio[yaml]
 ```
+
+## C parser extras
+
+The pure-Python protocol parsers are the default. These swap in the C ones:
+
+```console
+uv add celery-asyncio[libvalkey]   # valkey
+uv add celery-asyncio[hiredis]     # redis
+```
