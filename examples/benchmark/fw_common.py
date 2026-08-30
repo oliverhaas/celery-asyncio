@@ -17,6 +17,9 @@ import sys
 import time
 
 COUNTER = "bench:done"
+EXTRA_KEY = "bench:extra"
+# Prices one Redis round-trip by adding one and reading off the slope.
+EXTRA_ROUNDTRIPS = int(os.environ.get("BENCH_EXTRA_ROUNDTRIPS", "0"))
 REDIS_URL = os.environ.get("BENCH_BROKER", "redis://localhost:6379/0")
 COUNTER_URL = os.environ.get("BENCH_COUNTER", "redis://localhost:6379/2")
 
@@ -26,6 +29,13 @@ print(
     file=sys.stderr,
     flush=True,
 )
+
+import bench_counts
+import bench_profile
+
+_label = os.environ.get("BENCH_PROFILE_LABEL", "worker")
+bench_profile.maybe_start(_label)
+bench_counts.maybe_start(_label)
 
 _CPU_INNER = 50
 
@@ -93,4 +103,6 @@ async def work_async(cpu_iters: int, io_seconds: float, mem_kb: int) -> int:
     if io_seconds > 0:
         await asyncio.sleep(io_seconds)
     await counter_async().incr(COUNTER)
+    for _ in range(EXTRA_ROUNDTRIPS):
+        await counter_async().incr(EXTRA_KEY)
     return len(buf)

@@ -68,6 +68,9 @@ def main() -> None:
     log_path.parent.mkdir(exist_ok=True)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT)
+    # The driver imports the adapters too, so the profiler has to be told which
+    # side of the fork it is on or it samples this process as well.
+    env["BENCH_PROFILE_ROLE"] = "worker"
 
     stop_sample = threading.Event()
     stop_pub = threading.Event()
