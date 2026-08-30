@@ -248,9 +248,6 @@ suppress-none-returning = true
   "TRY",     # tryceratops — relaxed in tests
   "UP045",   # Non-PEP 604 Optional
 ]
-"examples/benchmark/_render_results.py" = [
-  "RUF001",  # The × in the config labels is a multiplication sign on purpose
-]
 "examples/benchmark/render_results.py" = [
   "ISC004",  # Markdown paragraphs are wrapped across source lines
   "RUF001",  # The × in the config labels is a multiplication sign on purpose
