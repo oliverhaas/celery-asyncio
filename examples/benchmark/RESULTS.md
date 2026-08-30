@@ -364,6 +364,91 @@ what uvloop buys, with no dependency. The free-threaded build already defaults
 to mimalloc.
 <!-- /keep -->
 
+## Other Python task frameworks
+
+The mixed workload again, on the free-threaded build, against four other queues. Every row runs the same task body from `fw_common.py`, the same Redis, the same 4 pinned cores, results disabled, and counts completions by having the task bump one Redis key, so the extra round-trip is charged to every framework equally. Each row is that framework's fastest shape out of `sweep_fw.sh`.
+
+| framework | version | shape | slots | delivery | TPS | spread | peak RSS | peak PSS | mean CPU | tasks/core·s | runs |
+| --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| taskiq (stream) | 0.12.6 | 4 proc x 25 async | 100 | at-least-once | 1788 | 5.2 % | 582 MB | 427 MB | 398 % | 449 | 2 |
+| taskiq (list) | 0.12.6 | 4 proc x 25 async | 100 | at-most-once | 1769 | 0.5 % | 638 MB | 472 MB | 396 % | 446 | 2 |
+| dramatiq | 2.2.0 | 4 proc x 25 threads | 100 | at-least-once | 1593 | 0.5 % | 986 MB | 886 MB | 400 % | 399 | 2 |
+| celery-asyncio | 6.0.0a3 | 1 proc, 4 loop x 25 + 1 sync | 101 | at-least-once | 1504 | 0.1 % | 402 MB | 394 MB | 382 % | 394 | 2 |
+| celery-asyncio | 6.0.0a3 | 4 proc x (1 loop x 25) | 100 | at-least-once | 1412 | 0.6 % | 659 MB | 611 MB | 394 % | 358 | 2 |
+| celery (upstream) | 5.6.3 | 4 proc x 25 threads | 100 | at-least-once | 1397 | 0.1 % | 879 MB | 830 MB | 398 % | 351 | 2 |
+| celery (upstream) | 5.6.3 | 1 proc, 100 threads | 100 | at-least-once | 1193 | 0.6 % | 495 MB | 487 MB | 339 % | 352 | 2 |
+| arq | 0.28.0 | 4 proc x 25 async | 100 | at-least-once | 1190 | 1.2 % | 370 MB | 322 MB | 329 % | 362 | 2 |
+| django-q2 | 1.11.1 | 32 processes | 32 | at-most-once | 943 | 0.4 % | 2792 MB | 1341 MB | 235 % | 401 | 2 |
+
+<!-- keep:obs-frameworks -->
+Nine rows, not six: the two extra celery shapes and the second taskiq
+transport exist because the six-row version invited a fair objection and a fair
+suspicion, and both turned out to be answerable by measurement.
+
+**Four threads against four processes.** Every other framework here scales by
+forking, so the original table put one celery-asyncio process with four loop
+threads against four full worker processes. Running celery-asyncio the same way,
+four processes of one loop x 25, makes it *slower*: 1412 TPS against 1504, at
+611 MB PSS instead of 394 MB. Four loop threads in one free-threaded process
+beat four processes on throughput and on memory at the same time, which is the
+whole argument for the free-threaded build in one line.
+
+For upstream celery the objection was correct. Its thread pool in a single
+process tops out at 339% CPU on four cores, and spreading it over four
+processes of 25 threads lifts it to 398% and 1193 -> 1397 TPS, +17%. So the
+honest upstream row is 1397, not 1193, and celery-asyncio's throughput edge is
+1.08x rather than 1.26x. The memory gap does not move: 394 MB against 830 MB.
+
+**Does taskiq win by skipping the durability?** Partly the suspicion was right
+about the transport and entirely wrong about the cost. `ListQueueBroker`, which
+is what taskiq's quickstart shows, is `LPUSH`/`BRPOP` with no acknowledgement
+anywhere in the path, so a worker that dies takes its in-flight tasks with it.
+django-q2's Redis broker is the same story from the other end: `dequeue` returns
+an ack id of `None` and the base `acknowledge()` is `pass`, with no override.
+Neither can redeliver. celery's kombu transport, dramatiq and arq all can, and
+pay for it.
+
+But taskiq can too, and it is free. `RedisStreamBroker` uses a consumer group
+and `XACK`, taskiq's default `ack_type` is `WHEN_SAVED` rather than on receipt,
+and it measures at 1788 TPS against the list broker's 1769 - inside the 5% spread
+of the stream runs. Whatever makes taskiq fast, it is not the missing ack.
+
+**What it is instead** shows up in the tasks/core-second column, which divides
+out the fact that some rows cannot fill four cores. taskiq gets 449 tasks per
+busy core-second, celery-asyncio 394, dramatiq 399, arq 362, upstream celery
+351. taskiq is roughly 14% cheaper per task than celery-asyncio at the same
+guarantee. That gap is per-task protocol overhead, not scheduling: celery's
+message path carries task events, the revoke set, ETA and countdown handling,
+retry state and the group/chord primitives, and taskiq's carries a task name and
+kwargs. This has not been profiled, so treat the attribution as a hypothesis and
+the 14% as the measurement.
+
+django-q2's 401 tasks/core-second alongside 235% CPU is the opposite shape: the
+per-task cost is fine, but 32 processes still cannot fill four cores, and its
+2792 MB RSS is 7x the celery-asyncio row for two thirds the throughput. It also
+carries the ORM bookkeeping the others do not.
+
+**Three defaults that would each have produced a wrong row**, all found while
+building this table rather than reading it:
+
+- arq depends on `redis[hiredis]`, and importing hiredis re-enables the GIL on a
+  free-threaded build. The run looked normal, at 99.5% of one core. Every result
+  JSON now records `gil_enabled` and the table refuses to print a row that ran
+  with it on.
+- arq's `poll_delay` is 0.5s and django-q2's `poll` is 0.2s; both poll their
+  queue rather than blocking on it. At the defaults arq sat at 57% CPU and 606
+  TPS. At `poll_delay=0.01` it does 1190.
+- Sharing one `redis.asyncio` client across the four LoopWorker threads
+  serialises every task through one connection: 641 TPS at 308% CPU. One client
+  per loop gives 1520 at 381%. That was a bug in this harness, not in celery, and
+  it is the kind of bug that would have been published as a celery result.
+
+Everything here runs with results disabled, because dramatiq stores none by
+default and that is each framework's fastest configuration. Completions are
+counted by having the task itself `INCR` one Redis key, which adds one
+round-trip per task to every row equally.
+<!-- /keep -->
+
 ## Cost per task (AWS Fargate, Linux/x86, us-east-1)
 
 Pricing: $0.04048 per vCPU·h, $0.004445 per GB·h.
@@ -501,6 +586,11 @@ Memory is peak PSS. Upstream's best is chosen by throughput, which on io-only
 picks prefork; note that `classic-threads100-314` also reaches 199.6 TPS on
 82 MB, so **the memory gap is against prefork specifically, not against
 upstream in general.**
+
+A separate table measures four other Python task queues on the same workload;
+the short version is that celery-asyncio's single free-threaded process is the
+cheapest at-least-once row on memory, taskiq is about 14% cheaper per task, and
+the two fastest-looking rows in that comparison acknowledge nothing.
 
 Read together, three conditions decide whether this package is worth adopting,
 and all three have to hold:
