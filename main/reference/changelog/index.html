@@ -926,15 +926,76 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#v600a2-in-development" class="md-nav__link">
+  <a href="#v600a4-unreleased" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v6.0.0a2 (in development)
+        v6.0.0a4 (unreleased)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="v6.0.0a2 (in development)">
+    <nav class="md-nav" aria-label="v6.0.0a4 (unreleased)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed-production-readiness-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed (production readiness audit)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v600a3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v6.0.0a3
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v600a2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v6.0.0a2
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="v6.0.0a2">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1010,15 +1071,76 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#v600a2-in-development" class="md-nav__link">
+  <a href="#v600a4-unreleased" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v6.0.0a2 (in development)
+        v6.0.0a4 (unreleased)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="v6.0.0a2 (in development)">
+    <nav class="md-nav" aria-label="v6.0.0a4 (unreleased)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Added
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed-production-readiness-audit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed (production readiness audit)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v600a3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v6.0.0a3
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v600a2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v6.0.0a2
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="v6.0.0a2">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1080,7 +1202,62 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
-<h2 id="v600a2-in-development">v6.0.0a2 (in development)<a class="headerlink" href="#v600a2-in-development" title="Permanent link">&para;</a></h2>
+<h2 id="v600a4-unreleased">v6.0.0a4 (unreleased)<a class="headerlink" href="#v600a4-unreleased" title="Permanent link">&para;</a></h2>
+<p>Ported every applicable upstream fix from the sweep recorded in <code>UPSTREAM-PLAN.md</code>,
+and fixed the fork-only defects the sweep turned up along the way.</p>
+<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>AsyncResult.exists()</code> and its async twin</li>
+<li><code>time_limit</code> and <code>soft_time_limit</code> on <code>task.request</code></li>
+<li>Separate <code>acks_on_failure</code> and <code>acks_on_timeout</code> task options</li>
+<li><code>additional_connection_errors</code> transport option for the Valkey/Redis backend</li>
+<li>Warning when routing is declared as a task attribute</li>
+</ul>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Publishing opened a broker connection per task</li>
+<li>Chord counter double-counted on redelivery</li>
+<li>A failing step in a chain never reached the chord body</li>
+<li>Chains of chords were nested instead of flat; empty groups broke <code>as_tuple</code></li>
+<li>Eager chains kept running past <code>Ignore</code> and <code>Reject</code>; <code>EagerResult</code> had no <code>aget()</code></li>
+<li>Crontabs matched against the wrong timezone, and DST gaps were skipped</li>
+<li>Beat kept a broker connection it never used, and lost entries that asked to wait</li>
+<li><code>send_task</code> by name ignored the task's own options</li>
+<li>PEP 649 lazy annotations broke task registration</li>
+<li>Revoked tasks were not marked <code>REVOKED</code> in the backend</li>
+<li>Cold-shutdown terminations were reported as task failures</li>
+<li>Reconnects lost in-flight bookkeeping, and broken connections were reused</li>
+<li>The event dispatcher dropped and leaked buffered events</li>
+<li><code>autoretry_for</code> was ignored on async tasks</li>
+<li>Passwords in failover URLs were logged in the clear</li>
+<li><code>redis_backend_use_ssl</code> was ignored on <code>redis://</code>, and sentinel ACL credentials were dropped</li>
+<li>Routing-only queues were added to the consumer set</li>
+<li>Control and event queues are now exclusive by default</li>
+<li>Django connections were opened only to be closed again</li>
+</ul>
+<h3 id="fixed-production-readiness-audit">Fixed (production readiness audit)<a class="headerlink" href="#fixed-production-readiness-audit" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>LoopWorker.start()</code> returned before its event loop was running</li>
+<li><code>LoopWorker.stop()</code> left the loop unclosed, leaking its self-pipe on every pool restart</li>
+<li>The hard-timeout timer for sync tasks was never cancelled, parking a thread per task</li>
+<li><code>CancelledError</code> was swallowed in the async task path instead of propagating</li>
+<li>The timer scheduled on the wall clock, so a clock step shifted or stampeded pending entries</li>
+<li>A deep backlog could starve the <code>max_tasks_per_child</code> and <code>max_memory_per_child</code> checks</li>
+<li><code>celery-asyncio[hiredis]</code> and <code>[libvalkey]</code> installed nothing</li>
+<li>A local <code>uv build</code> swept vendored virtualenvs into the sdist</li>
+</ul>
+<h2 id="v600a3">v6.0.0a3<a class="headerlink" href="#v600a3" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Dual Valkey/Redis support; <code>redis</code> backend module renamed to <code>valkey_redis</code></li>
+<li>API reference (mkdocstrings) and migration guide</li>
+<li>Flower packaged as a <code>[flower]</code> extra</li>
+<li>Soft time limits for sync tasks in the thread pool</li>
+<li>Redis PUBSUB replaced with polling in the result backend</li>
+<li>Django 6.0 Tasks backend removed in favour of
+  <a href="https://github.com/oliverhaas/django-tasks-celery">django-tasks-celery</a></li>
+<li>Memcached backend, Python 2 compat shims, and dead code removed</li>
+</ul>
+<h2 id="v600a2">v6.0.0a2<a class="headerlink" href="#v600a2" title="Permanent link">&para;</a></h2>
 <p>Initial alpha of celery-asyncio.</p>
 <h3 id="what-works">What works<a class="headerlink" href="#what-works" title="Permanent link">&para;</a></h3>
 <ul>
