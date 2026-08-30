@@ -33,8 +33,7 @@ finally:
 # 1-core one with nothing in the logs to say so. Report it per process.
 _GIL = getattr(sys, "_is_gil_enabled", lambda: True)()
 print(
-    f"[celeryapp] BENCH_UVLOOP={'1' if _UVLOOP_REQUESTED else 'unset'}, "
-    f"event loop: {_LOOP_CLASS}, gil_enabled: {_GIL}",
+    f"[celeryapp] BENCH_UVLOOP={'1' if _UVLOOP_REQUESTED else 'unset'}, event loop: {_LOOP_CLASS}, gil_enabled: {_GIL}",
     file=sys.stderr,
     flush=True,
 )
