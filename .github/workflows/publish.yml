@@ -36,6 +36,15 @@ jobs:
       - name: Run ruff format check
         run: uv run ruff format --check
 
+      - name: Run mypy
+        run: uv run mypy celery/
+
+      # ty is pre-1.0 and still reports several hundred findings against the
+      # modules inherited from upstream Celery, so it only gates the modules
+      # written from scratch for this fork.
+      - name: Run ty
+        run: uv run ty check celery/concurrency/aio.py celery/utils/promises.py celery/utils/scheduling.py celery/worker/loops.py
+
       - name: Run tests
         run: uv run pytest -p no:xdist
 

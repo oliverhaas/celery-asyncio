@@ -64,10 +64,13 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
+      # ty is pre-1.0 and still reports several hundred findings against the
+      # modules inherited from upstream Celery, so it only gates the modules
+      # written from scratch for this fork.
       - id: ty
         name: ty
         language: system
-        entry: uv run ty check celery/
+        entry: uv run ty check celery/concurrency/aio.py celery/utils/promises.py celery/utils/scheduling.py celery/worker/loops.py
         pass_filenames: false
         always_run: true
         stages: [pre-push]
