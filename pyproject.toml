@@ -3,7 +3,7 @@ name = "celery-asyncio"
 version = "6.0.0a4"
 description = "Distributed Task Queue with native asyncio support"
 readme = "README.md"
-license = { text = "BSD-3-Clause" }
+license = "BSD-3-Clause"
 requires-python = ">=3.14"
 keywords = [
   "actors",
@@ -25,7 +25,6 @@ classifiers = [
   "Framework :: AsyncIO",
   "Framework :: Celery",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: BSD License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
@@ -64,8 +63,8 @@ valkey = ["kombu-asyncio[valkey]"]
 redis = ["kombu-asyncio[redis]"]
 amqp = ["aio-pika>=9.0.0"]
 # Optimized C parsers
-hiredis = ["kombu-asyncio[hiredis]"]
-libvalkey = ["kombu-asyncio[libvalkey]"]
+hiredis = ["kombu-asyncio[redis]", "redis[hiredis]"]
+libvalkey = ["kombu-asyncio[valkey]", "valkey[libvalkey]"]
 
 # Testing
 tblib = ["tblib>=1.3.0"]
@@ -90,7 +89,7 @@ dev = [
   "pre-commit==4.6.2",
   # tests/unit/app/test_app.py importorskips pydantic at module level, so
   # without it the whole module -- not just the pydantic tests -- goes quiet.
-  "pydantic==2.13.1",
+  "pydantic==2.13.5",
   "pytest==9.1.1",
   "pytest-asyncio==1.4.0",
   "pytest-cov==7.1.0",
@@ -99,9 +98,9 @@ dev = [
   "pytest-xdist==3.8.0",
   "pytest-flakefinder==1.1.0",
   "redis==8.1.0",
-  "ruff==0.16.4",
+  "ruff==0.16.5",
   "valkey==6.1.1",
-  "ty==0.0.74",
+  "ty==0.0.75",
 ]
 docs = [
     "mkdocs==1.6.1",
@@ -118,7 +117,7 @@ build-backend = "hatchling.build"
 packages = ["celery"]
 
 [tool.hatch.build.targets.sdist]
-include = ["celery", "LICENSE", "README.md"]
+include = ["/celery", "/tests", "/LICENSE", "/README.md"]
 
 [tool.uv]
 # flower depends on "celery" (PyPI), but celery-asyncio provides the celery
@@ -139,7 +138,8 @@ extend-exclude = ["*.md"]
 select = ["ALL"]
 ignore = [
   "A",        # Builtin shadowing — celery uses type, format, id as params
-  "ANN",      # Type annotations — will add incrementally (separate task)
+  "ANN",      # Type annotations — 5385 hits, almost all in modules inherited
+              # from upstream Celery. mypy gates the package instead.
   "ARG",      # Unused arguments — signal handlers, overrides, API compat
   "ASYNC109", # timeout param is task TTL, not asyncio.timeout
   "ASYNC110", # asyncio.Event suggestion — not always appropriate
@@ -149,22 +149,24 @@ ignore = [
   "B024",     # Abstract base class without abstract method
   "B026",     # Star-arg unpacking after keyword arg
   "B027",     # Empty method without abstract decorator
-  "B904",     # Raise from — will fix incrementally
+  "B904",     # Raise from — 47 sites, mostly inherited. Adding a cause changes
+              # the traceback users see, so it gets its own pass.
   "BLE001",   # Blind except: needed for task error handling
   "C901",     # Complex structure: some task functions are inherently complex
   "COM812",   # Conflicts with ruff-format
   "COM818",   # Trailing comma on bare tuple
   "CPY001",   # Copyright notice per file. The LICENSE file covers the package.
-  "D",        # Docstrings — will add incrementally
+  "D",        # Docstrings — 1373 hits, nearly all inherited from upstream Celery
   "DTZ",      # Datetime timezone — celery uses naive datetimes throughout
   "E402",     # Module-level import not at top — lazy imports
   "E501",     # Line length handled by config
   "E741",     # Ambiguous variable name — l, O, I used in celery
   "EM",       # Exception strings inline are fine
-  "ERA001",   # Commented-out code — keeping for reference during rewrite
+  "ERA001",   # Commented-out code — every remaining hit is prose: an exploit
+              # illustration, an issue write-up, or shorthand like "chord([A, B], C)"
   "EXE",      # Shebang — examples have shebangs for convenience
   "FBT",      # Boolean params match task APIs (ignore_result, bind, etc.)
-  "FIX",      # TODO/FIXME/XXX comments — allowed during development
+  "FIX",      # TODO/FIXME/XXX comments — inherited from upstream Celery
   "G",        # Logging format — celery uses % formatting in logging
   "INP001",   # Implicit namespace package — examples are standalone scripts
   "ISC002",   # Implicit string concatenation
@@ -211,9 +213,10 @@ ignore = [
   "SIM",      # Simplify — style preference, readability varies
   "SLF001",   # Private member access needed for internals
   "SLOT000",  # No __slots__ in str subclass
-  "T201",     # Print statements — for debugging during rewrite
+  "T201",     # Print — the CLI banner, worker status output, and the example
+              # scripts all write to stdout on purpose
   "TC",       # Typing-only imports: style preference
-  "TD",       # TODO comments — allowed during development
+  "TD",       # TODO comment formatting — inherited from upstream Celery
   "TID252",   # Relative imports
   "TRY",      # tryceratops — style preference throughout
   "UP007",    # Non-PEP 604 annotation
@@ -276,6 +279,18 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "dateutil.*"
+ignore_missing_imports = true
+
+# Optional extras and stub-less third-party packages.
+[[tool.mypy.overrides]]
+module = [
+    "click_plugins.*",
+    "django.*",
+    "objgraph.*",
+    "psutil.*",
+    "pygments.*",
+    "tblib.*",
+]
 ignore_missing_imports = true
 
 [tool.ty.environment]
