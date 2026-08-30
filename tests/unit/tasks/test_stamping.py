@@ -463,29 +463,29 @@ class CanvasCase:
     ],
 )
 @pytest.mark.parametrize(
-    "canvas_workflow",
+    "canvas_workflow_factory",
     [
-        signature("sig"),
-        group(signature("sig")),
-        group(signature("sig1", signature("sig2"))),
-        group(signature(f"sig{i}") for i in range(2)),
-        chord((signature(f"sig{i}") for i in range(2)), signature("sig3")),
-        chord(group(signature(f"sig{i}") for i in range(2)), signature("sig3")),
-        chord(group(signature(f"sig{i}") for i in range(2)), signature("sig3") | signature("sig4")),
-        chord(signature("sig1"), signature("sig2") | signature("sig3")),
-        chain(
+        lambda: signature("sig"),
+        lambda: group(signature("sig")),
+        lambda: group(signature("sig1", signature("sig2"))),
+        lambda: group(signature(f"sig{i}") for i in range(2)),
+        lambda: chord((signature(f"sig{i}") for i in range(2)), signature("sig3")),
+        lambda: chord(group(signature(f"sig{i}") for i in range(2)), signature("sig3")),
+        lambda: chord(group(signature(f"sig{i}") for i in range(2)), signature("sig3") | signature("sig4")),
+        lambda: chord(signature("sig1"), signature("sig2") | signature("sig3")),
+        lambda: chain(
             signature("sig"),
             chord((signature(f"sig{i}") for i in range(2)), signature("sig3")),
             chord(group(signature(f"sig{i}") for i in range(2)), signature("sig3")),
             chord(group(signature(f"sig{i}") for i in range(2)), signature("sig3") | signature("sig4")),
             chord(signature("sig1"), signature("sig2") | signature("sig3")),
         ),
-        chain(
+        lambda: chain(
             signature("sig1") | signature("sig2"),
             group(signature("sig3"), signature("sig4")) | group(signature(f"sig{i}") for i in range(5, 6)),
             chord(group(signature(f"sig{i}") for i in range(6, 8)), signature("sig8")) | signature("sig9"),
         ),
-        chain(
+        lambda: chain(
             signature("sig"),
             chord(
                 group(signature(f"sig{i}") for i in range(2)),
@@ -507,7 +507,7 @@ class CanvasCase:
                 ),
             ),
         ),
-        group(
+        lambda: group(
             signature("sig"),
             group(signature("sig1")),
             group(signature("sig1"), signature("sig2")),
@@ -540,7 +540,7 @@ class CanvasCase:
                 ),
             ),
         ),
-        chain(
+        lambda: chain(
             signature("sig"),
             group(signature("sig1")),
             group(signature("sig1"), signature("sig2")),
@@ -573,7 +573,7 @@ class CanvasCase:
                 ),
             ),
         ),
-        chord(
+        lambda: chord(
             group(
                 group(signature(f"sig{i}") for i in range(2)),
                 group(signature(f"sig{i}") for i in range(2, 4)),
@@ -594,6 +594,12 @@ class CanvasCase:
     ],
 )
 class test_canvas_stamping(CanvasCase):
+    @pytest.fixture
+    def canvas_workflow(self, canvas_workflow_factory) -> Signature:
+        # Built per test: clone() is shallow for nested canvases, so sharing one
+        # instance across tests let each test's stamps leak into the next.
+        return canvas_workflow_factory()
+
     @pytest.fixture
     def stamped_canvas(self, stamping_visitor: StampingVisitor, canvas_workflow: Signature) -> Signature:
         workflow = canvas_workflow.clone()
