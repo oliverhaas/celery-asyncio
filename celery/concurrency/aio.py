@@ -95,9 +95,8 @@ class LoopWorker:
         try:
             self._loop.run_forever()
         finally:
-            # Only the owning thread can close the loop, and it has to happen
-            # here: an unclosed loop leaks its self-pipe until __del__ runs,
-            # which then raises "Invalid file descriptor: -1" from the GC.
+            # Only the owning thread can close the loop, and an unclosed one
+            # leaks its self-pipe until __del__ raises from the GC.
             try:
                 self._loop.run_until_complete(self._loop.shutdown_asyncgens())
             finally:
@@ -177,7 +176,12 @@ class TaskPool(BasePool):
     task_join_will_block = False
 
     def __init__(
-        self, *args: Any, loop_workers: int = 1, loop_concurrency: int = 10, sync_workers: int = 1, **kwargs: Any
+        self,
+        *args: Any,
+        loop_workers: int = 1,
+        loop_concurrency: int = 10,
+        sync_workers: int = 1,
+        **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._loop_worker_count = loop_workers
@@ -569,6 +573,6 @@ class TaskPool(BasePool):
                 "loop-concurrency": self._loop_concurrency,
                 "sync-workers": self._sync_worker_count,
                 "loop-active": [w._active_count for w in self._loop_workers],
-            }
+            },
         )
         return info

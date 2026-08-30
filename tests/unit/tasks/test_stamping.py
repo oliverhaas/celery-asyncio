@@ -75,7 +75,7 @@ class ListStampingVisitor(StampingVisitor):
             "on_group_start": [
                 "ListStampingVisitor: on_group_start-item1",
                 "ListStampingVisitor: on_group_start-item2",
-            ]
+            ],
         }
 
     def on_chain_start(self, actual_sig: Signature, **headers) -> dict:
@@ -83,7 +83,7 @@ class ListStampingVisitor(StampingVisitor):
             "on_chain_start": [
                 "ListStampingVisitor: on_chain_start-item1",
                 "ListStampingVisitor: on_chain_start-item2",
-            ]
+            ],
         }
 
     def on_chord_header_start(self, actual_sig: Signature, **header) -> dict:
@@ -93,14 +93,14 @@ class ListStampingVisitor(StampingVisitor):
                 "on_chord_header_start": [
                     "ListStampingVisitor: on_chord_header_start-item1",
                     "ListStampingVisitor: on_chord_header_start-item2",
-                ]
-            }
+                ],
+            },
         )
         return s
 
     def on_chord_body(self, actual_sig: Signature, **header) -> dict:
         return {
-            "on_chord_body": ["ListStampingVisitor: on_chord_body-item1", "ListStampingVisitor: on_chord_body-item2"]
+            "on_chord_body": ["ListStampingVisitor: on_chord_body-item1", "ListStampingVisitor: on_chord_body-item2"],
         }
 
     def on_callback(self, actual_sig: Signature, **header) -> dict:
@@ -117,7 +117,7 @@ class SetStampingVisitor(StampingVisitor):
                 "SetStampingVisitor: on_signature-item1",
                 "SetStampingVisitor: on_signature-item2",
                 "SetStampingVisitor: on_signature-item3",
-            }
+            },
         }
 
     def on_group_start(self, actual_sig: Signature, **headers) -> dict:
@@ -126,7 +126,7 @@ class SetStampingVisitor(StampingVisitor):
                 "SetStampingVisitor: on_group_start-item1",
                 "SetStampingVisitor: on_group_start-item2",
                 "SetStampingVisitor: on_group_start-item3",
-            }
+            },
         }
 
     def on_chain_start(self, actual_sig: Signature, **headers) -> dict:
@@ -135,7 +135,7 @@ class SetStampingVisitor(StampingVisitor):
                 "SetStampingVisitor: on_chain_start-item1",
                 "SetStampingVisitor: on_chain_start-item2",
                 "SetStampingVisitor: on_chain_start-item3",
-            }
+            },
         }
 
     def on_chord_header_start(self, actual_sig: Signature, **header) -> dict:
@@ -146,8 +146,8 @@ class SetStampingVisitor(StampingVisitor):
                     "SetStampingVisitor: on_chord_header_start-item1",
                     "SetStampingVisitor: on_chord_header_start-item2",
                     "SetStampingVisitor: on_chord_header_start-item3",
-                }
-            }
+                },
+            },
         )
         return s
 
@@ -157,7 +157,7 @@ class SetStampingVisitor(StampingVisitor):
                 "SetStampingVisitor: on_chord_body-item1",
                 "SetStampingVisitor: on_chord_body-item2",
                 "SetStampingVisitor: on_chord_body-item3",
-            }
+            },
         }
 
     def on_callback(self, actual_sig: Signature, **header) -> dict:
@@ -166,7 +166,7 @@ class SetStampingVisitor(StampingVisitor):
                 "SetStampingVisitor: on_callback-item1",
                 "SetStampingVisitor: on_callback-item2",
                 "SetStampingVisitor: on_callback-item3",
-            }
+            },
         }
 
     def on_errback(self, actual_sig: Signature, **header) -> dict:
@@ -175,7 +175,7 @@ class SetStampingVisitor(StampingVisitor):
                 "SetStampingVisitor: on_errback-item1",
                 "SetStampingVisitor: on_errback-item2",
                 "SetStampingVisitor: on_errback-item3",
-            }
+            },
         }
 
 
@@ -247,7 +247,7 @@ class StampsAssertionVisitor(StampingVisitor):
                 isinstance(actual_sig, group),
                 isinstance(actual_sig, _chain),
                 isinstance(actual_sig, _chord),
-            ]
+            ],
         ):
             return
 
@@ -309,7 +309,7 @@ class StampedHeadersAssertionVisitor(StampingVisitor):
                 isinstance(actual_sig, group),
                 isinstance(actual_sig, _chain),
                 isinstance(actual_sig, _chord),
-            ]
+            ],
         ):
             with self.subtests.test(f'Check if "stamped_headers" is not in {actual_sig.options}'):
                 assertion_check = "stamped_headers" not in actual_sig.options
@@ -596,8 +596,6 @@ class CanvasCase:
 class test_canvas_stamping(CanvasCase):
     @pytest.fixture
     def canvas_workflow(self, canvas_workflow_factory) -> Signature:
-        # Built per test: clone() is shallow for nested canvases, so sharing one
-        # instance across tests let each test's stamps leak into the next.
         return canvas_workflow_factory()
 
     @pytest.fixture
@@ -1093,7 +1091,7 @@ class test_stamping_mechanism(CanvasCase):
                             assertion_result,
                             "header" in task.options["stamped_headers"],
                             all(header in task.options for header in task.options["stamped_headers"]),
-                        ]
+                        ],
                     )
                     if not assertion_result:
                         failed_task = task
@@ -1137,7 +1135,7 @@ class test_stamping_mechanism(CanvasCase):
                                     stamped_header in link["options"]
                                     for stamped_header in link["options"]["stamped_headers"]
                                 ),
-                            ]
+                            ],
                         )
                     if not assertion_result:
                         failed_task_link = link
@@ -1148,7 +1146,7 @@ class test_stamping_mechanism(CanvasCase):
                             assertion_result,
                             task.options["stamped_headers"]["header"] == "value",
                             all(header in task.options for header in task.options["stamped_headers"]),
-                        ]
+                        ],
                     )
 
                     if not assertion_result:
