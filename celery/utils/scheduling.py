@@ -172,6 +172,15 @@ def to_timestamp(dt: float | None, default_timezone: Any = None) -> float:
     return dt.timestamp()
 
 
+def _monotonic_at(timestamp: float) -> float:
+    """Map a wall-clock POSIX timestamp onto the monotonic timeline.
+
+    The mapping is taken once, when the entry is scheduled, so a later
+    clock step cannot delay every pending entry or fire them all at once.
+    """
+    return time.monotonic() + (timestamp - time.time())
+
+
 @dataclass(order=True)
 class Entry:
     """Timer entry."""
@@ -193,6 +202,9 @@ class Entry:
         self.cancelled = True
 
 
+_Entry = Entry
+
+
 class Timer:
     """Scheduler for timed events.
 
@@ -200,7 +212,7 @@ class Timer:
     and with asyncio.
     """
 
-    Entry = Entry
+    Entry = _Entry
 
     def __init__(
         self,
@@ -209,11 +221,11 @@ class Timer:
     ) -> None:
         self.max_interval = max_interval or 1.0
         self.on_error = on_error
-        self._queue: list[Entry] = []
+        self._queue: list[_Entry] = []
         self._lock = threading.Lock()
 
     @property
-    def queue(self) -> list[Entry]:
+    def queue(self) -> list[_Entry]:
         return self._queue
 
     def __len__(self) -> int:
@@ -231,22 +243,22 @@ class Timer:
         fun: Callable[..., Any],
         args: tuple[Any, ...] = (),
         kwargs: dict[str, Any] | None = None,
-    ) -> Entry:
-        """Schedule entry at absolute time."""
+    ) -> _Entry:
+        """Schedule entry at an absolute time on the monotonic clock."""
         kwargs = kwargs or {}
-        entry = Entry(eta=eta, priority=priority, fun=fun, args=args, kwargs=kwargs)
+        entry = _Entry(eta=eta, priority=priority, fun=fun, args=args, kwargs=kwargs)
         with self._lock:
             heapq.heappush(self._queue, entry)
         return entry
 
     def enter_at(
         self,
-        entry: Entry,
+        entry: _Entry,
         eta: float,
         priority: int | None = None,
-    ) -> Entry:
-        """Enter entry at specific time."""
-        entry.eta = eta
+    ) -> _Entry:
+        """Enter entry at a specific wall-clock time."""
+        entry.eta = _monotonic_at(eta)
         if priority is not None:
             entry.priority = priority
         with self._lock:
@@ -256,11 +268,15 @@ class Timer:
     def enter_after(
         self,
         secs: float,
-        entry: Entry,
+        entry: _Entry,
         priority: int = 0,
-    ) -> Entry:
+    ) -> _Entry:
         """Enter entry after delay."""
-        return self.enter_at(entry, time.time() + secs, priority)
+        entry.eta = time.monotonic() + secs
+        entry.priority = priority
+        with self._lock:
+            heapq.heappush(self._queue, entry)
+        return entry
 
     def call_at(
         self,
@@ -269,9 +285,9 @@ class Timer:
         args: tuple[Any, ...] = (),
         kwargs: dict[str, Any] | None = None,
         priority: int = 0,
-    ) -> Entry:
-        """Call function at specific time."""
-        return self._enter(eta, priority, fun, args, kwargs)
+    ) -> _Entry:
+        """Call function at a specific wall-clock time."""
+        return self._enter(_monotonic_at(eta), priority, fun, args, kwargs)
 
     def call_after(
         self,
@@ -280,9 +296,9 @@ class Timer:
         args: tuple[Any, ...] = (),
         kwargs: dict[str, Any] | None = None,
         priority: int = 0,
-    ) -> Entry:
+    ) -> _Entry:
         """Call function after delay."""
-        return self._enter(time.time() + secs, priority, fun, args, kwargs)
+        return self._enter(time.monotonic() + secs, priority, fun, args, kwargs)
 
     def call_repeatedly(
         self,
@@ -291,7 +307,7 @@ class Timer:
         args: tuple[Any, ...] = (),
         kwargs: dict[str, Any] | None = None,
         priority: int = 0,
-    ) -> Entry:
+    ) -> _Entry:
         """Call function repeatedly."""
 
         def _repeat() -> None:
@@ -299,20 +315,20 @@ class Timer:
                 fun(*args, **(kwargs or {}))
             finally:
                 if not entry.cancelled:
-                    entry.eta = time.time() + secs
+                    entry.eta = time.monotonic() + secs
                     with self._lock:
                         heapq.heappush(self._queue, entry)
 
-        entry = Entry(eta=time.time() + secs, priority=priority, fun=_repeat)
+        entry = _Entry(eta=time.monotonic() + secs, priority=priority, fun=_repeat)
         with self._lock:
             heapq.heappush(self._queue, entry)
         return entry
 
-    def cancel(self, entry: Entry) -> None:
+    def cancel(self, entry: _Entry) -> None:
         """Cancel a scheduled entry."""
         entry.cancel()
 
-    def apply_entry(self, entry: Entry) -> float | None:
+    def apply_entry(self, entry: _Entry) -> float | None:
         """Apply scheduled entry."""
         if entry.cancelled:
             return None
@@ -336,18 +352,18 @@ class Timer:
     def join(self, timeout: float | None = None) -> None:
         """No-op for compatibility (heap timer has no background thread)."""
 
-    def __iter__(self) -> Iterator[tuple[float | None, Entry | None]]:
+    def __iter__(self) -> Iterator[tuple[float | None, _Entry | None]]:
         """Iterate over scheduled entries."""
         return self
 
-    def __next__(self) -> tuple[float | None, Entry | None]:
+    def __next__(self) -> tuple[float | None, _Entry | None]:
         """Get next entry to execute."""
         with self._lock:
             if not self._queue:
                 return self.max_interval, None
 
             entry = self._queue[0]
-            now = time.time()
+            now = time.monotonic()
 
             if entry.eta <= now:
                 heapq.heappop(self._queue)
