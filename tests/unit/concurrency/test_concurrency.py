@@ -2,6 +2,7 @@ import asyncio
 import os
 import threading
 import time
+from concurrent.futures import Future
 from itertools import count
 from unittest.mock import Mock, patch
 
@@ -179,6 +180,18 @@ class test_LoopWorker:
         finally:
             w.stop()
         assert not w._thread.is_alive()
+
+    def test_stop_closes_the_loop(self):
+        w = LoopWorker(concurrency=5, app=Mock(), index=0)
+        w.start()
+        w.stop()
+        assert w._loop.is_closed()
+
+    def test_stop_is_idempotent(self):
+        w = LoopWorker(concurrency=5, app=Mock(), index=0)
+        w.start()
+        w.stop()
+        w.stop()
 
     def test_submit_runs_coroutine(self):
         app = Mock()
@@ -371,6 +384,24 @@ class test_TaskPool:
             assert isinstance(result, ApplyResult)
         finally:
             pool.on_stop()
+
+    def test_sync_hard_timeout_timer_is_cancelled_when_the_task_finishes(self):
+        pool = TaskPool(app=Mock())
+        future = Future()
+        timer_holder = []
+
+        class _Timer(threading.Timer):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                timer_holder.append(self)
+
+        with patch("threading.Timer", _Timer):
+            pool._schedule_sync_timeout(future, 30.0, None)
+        assert timer_holder[0].is_alive()
+
+        future.set_result(None)
+        timer_holder[0].join(timeout=5)
+        assert not timer_holder[0].is_alive()
 
     def test_get_info(self):
         app = Mock()

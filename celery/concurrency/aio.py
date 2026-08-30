@@ -30,10 +30,6 @@ __all__ = ("TaskPool",)
 
 logger = get_logger("celery.pool")
 
-# Sentinel returned by _run_tracer_with_timeouts when hard timeout fires
-# (on_timeout already handled reporting, so _run_async_task should skip callback).
-_HARD_TIMEOUT = object()
-
 
 class ApplyResult:
     """Wrapper around a Future that provides a .get() method."""
@@ -74,7 +70,7 @@ class LoopWorker:
         self._index = index
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
-        self._semaphore: asyncio.Semaphore | None = None
+        self._semaphore = asyncio.Semaphore(concurrency)
         self._active_count = 0
         self._active_count_lock = Lock()
         self._ready = threading.Event()
@@ -92,10 +88,20 @@ class LoopWorker:
     def _run_loop(self) -> None:
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
-        self._semaphore = asyncio.Semaphore(self._concurrency)
         self._app.set_current()
-        self._ready.set()
-        self._loop.run_forever()
+        # Signalled from inside the loop so that start() returns once
+        # run_forever() is spinning, not merely once the loop object exists.
+        self._loop.call_soon(self._ready.set)
+        try:
+            self._loop.run_forever()
+        finally:
+            # Only the owning thread can close the loop, and it has to happen
+            # here: an unclosed loop leaks its self-pipe until __del__ runs,
+            # which then raises "Invalid file descriptor: -1" from the GC.
+            try:
+                self._loop.run_until_complete(self._loop.shutdown_asyncgens())
+            finally:
+                self._loop.close()
 
     def submit(self, coro_factory: Callable, *args: Any) -> None:
         """Submit a coroutine to this loop worker (thread-safe).
@@ -103,15 +109,19 @@ class LoopWorker:
         The coroutine will be wrapped with the semaphore to limit
         concurrent execution.
         """
+        loop = self._loop
+        if loop is None:
+            raise RuntimeError(f"loop worker {self._index} has not been started")
         with self._active_count_lock:
             self._active_count += 1
         # We need to create the coroutine from inside the target loop.
         # call_soon_threadsafe schedules a regular callback, so we
         # use it to create_task the semaphore-wrapped coroutine.
-        self._loop.call_soon_threadsafe(self._schedule_task, coro_factory, args)
+        loop.call_soon_threadsafe(self._schedule_task, coro_factory, args)
 
     def _schedule_task(self, coro_factory: Callable, args: tuple) -> None:
-        task = self._loop.create_task(self._run_with_semaphore(coro_factory, args))
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(self._run_with_semaphore(coro_factory, args))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -129,15 +139,19 @@ class LoopWorker:
 
     def stop(self) -> None:
         """Cancel all tasks, stop the event loop, and join the thread."""
-        if self._loop:
-            self._loop.call_soon_threadsafe(self.cancel_all)
-            # Give tasks a brief interval to process their CancelledError
-            # and run cleanup (callbacks, result reporting) before stopping.
-            self._loop.call_soon_threadsafe(
-                self._loop.call_later,
-                0.5,
-                self._loop.stop,
-            )
+        if self._loop and not self._loop.is_closed():
+            try:
+                self._loop.call_soon_threadsafe(self.cancel_all)
+                # Give tasks a brief interval to process their CancelledError
+                # and run cleanup (callbacks, result reporting) before stopping.
+                self._loop.call_soon_threadsafe(
+                    self._loop.call_later,
+                    0.5,
+                    self._loop.stop,
+                )
+            except RuntimeError:
+                # Loop closed underneath us; the thread is already on its way out.
+                pass
         if self._thread:
             self._thread.join(timeout=10)
             if self._thread.is_alive():
@@ -291,7 +305,7 @@ class TaskPool(BasePool):
             if content_type:
                 accept = self._accept_content
                 if accept is None:
-                    accept = self._accept_content = prepare_accept_content(app.conf.accept_content)
+                    accept = self._accept_content = prepare_accept_content(app.conf.accept_content)  # ty: ignore[unresolved-attribute]
                 task_args, task_kwargs, embed = loads_message(
                     body,
                     content_type,
@@ -311,7 +325,7 @@ class TaskPool(BasePool):
                 **(embed or {}),
             )
 
-            task_obj = app.tasks[task_name]
+            task_obj = app.tasks[task_name]  # ty: ignore[unresolved-attribute]
 
             # The async tracer is built once per task type at consumer startup
             # (see update_strategies). Fall back to building it lazily for paths
@@ -335,9 +349,9 @@ class TaskPool(BasePool):
                 timeout_callback=timeout_callback,
             )
 
-            # Hard timeout returns _HARD_TIMEOUT sentinel.
-            # on_timeout already handled reporting.
-            if tracer_result is _HARD_TIMEOUT:
+            # The tracer always returns a 4-tuple, so None means the hard
+            # timeout fired -- on_timeout has already reported the failure.
+            if tracer_result is None:
                 return
 
             R, I, T, Rstr = tracer_result
@@ -351,6 +365,9 @@ class TaskPool(BasePool):
             if callback:
                 exc = Terminated("cancelled")
                 callback((1, ExceptionInfo((type(exc), exc, None)), 0))
+            # Report, then let the cancellation carry on outwards: swallowing it
+            # here leaves the task looking like it completed and stalls shutdown.
+            raise
         except Exception:
             from celery.exceptions import ExceptionInfo
 
@@ -367,7 +384,7 @@ class TaskPool(BasePool):
         soft_timeout: float | None = None,
         timeout: float | None = None,
         timeout_callback: Callable | None = None,
-    ) -> tuple:
+    ) -> tuple[Any, ...] | None:
         """Run the async tracer with soft and hard timeout support.
 
         Soft timeout: cancels the asyncio Task; the CancelledError is caught
@@ -386,8 +403,8 @@ class TaskPool(BasePool):
         async def _run_with_soft_timeout() -> tuple:
             nonlocal _soft_timed_out, _soft_handle
 
-            if soft_timeout:
-                current = asyncio.current_task()
+            current = asyncio.current_task()
+            if soft_timeout and current is not None:
 
                 def _fire_soft_timeout():
                     nonlocal _soft_timed_out
@@ -417,7 +434,7 @@ class TaskPool(BasePool):
                 if timeout_callback:
                     timeout_callback(False, timeout)
                 # Don't raise, on_timeout already handled task_ready + mark_as_failure.
-                return _HARD_TIMEOUT
+                return None
         else:
             return await _run_with_soft_timeout()
 
@@ -440,6 +457,8 @@ class TaskPool(BasePool):
         if soft_timeout:
             soft_state = {"thread_id": None, "ready": threading.Event()}
 
+        if self._executor is None:
+            raise RuntimeError("pool has not been started")
         f = self._executor.submit(
             self._run_in_thread,
             app,
@@ -521,6 +540,9 @@ class TaskPool(BasePool):
         timer = threading.Timer(timeout, _check_timeout)
         timer.daemon = True
         timer.start()
+        # Without this the timer thread stays parked for the whole time limit
+        # after the task has already finished.
+        future.add_done_callback(lambda _: timer.cancel())
 
     @staticmethod
     def _run_in_thread(
