@@ -2,6 +2,7 @@
 # https://github.com/celery/celery
 """Celery error types."""
 
+import builtins
 import numbers
 import sys
 import traceback
@@ -306,23 +307,23 @@ class ExceptionInfo:
     """
 
     exception: BaseException | None
-    type: type[BaseException] | None
+    type: builtins.type[BaseException] | None
     tb: TracebackType | None
     internal: bool
 
     def __init__(
         self,
-        exc_info: tuple[type[BaseException], BaseException, TracebackType | None] | None = None,
+        exc_info: tuple[builtins.type[BaseException], BaseException, TracebackType | None] | None = None,
         internal: bool = False,
     ):
         self.internal = internal
         if exc_info is None:
-            exc_info = sys.exc_info()
-        self.type, self.exception, self.tb = exc_info
-        self.traceback = "".join(traceback.format_exception(*exc_info)) if exc_info[0] else ""
+            exc_info = sys.exc_info()  # type: ignore[assignment]
+        self.type, self.exception, self.tb = exc_info  # type: ignore[misc]
+        self.traceback = "".join(traceback.format_exception(*exc_info)) if exc_info[0] else ""  # type: ignore[index,misc]
 
     @property
-    def exc_info(self) -> tuple[type[BaseException] | None, BaseException | None, TracebackType | None]:
+    def exc_info(self) -> tuple[builtins.type[BaseException] | None, BaseException | None, TracebackType | None]:
         return self.type, self.exception, self.tb
 
     def __str__(self) -> str:

@@ -7,6 +7,7 @@ All lifecycle methods (start, stop, close, terminate) are async.
 
 import asyncio
 from collections import deque
+from typing import Any
 
 from kombu.utils.encoding import bytes_to_str
 from kombu.utils.imports import symbol_by_name
@@ -83,10 +84,10 @@ class Blueprint:
 
     GraphFormatter = StepFormatter
 
-    name = None
+    name: str | None = None
     state = None
     started = 0
-    default_steps = set()
+    default_steps: Any = set()
     state_to_name = {
         0: "initializing",
         RUN: "running",
@@ -264,8 +265,8 @@ class Blueprint:
 class StepType(type):
     """Meta-class for steps."""
 
-    name = None
-    requires = None
+    name: str | None = None
+    requires: tuple[Any, ...] | None = None
 
     def __new__(cls, name, bases, attrs):
         module = attrs.get("__module__")
@@ -293,17 +294,17 @@ class Step(metaclass=StepType):
     """
 
     #: Optional step name, will use ``qualname`` if not specified.
-    name = None
+    name: str | None = None
 
     #: Optional short name used for graph outputs and in logs.
-    label = None
+    label: str | None = None
 
     #: Set this to true if the step is enabled based on some condition.
     conditional = False
 
     #: List of other steps that that must be started before this step.
     #: Note that all dependencies must be in the same blueprint.
-    requires = ()
+    requires: tuple[Any, ...] = ()
 
     #: This flag is reserved for the workers Consumer,
     #: since it is required to always be started last.
@@ -397,7 +398,7 @@ class ConsumerStep(StartStopStep):
     Uses async kombu consumers.
     """
 
-    requires = ("celery.worker.consumer:Connection",)
+    requires: tuple[Any, ...] = ("celery.worker.consumer:Connection",)
     consumers = None
 
     def get_consumers(self, channel):

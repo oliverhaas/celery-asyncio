@@ -171,7 +171,7 @@ def _show(self, file=None):
     previous_show_implementation(self, file=file)
 
 
-click.exceptions.NoSuchOption.show = _show
+click.exceptions.NoSuchOption.show = _show  # type: ignore[method-assign]
 
 
 def main() -> int:

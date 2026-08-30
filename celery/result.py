@@ -554,7 +554,7 @@ class AsyncResult(ResultBase):
                 graph.add_edge(parent, node)
         return graph
 
-    __class_getitem__ = classmethod(types.GenericAlias)
+    __class_getitem__ = classmethod(types.GenericAlias)  # type: ignore[var-annotated]
 
     def __str__(self):
         """`str(self) -> self.id`."""

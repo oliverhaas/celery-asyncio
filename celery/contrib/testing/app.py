@@ -36,7 +36,7 @@ class Trap:
         raise RuntimeError("Test depends on current_app")
 
 
-class UnitLogging(symbol_by_name(Celery.log_cls)):
+class UnitLogging(symbol_by_name(Celery.log_cls)):  # type: ignore[misc]
     """Sets up logging for the test application."""
 
     def __init__(self, *args, **kwargs):

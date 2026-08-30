@@ -3,7 +3,7 @@
 import asyncio
 import os
 import threading
-from collections.abc import Iterable
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -108,13 +108,13 @@ def _start_worker_thread(
     perform_ping_check: bool = True,
     shutdown_timeout: float = 10.0,
     **kwargs,
-) -> Iterable[worker.WorkController]:
+) -> Iterator[worker.WorkController]:
     """Start Celery worker in a thread.
 
     Yields:
         celery.worker.Worker: worker instance.
     """
-    setup_app_for_worker(app, loglevel, logfile)
+    setup_app_for_worker(app, loglevel, logfile or "")
     if perform_ping_check:
         assert "celery.ping" in app.tasks
 

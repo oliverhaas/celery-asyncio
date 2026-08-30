@@ -12,9 +12,15 @@ import os
 import sys
 import threading
 import weakref
+from typing import TYPE_CHECKING
 
 from celery.local import Proxy
 from celery.utils.threads import LocalStack
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from celery.app.base import Celery
 
 __all__ = (
     "set_default_app",
@@ -40,11 +46,11 @@ default_app = None
 app_or_default = None
 
 #: List of all app instances (weakrefs), mustn't be used directly.
-_apps = weakref.WeakSet()
+_apps: weakref.WeakSet[Celery] = weakref.WeakSet()
 
 #: Global set of functions to call whenever a new app is finalized.
 #: Shared tasks, and built-in tasks are created by adding callbacks here.
-_on_app_finalizers = set()
+_on_app_finalizers: set[Callable] = set()
 
 _task_join_will_block = False
 

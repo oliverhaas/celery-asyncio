@@ -26,26 +26,6 @@ class Thenable(ABC):
         """Add callback to be called when promise is fulfilled."""
         raise NotImplementedError()
 
-    # Override register to return the subclass for use as a decorator
-    @classmethod
-    def register(cls, subclass: type) -> type:
-        """Register a virtual subclass and return it for decorator use."""
-        ABC.register(cls, subclass)
-        return subclass
-
-
-# Fix the ABC.register call - it's actually an instance method on ABCMeta
-_original_abc_register = ABC.register.__func__
-
-
-def _thenable_register(cls, subclass: type) -> type:
-    """Register a virtual subclass and return it for decorator use."""
-    _original_abc_register(cls, subclass)
-    return subclass
-
-
-Thenable.register = classmethod(_thenable_register)
-
 
 class promise:
     """Simple promise for callback chaining.
@@ -142,7 +122,7 @@ class promise:
             self._callbacks.append((callback, on_error))
         return self
 
-    def throw(self, exc: BaseException, tb=None) -> None:
+    def throw(self, exc: Exception, tb: Any = None) -> None:
         """Signal that the promise failed by re-raising the exception."""
         self._failed = True
         if tb is not None:

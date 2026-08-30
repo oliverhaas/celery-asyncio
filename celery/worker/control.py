@@ -6,6 +6,7 @@ import asyncio
 import io
 import tempfile
 from collections import UserDict, defaultdict, namedtuple
+from typing import Any
 
 from kombu.utils.encoding import safe_repr
 
@@ -54,7 +55,7 @@ class Panel(UserDict):
     """Global registry of remote control commands."""
 
     data = {}  # global dict.
-    meta = {}  # -"-
+    meta: dict[str, Any] = {}  # -"-
 
     @classmethod
     def register(cls, *args, **kwargs):
@@ -235,7 +236,7 @@ def revoke_by_stamped_headers(state, headers, terminate=False, signal=None, **kw
 #: Strong references to the tasks _schedule() hands to the loop. Without
 #: these the loop only holds a weak reference and a task can be collected
 #: mid-flight, which here would mean silently not marking anything revoked.
-_pending_control_tasks = set()
+_pending_control_tasks: set[asyncio.Task] = set()
 
 
 def _schedule(coro):

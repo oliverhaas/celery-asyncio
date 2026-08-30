@@ -3,7 +3,6 @@
 """Utilities related to dates, times, intervals, and timezones."""
 
 import logging
-import numbers
 import os
 import random
 import time as _time
@@ -97,13 +96,13 @@ class LocalTimezone(tzinfo):
     def __repr__(self) -> str:
         return f"<LocalTimezone: UTC{int(self.DSTOFFSET.total_seconds() / 3600):+03d}>"
 
-    def utcoffset(self, dt: datetime) -> timedelta:
+    def utcoffset(self, dt: datetime | None) -> timedelta:
         return self.DSTOFFSET if self._isdst(dt) else self.STDOFFSET
 
-    def dst(self, dt: datetime) -> timedelta:
+    def dst(self, dt: datetime | None) -> timedelta:
         return self.DSTDIFF if self._isdst(dt) else ZERO
 
-    def tzname(self, dt: datetime) -> str:
+    def tzname(self, dt: datetime | None) -> str:
         return _time.tzname[self._isdst(dt)]
 
     def fromutc(self, dt: datetime) -> datetime:
@@ -116,7 +115,9 @@ class LocalTimezone(tzinfo):
             tz = self._offset_cache[offset] = datetime_timezone(timedelta(minutes=offset))
         return tz.fromutc(dt.replace(tzinfo=tz))
 
-    def _isdst(self, dt: datetime) -> bool:
+    def _isdst(self, dt: datetime | None) -> bool:
+        if dt is None:
+            return _time.localtime().tm_isdst > 0
         tt = (dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, dt.weekday(), 0, 0)
         stamp = _time.mktime(tt)
         tt = _time.localtime(stamp)
@@ -185,9 +186,9 @@ class _Zone:
 timezone = _Zone()
 
 
-def maybe_timedelta(delta: int) -> timedelta:
+def maybe_timedelta(delta: float | timedelta) -> timedelta:
     """Convert integer to timedelta, if argument is an integer."""
-    if isinstance(delta, numbers.Real):
+    if isinstance(delta, (int, float)):
         return timedelta(seconds=delta)
     return delta
 
@@ -202,14 +203,14 @@ def delta_resolution(dt: datetime, delta: timedelta) -> datetime:
     and so on until seconds, which will just return the original
     :class:`~datetime.datetime`.
     """
-    delta = max(delta.total_seconds(), 0)
+    secs = max(delta.total_seconds(), 0)
 
     resolutions = ((3, lambda x: x / 86400), (4, lambda x: x / 3600), (5, lambda x: x / 60))
 
     args = dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second
     for res, predicate in resolutions:
-        if predicate(delta) >= 1.0:
-            return datetime(*args[:res], tzinfo=dt.tzinfo)
+        if predicate(secs) >= 1.0:
+            return datetime(*args[:res], tzinfo=dt.tzinfo)  # type: ignore[arg-type,misc]
     return dt
 
 
@@ -289,7 +290,7 @@ def yearmonth(name: str) -> int:
         raise KeyError(name)
 
 
-def humanize_seconds(secs: int, prefix: str = "", sep: str = "", now: str = "now", microseconds: bool = False) -> str:
+def humanize_seconds(secs: float, prefix: str = "", sep: str = "", now: str = "now", microseconds: bool = False) -> str:
     """Show seconds in human form.
 
     For example, 60 becomes "1 minute", and 7200 becomes "2 hours".
@@ -300,13 +301,13 @@ def humanize_seconds(secs: int, prefix: str = "", sep: str = "", now: str = "now
         now (str): Literal 'now'.
         microseconds (bool): Include microseconds.
     """
-    secs = float(format(float(secs), ".2f"))
+    scaled = float(format(float(secs), ".2f"))
     for unit, divider, formatter in TIME_UNITS:
-        if secs >= divider:
-            w = secs / float(divider)
+        if scaled >= divider:
+            w = scaled / float(divider)
             return f"{prefix}{sep}{formatter(w)} {pluralize(w, unit)}"
-    if microseconds and secs > 0.0:
-        return f"{prefix}{sep}{secs:.2f} seconds"
+    if microseconds and scaled > 0.0:
+        return f"{prefix}{sep}{scaled:.2f} seconds"
     return now
 
 
@@ -434,7 +435,7 @@ class ffwd:
     def __repr__(self) -> str:
         return reprcall("ffwd", (), self._fields(weeks=self.weeks, weekday=self.weekday))
 
-    def __radd__(self, other: Any) -> timedelta:
+    def __radd__(self, other: Any) -> Any:
         if not isinstance(other, date):
             return NotImplemented
         year = self.year or other.year

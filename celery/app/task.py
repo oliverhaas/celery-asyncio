@@ -515,7 +515,7 @@ class Task:
             self.pop_request()
             _task_stack.pop()
 
-    __class_getitem__ = classmethod(types.GenericAlias)
+    __class_getitem__ = classmethod(types.GenericAlias)  # type: ignore[var-annotated]
 
     def __reduce__(self):
         # - tasks are pickled into the name of the task only, and the receiver
@@ -1544,7 +1544,7 @@ class Task:
             self._exec_options = extract_exec_options(self)
         return self._exec_options
 
-    @property
+    @property  # type: ignore[no-redef]
     def backend(self):  # noqa: F811
         backend = self._backend
         if backend is None:

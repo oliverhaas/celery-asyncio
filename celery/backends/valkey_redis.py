@@ -26,9 +26,9 @@ try:
     from redis import CredentialProvider
 except ImportError:
     try:
-        from valkey import CredentialProvider
+        from valkey import CredentialProvider  # type: ignore[assignment]
     except ImportError:
-        CredentialProvider = None
+        CredentialProvider = None  # type: ignore[assignment,misc]
 
 _SSL_CONNECTION_CLASSES: list[type] = []
 _URL_QUERY_ARGUMENT_PARSERS: dict = {}
@@ -42,7 +42,9 @@ except ImportError:
     pass
 
 try:
-    from valkey.connection import URL_QUERY_ARGUMENT_PARSERS as _vk_URL_QUERY_ARGUMENT_PARSERS
+    from valkey.connection import (  # type: ignore[attr-defined]
+        URL_QUERY_ARGUMENT_PARSERS as _vk_URL_QUERY_ARGUMENT_PARSERS,
+    )
     from valkey.connection import SSLConnection as _ValkeySSLConnection
 
     _SSL_CONNECTION_CLASSES.append(_ValkeySSLConnection)
@@ -1040,11 +1042,13 @@ except ImportError, AttributeError:
     try:
         import valkey.sentinel
 
-        class SentinelManagedSSLConnection(valkey.sentinel.SentinelManagedConnection, valkey.SSLConnection):
+        class SentinelManagedSSLConnection(  # type: ignore[no-redef]
+            valkey.sentinel.SentinelManagedConnection, valkey.SSLConnection
+        ):
             """Connect to a Valkey/Redis server using Sentinel + TLS."""
 
     except ImportError, AttributeError:
-        SentinelManagedSSLConnection = None
+        SentinelManagedSSLConnection = None  # type: ignore[assignment,misc]
 
 
 class SentinelBackend(RedisBackend):
@@ -1054,7 +1058,7 @@ class SentinelBackend(RedisBackend):
     _SERVER_URI_SEPARATOR = ";"
 
     sentinel = None
-    connection_class_ssl = SentinelManagedSSLConnection
+    connection_class_ssl = SentinelManagedSSLConnection  # type: ignore[assignment]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

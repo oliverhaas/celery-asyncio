@@ -220,7 +220,7 @@ class _LocalStack:
         else:
             return stack.pop()
 
-    __class_getitem__ = classmethod(types.GenericAlias)
+    __class_getitem__ = classmethod(types.GenericAlias)  # type: ignore[var-annotated]
 
     def __len__(self):
         stack = getattr(self._local, "stack", None)

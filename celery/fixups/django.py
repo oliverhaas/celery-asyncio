@@ -53,7 +53,7 @@ def _verify_django_version(django: ModuleType) -> None:
 def fixup(app: Celery, env: str = "DJANGO_SETTINGS_MODULE") -> DjangoFixup | None:
     """Install Django fixup if settings module environment is set."""
     SETTINGS_MODULE = os.environ.get(env)
-    if SETTINGS_MODULE and "django" not in app.loader_cls.lower():
+    if SETTINGS_MODULE and "django" not in (app.loader_cls or "").lower():
         try:
             import django
         except ImportError:

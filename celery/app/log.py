@@ -246,6 +246,6 @@ class Logging:
     def already_setup(self):
         return self._setup
 
-    @already_setup.setter
+    @already_setup.setter  # type: ignore[no-redef]
     def already_setup(self, was_setup):
         self._setup = was_setup

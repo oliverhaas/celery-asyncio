@@ -19,9 +19,13 @@ import threading
 import weakref
 import zlib
 from collections import Counter
+from typing import TYPE_CHECKING, Any
 
 from kombu.serialization import pickle, pickle_protocol
 from kombu.utils.objects import cached_property
+
+if TYPE_CHECKING:
+    from celery.worker.request import Request
 
 from celery import __version__
 from celery.exceptions import WorkerShutdown, WorkerTerminate
@@ -67,19 +71,19 @@ REVOKE_EXPIRES = float(os.environ.get("CELERY_WORKER_REVOKE_EXPIRES", 10800))
 SUCCESSFUL_EXPIRES = float(os.environ.get("CELERY_WORKER_SUCCESSFUL_EXPIRES", 10800))
 
 #: Mapping of reserved task_id->Request.
-requests = {}
+requests: dict[str, Request] = {}
 
 #: set of all reserved :class:`~celery.worker.request.Request`'s.
-reserved_requests = weakref.WeakSet()
+reserved_requests: weakref.WeakSet[Request] = weakref.WeakSet()
 
 #: set of currently active :class:`~celery.worker.request.Request`'s.
-active_requests = weakref.WeakSet()
+active_requests: weakref.WeakSet[Request] = weakref.WeakSet()
 
 #: A limited set of successful :class:`~celery.worker.request.Request`'s.
 successful_requests = LimitedSet(maxlen=SUCCESSFUL_MAX, expires=SUCCESSFUL_EXPIRES)
 
 #: count of tasks accepted by the worker, sorted by type.
-total_count = Counter()
+total_count: Counter[str] = Counter()
 
 #: count of all tasks accepted by the worker
 all_total_count = [0]
@@ -88,13 +92,13 @@ all_total_count = [0]
 revoked = LimitedSet(maxlen=REVOKES_MAX, expires=REVOKE_EXPIRES)
 
 #: Mapping of stamped headers flagged for revoking.
-revoked_stamps = {}
+revoked_stamps: dict[str, Any] = {}
 
-should_stop = None
-should_terminate = None
+should_stop: int | bool | None = None
+should_terminate: int | bool | None = None
 
 #: Set to True when the worker is draining (no new tasks, waiting for active to finish).
-is_draining = False
+is_draining: bool = False
 
 
 def reset_state():
@@ -159,7 +163,7 @@ if C_BENCH:  # pragma: no cover
     bench_start = None
     bench_last = None
     bench_every = C_BENCH_EVERY
-    bench_sample = []
+    bench_sample: list[str] = []
     __reserved = task_reserved
     __ready = task_ready
 
@@ -184,7 +188,7 @@ if C_BENCH:  # pragma: no cover
 
         return __reserved(request)
 
-    def task_ready(request):
+    def task_ready(request):  # type: ignore[misc]
         """Called when a task is completed."""
         global all_count
         global bench_start

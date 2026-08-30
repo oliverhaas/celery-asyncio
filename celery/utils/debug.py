@@ -33,7 +33,7 @@ UNITS = (
 )
 
 _process = None
-_mem_sample = []
+_mem_sample: list[str] = []
 
 
 def sample_mem():

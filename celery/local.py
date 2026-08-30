@@ -96,7 +96,7 @@ class Proxy:
     def _get_class(self):
         return self._get_current_object().__class__
 
-    @property
+    @property  # type: ignore[misc]
     def __class__(self):
         return self._get_class()
 
@@ -369,7 +369,7 @@ def getappattr(path):
     return current_app._rgetattr(path)
 
 
-COMPAT_MODULES = {}
+COMPAT_MODULES: dict[str, dict[str, tuple[str, ...]]] = {}
 
 
 class class_property:
@@ -386,7 +386,7 @@ class class_property:
         self.__name__ = info.__name__
         self.__module__ = info.__module__
 
-    __class_getitem__ = classmethod(types.GenericAlias)
+    __class_getitem__ = classmethod(types.GenericAlias)  # type: ignore[var-annotated]
 
     def __get__(self, obj, type=None):
         if obj and type is None:
@@ -404,9 +404,9 @@ class class_property:
 
 class LazyModule(ModuleType):
     _compat_modules = ()
-    _all_by_module = {}
-    _direct = {}
-    _object_origins = {}
+    _all_by_module: dict[str, list[str]] = {}
+    _direct: dict[str, str] = {}
+    _object_origins: dict[str, str] = {}
 
     def __getattr__(self, name):
         if name in self._object_origins:

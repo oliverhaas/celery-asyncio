@@ -151,7 +151,7 @@ class schedule(BaseSchedule):
         nowfun: Callable | None = None,
         app: Celery | None = None,
     ) -> None:
-        self.run_every = maybe_timedelta(run_every)
+        self.run_every = maybe_timedelta(run_every)  # type: ignore[arg-type]
         self.relative = relative
         super().__init__(nowfun=nowfun, app=app)
 
@@ -495,7 +495,7 @@ class crontab(BaseSchedule):
         elif isinstance(cronspec, set):
             result = cronspec
         elif isinstance(cronspec, Iterable):
-            result = set(cronspec)  # type: ignore
+            result = set(cronspec)
         else:
             raise TypeError(CRON_INVALID_TYPE.format(type=type(cronspec)))
 
@@ -742,7 +742,7 @@ def maybe_schedule(
         if isinstance(s, timedelta):
             return schedule(s, relative, app=app)
         else:
-            s.app = app
+            s.app = app  # type: ignore[assignment]
     return s
 
 

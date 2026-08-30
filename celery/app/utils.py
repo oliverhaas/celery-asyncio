@@ -192,7 +192,7 @@ def _old_key_to_new(key, convert=_TO_NEW_KEY.get):
     return convert(key, key)
 
 
-_settings_info_t = namedtuple(
+_settings_info_t = namedtuple(  # type: ignore[name-match]
     "settings_info_t",
     (
         "defaults",

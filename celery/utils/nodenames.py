@@ -5,6 +5,7 @@
 import os
 import socket
 from functools import partial
+from typing import Any
 
 from kombu.entity import Exchange, Queue
 
@@ -75,13 +76,13 @@ def nodesplit(name: str) -> tuple[None, str] | list[str]:
     return parts
 
 
-def default_nodename(hostname: str) -> str:
+def default_nodename(hostname: str | None) -> str:
     """Return the default nodename for this process."""
     name, host = nodesplit(hostname or "")
     return nodename(name or NODENAME_DEFAULT, host or gethostname())
 
 
-def node_format(s: str, name: str, **extra: dict) -> str:
+def node_format(s: str, name: str, **extra: Any) -> str:
     """Format worker node name (name@host.com)."""
     shortname, host = nodesplit(name)
     return host_format(s, host, shortname or NODENAME_DEFAULT, p=name, **extra)
@@ -97,7 +98,7 @@ def _fmt_process_index(prefix: str = "", default: str = "0") -> str:
 _fmt_process_index_with_prefix = partial(_fmt_process_index, "-", "")
 
 
-def host_format(s: str, host: str | None = None, name: str | None = None, **extra: dict) -> str:
+def host_format(s: str, host: str | None = None, name: str | None = None, **extra: Any) -> str:
     """Format host %x abbreviations."""
     host = host or gethostname()
     hname, _, domain = host.partition(".")

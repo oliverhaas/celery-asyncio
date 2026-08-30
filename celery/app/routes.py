@@ -17,11 +17,7 @@ from celery.utils.collections import lpmerge
 from celery.utils.functional import maybe_evaluate, mlazy
 from celery.utils.imports import symbol_by_name
 
-try:
-    Pattern = re._pattern_type
-except AttributeError:  # pragma: no cover
-    # for support Python 3.7
-    Pattern = re.Pattern
+Pattern = re.Pattern
 
 __all__ = ("MapRoute", "Router", "expand_router_string", "prepare")
 

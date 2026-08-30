@@ -207,7 +207,7 @@ def regen(it):
     return _regen(it)
 
 
-class _regen(UserList, list):
+class _regen(UserList, list):  # type: ignore[misc]
     # must be subclass of list so that json can encode.
 
     def __init__(self, it):
@@ -378,7 +378,7 @@ def _getfullargspec(fun):
     )
 
 
-def head_from_fun(fun: Callable[..., Any], bound: bool = False) -> str:
+def head_from_fun(fun: Callable[..., Any], bound: bool = False) -> Callable[..., Any]:
     """Generate signature function from actual function."""
     # we could use inspect.Signature here, but that implementation
     # is very slow since it implements the argument checking
@@ -391,7 +391,7 @@ def head_from_fun(fun: Callable[..., Any], bound: bool = False) -> str:
     is_method = inspect.ismethod(fun)
 
     if not is_function and is_callable and not is_method and not is_cython:
-        name, fun = fun.__class__.__name__, fun.__call__
+        name, fun = fun.__class__.__name__, fun.__call__  # type: ignore[operator]
     else:
         name = fun.__name__
     definition = FUNHEAD_TEMPLATE.format(
@@ -403,7 +403,7 @@ def head_from_fun(fun: Callable[..., Any], bound: bool = False) -> str:
     namespace = {"__name__": fun.__module__}
     # Tasks are rarely, if ever, created at runtime - exec here is fine.
     exec(definition, namespace)
-    result = namespace[name]
+    result: Any = namespace[name]
     result._source = definition
     if bound:
         return partial(result, object())

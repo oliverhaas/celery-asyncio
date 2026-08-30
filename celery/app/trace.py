@@ -12,6 +12,7 @@ import os
 import sys
 import time
 from collections import namedtuple
+from typing import Any
 from warnings import warn
 
 from kombu.exceptions import EncodeError
@@ -139,8 +140,8 @@ EXCEPTION_STATES = states.EXCEPTION_STATES
 IGNORE_STATES = frozenset({IGNORED, RETRY, REJECTED})
 
 #: set by :func:`setup_worker_optimizations`
-_localized = []
-_patched = {}
+_localized: list[Any] = []
+_patched: dict[str, Any] = {}
 
 trace_ok_t = namedtuple("trace_ok_t", ("retval", "info", "runtime", "retstr"))
 

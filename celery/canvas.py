@@ -294,7 +294,7 @@ class Signature(dict):
             {'task': 'tasks.add', args=(2, 2), kwargs={}, options={}}
     """
 
-    TYPES = {}
+    TYPES: dict[str, type] = {}
     _app = _type = None
     # The following fields must not be changed during freezing/merging because
     # to do so would disrupt completion of parent tasks
@@ -1628,8 +1628,6 @@ class chain(_chain):
         if not kwargs and tasks:
             if len(tasks) != 1 or is_list(tasks[0]):
                 tasks = tasks[0] if len(tasks) == 1 else tasks
-                # if is_list(tasks) and len(tasks) == 1:
-                #     return super(chain, cls).__new__(cls, tasks, **kwargs)
                 new_instance = reduce(operator.or_, tasks, _chain())
                 if cls != chain and isinstance(new_instance, _chain) and not isinstance(new_instance, cls):
                     return super().__new__(cls, new_instance.tasks, **kwargs)
@@ -1638,7 +1636,7 @@ class chain(_chain):
 
 
 class _basemap(Signature):
-    _task_name = None
+    _task_name: str | None = None
     _unpack_args = itemgetter("task", "it")
 
     @classmethod

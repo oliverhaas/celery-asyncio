@@ -55,9 +55,9 @@ class BaseLoader:
         * What modules are imported to find tasks?
     """
 
-    builtin_modules = frozenset()
+    builtin_modules: frozenset[str] = frozenset()
     configured = False
-    override_backends = {}
+    override_backends: dict[str, str] = {}
     worker_initialized = False
 
     _conf = unconfigured

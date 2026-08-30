@@ -1643,7 +1643,7 @@ class Celery:
 
         return type(name or Class.__name__, (Class,), attrs)
 
-    __class_getitem__ = classmethod(_types.GenericAlias)
+    __class_getitem__ = classmethod(_types.GenericAlias)  # type: ignore[var-annotated]
 
     def _rgetattr(self, path):
         return attrgetter(path)(self)

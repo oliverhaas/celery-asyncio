@@ -18,7 +18,7 @@ try:
     from django.utils.functional import LazyObject, LazySettings
 except ImportError:
 
-    class LazyObject:
+    class LazyObject:  # type: ignore[no-redef]
         pass
 
     LazySettings = LazyObject
@@ -583,15 +583,15 @@ class Evictable:
 
     def _evict(self, limit: int = 100, range=range) -> None:
         try:
-            [self._evict1() for _ in range(limit)]
+            [self._evict1() for _ in range(limit)]  # type: ignore[func-returns-value]
         except IndexError:
             pass
 
     def _evict1(self) -> None:
-        if self._evictcount <= self.maxsize:
+        if self._evictcount <= self.maxsize:  # type: ignore[attr-defined]
             raise IndexError()
         try:
-            self._pop_to_evict()
+            self._pop_to_evict()  # type: ignore[attr-defined]
         except self.Empty:
             raise IndexError()
 

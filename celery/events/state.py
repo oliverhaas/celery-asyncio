@@ -96,7 +96,7 @@ class CallableDefaultdict(defaultdict):
         return self.fun(*args, **kwargs)
 
 
-Callable.register(CallableDefaultdict)
+Callable.register(CallableDefaultdict)  # type: ignore[attr-defined]
 
 
 @memoize(maxsize=1000, keyfun=lambda a, _: a[0])

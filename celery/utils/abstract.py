@@ -13,7 +13,7 @@ def _hasattr(C, attr):
 
 
 class _AbstractClass(metaclass=ABCMeta):
-    __required_attributes__ = frozenset()
+    __required_attributes__: frozenset[str] = frozenset()
 
     @classmethod
     def _subclasshook_using(cls, parent, C):
@@ -26,7 +26,7 @@ class _AbstractClass(metaclass=ABCMeta):
         return other
 
 
-class CallableTask(_AbstractClass, Callable):  # pragma: no cover
+class CallableTask(_AbstractClass, Callable):  # type: ignore[misc]  # pragma: no cover
     """Task interface."""
 
     __required_attributes__ = frozenset(

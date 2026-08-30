@@ -27,7 +27,7 @@ from . import state
 try:
     import resource
 except ImportError:
-    resource = None
+    resource = None  # type: ignore[assignment]
 
 
 def cpu_count() -> int:

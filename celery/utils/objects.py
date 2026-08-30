@@ -92,7 +92,7 @@ class FallbackContext:
         if self._context is not None:
             return self._context.__exit__(*exc_info)
 
-    __class_getitem__ = classmethod(types.GenericAlias)
+    __class_getitem__ = classmethod(types.GenericAlias)  # type: ignore[var-annotated]
 
 
 class getitem_property:

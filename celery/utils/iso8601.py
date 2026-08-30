@@ -63,6 +63,8 @@ def parse_iso8601(datestring: str) -> datetime:
         tz = timezone(timedelta(0))
     elif tz:
         m = TIMEZONE_REGEX.match(tz)
+        if m is None:
+            raise ValueError(f"unable to parse timezone {tz!r}")
         prefix, hours, minutes = m.groups()
         hours, minutes = int(hours), int(minutes)
         if prefix == "-":
@@ -77,5 +79,5 @@ def parse_iso8601(datestring: str) -> datetime:
         int(groups["minute"] or 0),
         int(groups["second"] or 0),
         int(groups["fraction"] or 0),
-        tz,
+        tz,  # type: ignore[arg-type]
     )

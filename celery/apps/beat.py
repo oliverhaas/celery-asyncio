@@ -42,7 +42,7 @@ class Beat:
     """Beat as a service."""
 
     Service = beat.Service
-    app: Celery = None
+    app: Celery = None  # type: ignore[assignment]
 
     def __init__(
         self,
@@ -80,7 +80,7 @@ class Beat:
         )
         self.pidfile = pidfile
         if not isinstance(self.loglevel, numbers.Integral):
-            self.loglevel = LOG_LEVELS[self.loglevel.upper()]
+            self.loglevel = LOG_LEVELS[self.loglevel.upper()]  # type: ignore[assignment]
 
     def run(self) -> None:
         if not self.quiet:

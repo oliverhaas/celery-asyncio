@@ -46,7 +46,7 @@ class Option:
     alt = None
     deprecate_by = None
     remove_by = None
-    old = set()
+    old: set[str] = set()
     typemap = {
         "string": str,
         "int": int,
@@ -337,7 +337,7 @@ __compat = list(flatten(NAMESPACES, keyfilter=_to_compat))
 _OLD_DEFAULTS = {old_key: opt.default for old_key, _, opt in __compat}
 _TO_OLD_KEY = {new_key: old_key for old_key, new_key, _ in __compat}
 _TO_NEW_KEY = {old_key: new_key for old_key, new_key, _ in __compat}
-__compat = None
+del __compat
 
 SETTING_KEYS = set(DEFAULTS.keys())
 _OLD_SETTING_KEYS = set(_TO_NEW_KEY.keys())

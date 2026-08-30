@@ -873,7 +873,7 @@ class AMQP:
         """Queue name⇒ declaration mapping."""
         return self.Queues(self.app.conf.task_queues)
 
-    @queues.setter
+    @queues.setter  # type: ignore[no-redef]
     def queues(self, queues):
         return self.Queues(queues)
 
@@ -887,7 +887,7 @@ class AMQP:
     def router(self):
         return self.Router()
 
-    @router.setter
+    @router.setter  # type: ignore[no-redef]
     def router(self, value):
         return value
 
