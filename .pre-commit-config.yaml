@@ -60,17 +60,17 @@ repos:
       - id: mypy
         name: mypy
         language: system
-        entry: uv run mypy celery/
+        entry: uv run mypy celery/ kombu/
         pass_filenames: false
         always_run: true
         stages: [pre-push]
       # ty is pre-1.0 and still reports several hundred findings against the
-      # modules inherited from upstream Celery, so it only gates the modules
-      # written from scratch for this fork.
+      # modules inherited from upstream Celery, so for celery/ it only gates
+      # the modules written from scratch for this fork. All of kombu/ is gated.
       - id: ty
         name: ty
         language: system
-        entry: uv run ty check celery/concurrency/aio.py celery/utils/promises.py celery/utils/scheduling.py celery/worker/loops.py
+        entry: uv run ty check kombu/ celery/concurrency/aio.py celery/utils/promises.py celery/utils/scheduling.py celery/worker/loops.py
         pass_filenames: false
         always_run: true
         stages: [pre-push]
