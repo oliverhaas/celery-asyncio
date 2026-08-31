@@ -223,7 +223,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "aio-pika", marker = "extra == 'amqp'", specifier = ">=9.0.0" },
-    { name = "asgiref", specifier = ">=3.5.0" },
+    { name = "asgiref", specifier = ">=3.8.0" },
     { name = "brotli", marker = "extra == 'brotli'", specifier = ">=1.0.0" },
     { name = "click", specifier = ">=8.1.2,<9.0" },
     { name = "click-didyoumean", specifier = ">=0.3.0" },
