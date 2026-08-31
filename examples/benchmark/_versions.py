@@ -30,13 +30,18 @@ out["free_threading"] = not getattr(sys, "_is_gil_enabled", lambda: True)()
 for key, names in %r.items():
     for name in names:
         try:
-            out[key] = f"{name} {md.version(name)}"
+            version = md.version(name)
         except md.PackageNotFoundError:
             continue
         try:
-            out[key + "_path"] = importlib.import_module(key).__file__
+            mod = importlib.import_module(key)
         except ImportError:
-            pass
+            mod = None
+        else:
+            out[key + "_path"] = mod.__file__
+        # An editable install's dist-info freezes at install time; the module is what ran.
+        version = getattr(mod, "__version__", None) or version
+        out[key] = f"{name} {version}"
         break
     else:
         out[key] = None
@@ -82,6 +87,22 @@ def probe(venv: str) -> dict:
         if key.endswith("_path"):
             del out[key]
     return out
+
+
+def framework_version(venv: str, dist: str, module: str) -> str:
+    """One framework's version, preferring the module over its frozen dist-info."""
+    python = ROOT / venv / "bin" / "python"
+    if python.exists():
+        proc = subprocess.run(
+            [str(python), "-c", f"import {module} as m; print(m.__version__)"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+    found = sorted((ROOT / venv).glob(f"lib/*/site-packages/{dist}-*.dist-info"))
+    return found[-1].name.removesuffix(".dist-info").rsplit("-", 1)[-1] if found else "?"
 
 
 def broker_version() -> str | None:
