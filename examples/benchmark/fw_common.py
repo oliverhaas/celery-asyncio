@@ -14,13 +14,24 @@ row by the same amount rather than biasing the comparison.
 import asyncio
 import os
 import sys
+import threading
 import time
+
+_TIME_BODY = os.environ.get("BENCH_TIME_BODY") == "1"
+_body_ns = [0]
+_body_n = [0]
+# Free threading gives no atomic +=, and lost updates would bias the arms
+# differently, so the two counters take a lock.
+_body_lock = threading.Lock()
+
 
 COUNTER = "bench:done"
 EXTRA_KEY = "bench:extra"
 # Prices one Redis round-trip by adding one and reading off the slope.
 EXTRA_ROUNDTRIPS = int(os.environ.get("BENCH_EXTRA_ROUNDTRIPS", "0"))
-REDIS_URL = os.environ.get("BENCH_BROKER", "redis://localhost:6379/0")
+# Only used to flush the broker db between runs, always through redis-py, so a
+# valkey:// broker has to come back to a scheme redis-py will parse.
+REDIS_URL = os.environ.get("BENCH_BROKER", "redis://localhost:6379/0").replace("valkey://", "redis://", 1)
 COUNTER_URL = os.environ.get("BENCH_COUNTER", "redis://localhost:6379/2")
 
 # arq pulls redis[hiredis], which re-enables the GIL on a free-threading build.
@@ -38,6 +49,18 @@ _label = os.environ.get("BENCH_PROFILE_LABEL", "worker")
 bench_profile.maybe_start(_label)
 bench_counts.maybe_start(_label)
 bench_dprof.maybe_start(_label)
+
+if _TIME_BODY and os.environ.get("BENCH_PROFILE_ROLE") == "worker":
+
+    def report_body() -> None:
+        while True:
+            time.sleep(5.0)
+            with _body_lock:
+                ns, n = _body_ns[0], _body_n[0]
+            if n:
+                print(f"[body] {ns / n / 1000:.1f} core-us/task over {n} tasks", file=sys.stderr, flush=True)
+
+    threading.Thread(target=report_body, daemon=True).start()
 
 _CPU_INNER = 50
 
@@ -100,8 +123,18 @@ def work_sync(cpu_iters: int, io_seconds: float, mem_kb: int) -> int:
 
 
 async def work_async(cpu_iters: int, io_seconds: float, mem_kb: int) -> int:
-    buf = alloc(mem_kb)
-    burn_cpu(cpu_iters)
+    # Identical code across frameworks, so a difference here is the host.
+    if _TIME_BODY:
+        t0 = time.thread_time_ns()
+        buf = alloc(mem_kb)
+        burn_cpu(cpu_iters)
+        elapsed = time.thread_time_ns() - t0
+        with _body_lock:
+            _body_ns[0] += elapsed
+            _body_n[0] += 1
+    else:
+        buf = alloc(mem_kb)
+        burn_cpu(cpu_iters)
     if io_seconds > 0:
         await asyncio.sleep(io_seconds)
     await counter_async().incr(COUNTER)
