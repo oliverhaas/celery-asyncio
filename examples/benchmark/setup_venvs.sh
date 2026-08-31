@@ -63,13 +63,6 @@ make_async_venv() {
     # uvloop is installed in both async venvs so benchmarks can toggle it
     # via BENCH_UVLOOP=1.
     uv pip install --python "$name/bin/python" -e "$REPO_ROOT" "${COMMON_DEPS[@]}" uvloop
-    # Override the published kombu-asyncio with the local checkout so the
-    # bench picks up unreleased fixes (e.g. the long-lived consume tasks
-    # that eliminate the strand bug this bench originally surfaced).
-    local local_kombu="$REPO_ROOT/../kombu-asyncio"
-    if [[ -f "$local_kombu/pyproject.toml" ]]; then
-        uv pip install --python "$name/bin/python" -e "$local_kombu"
-    fi
 }
 
 make_classic_venv() {

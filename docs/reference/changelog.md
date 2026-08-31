@@ -7,6 +7,8 @@
 - Merged the `kombu-asyncio` package into this repository; `kombu` now ships as
   a top-level package of `celery-asyncio` instead of a separate install
 - Requirements no longer list `kombu-asyncio` as a dependency
+- Raised the minimum `asgiref` version to 3.8.0, the floor that reliably
+  provides `asgiref.sync.async_to_sync`, which `kombu/connection.py` calls
 
 ## v6.0.0a5
 

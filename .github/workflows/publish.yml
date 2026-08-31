@@ -31,7 +31,7 @@ jobs:
         run: uv sync --group dev
 
       - name: Run ruff check
-        run: uv run ruff check
+        run: uv run ruff check --no-fix
 
       - name: Run ruff format check
         run: uv run ruff format --check
