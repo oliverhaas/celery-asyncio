@@ -272,10 +272,6 @@ warn_unused_ignores = true
 warn_unreachable = false
 
 [[tool.mypy.overrides]]
-module = "kombu.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
 module = "click_didyoumean.*"
 ignore_missing_imports = true
 
@@ -290,12 +286,19 @@ ignore_missing_imports = true
 # Optional extras and stub-less third-party packages.
 [[tool.mypy.overrides]]
 module = [
+    "aio_pika.*",
+    "aiormq.*",
+    "brotli.*",
     "click_plugins.*",
     "django.*",
+    "msgpack.*",
     "objgraph.*",
     "psutil.*",
     "pygments.*",
+    "redis.*",
     "tblib.*",
+    "valkey.*",
+    "yaml.*",
 ]
 ignore_missing_imports = true
 
