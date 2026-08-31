@@ -127,98 +127,16 @@ override-dependencies = ["celery ; python_version < '0'"]
 line-length = 120
 target-version = "py314"
 fix = true
-# Ruff 0.16 added "*.md" to the default `include` and formats fenced code
-# blocks in it. Docs snippets are written to read well, not to survive a
-# formatter: it collapses the blank lines that group related config keys and
-# explodes short dict literals across five lines. Keep prose out of its reach.
 extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-  "A",        # Builtin shadowing — celery uses type, format, id as params
-  "ANN",      # Type annotations — 5385 hits, almost all in modules inherited
-              # from upstream Celery. mypy gates the package instead.
-  "ARG",      # Unused arguments — signal handlers, overrides, API compat
-  "ASYNC109", # timeout param is task TTL, not asyncio.timeout
-  "ASYNC110", # asyncio.Event suggestion — not always appropriate
-  "B007",     # Unused loop control variable — sometimes intentional
-  "B018",     # Useless expression — intentional in some celery patterns
-  "B020",     # Loop variable overrides iterator
-  "B024",     # Abstract base class without abstract method
-  "B026",     # Star-arg unpacking after keyword arg
-  "B027",     # Empty method without abstract decorator
-  "BLE001",   # Blind except: needed for task error handling
-  "C901",     # Complex structure: some task functions are inherently complex
-  "COM812",   # Conflicts with ruff-format
-  "COM818",   # Trailing comma on bare tuple
-  "CPY001",   # Copyright notice per file. The LICENSE file covers the package.
-  "D",        # Docstrings — 1373 hits, nearly all inherited from upstream Celery
-  "DTZ",      # Datetime timezone — celery uses naive datetimes throughout
-  "E402",     # Module-level import not at top — lazy imports
-  "E501",     # Line length handled by config
-  "E741",     # Ambiguous variable name — l, O, I used in celery
-  "EM",       # Exception strings inline are fine
-  "ERA001",   # Commented-out code — every remaining hit is prose: an exploit
-              # illustration, an issue write-up, or shorthand like "chord([A, B], C)"
-  "EXE",      # Shebang — examples have shebangs for convenience
-  "FBT",      # Boolean params match task APIs (ignore_result, bind, etc.)
-  "FIX",      # TODO/FIXME/XXX comments — inherited from upstream Celery
-  "G",        # Logging format — celery uses % formatting in logging
-  "INP001",   # Implicit namespace package — examples are standalone scripts
-  "ISC002",   # Implicit string concatenation
-  "N",        # Naming conventions: celery has its own patterns
-  "PERF",     # Performance suggestions — readability over micro-optimization
-  "PGH003",   # Blanket type-ignore
-  "PGH004",   # Blanket noqa
-  "PLC0205",  # __slots__ style
-  "PLC0415",  # Dynamic imports for optional dependencies
-  "PLE0704",  # Misplaced bare raise
-  "PLR0206",  # Property with parameters
-  "PLR0911",  # Too many return statements
-  "PLR0912",  # Too many branches: complex task routing logic
-  "PLR0913",  # Too many args — task APIs need many options
-  "PLR0915",  # Too many statements — complex functions
-  "PLR0917",  # Too many positional args, same reason as PLR0913 above
-  "PLR1704",  # Redefining argument from local — context manager patterns
-  "PLR1714",  # Consider merging comparisons
-  "PLR2004",  # Magic values — task-specific constants
-  "PLW0127",  # Self-assigning variable — protocol v1 destructuring
-  "PLW0603",  # Global statement: needed for module-level state
-  "PLW1508",  # Invalid envvar default
-  "PLW1641",  # eq without hash
-  "PLW2901",  # Redefining loop variable
-  "PTH",      # Pathlib — celery uses os.path extensively
-  "PYI024",   # collections.namedtuple: existing patterns
-  "PYI034",   # Non-self return type: __aenter__ patterns
-  "PYI036",   # Bad exit annotation: __aexit__ patterns
-  "RET503",   # Missing explicit return
-  "RET504",   # Unnecessary variable before return
-  "RET505",   # Superfluous else return — style preference
-  "RSE102",   # Unnecessary parentheses on raise
-  "RUF002",   # Ambiguous unicode in docstrings
-  "RUF003",   # Ambiguous unicode
-  "RUF005",   # Tuple concatenation is clearer
-  "RUF006",   # asyncio.create_task without reference
-  "RUF012",   # Mutable class defaults: intentional for celery state
-  "RUF013",   # Implicit Optional
-  "RUF015",   # Readability over micro-optimization
-  "RUF022",   # __all__ not sorted
-  "RUF046",   # Unnecessary cast
-  "RUF059",   # Unused unpacked variable
-  "S",        # Security — celery needs pickle, subprocess, exec, etc.
-  "SIM",      # Simplify — style preference, readability varies
-  "SLF001",   # Private member access needed for internals
-  "SLOT000",  # No __slots__ in str subclass
-  "T201",     # Print — the CLI banner, worker status output, and the example
-              # scripts all write to stdout on purpose
-  "TC",       # Typing-only imports: style preference
-  "TD",       # TODO comment formatting — inherited from upstream Celery
-  "TID252",   # Relative imports
-  "TRY",      # tryceratops — style preference throughout
-  "UP007",    # Non-PEP 604 annotation
-  "UP031",    # Printf-style formatting — keep for consistency
-  "UP041",    # Timeout error alias
+  "A001", "A002", "A004", "ANN", "ARG002", "ASYNC109", "BLE001", "C901", "COM812", "CPY001",
+  "D", "E501", "EM", "FBT", "FIX002", "N801", "N802", "N803", "N806", "N812", "N818",
+  "PERF203", "PLC0415", "PLR0912", "PLR0913", "PLR0917", "PLR1704", "PLR2004", "PLW0603",
+  "PLW1641", "PLW2901", "PYI024", "PYI034", "PYI036", "RUF005", "RUF012", "RUF059", "S110",
+  "SIM105", "SIM108", "SIM212", "SLF001", "TC003", "TD002", "TD003", "TRY003", "TRY300",
 ]
 
 [tool.ruff.lint.flake8-annotations]
@@ -226,32 +144,69 @@ allow-star-arg-any = true
 suppress-none-returning = true
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = [
-  "ANN",     # Type annotations not required in tests
-  "ARG",     # Unused arguments common in fixtures
-  "ASYNC110", # Async busy wait — test patterns
-  "B",       # Bugbear — relaxed in tests
-  "COM818",  # Trailing comma on bare tuple
-  "DTZ",     # Datetime timezone — tests use naive datetimes
-  "E721",    # Type comparison — test assertions
-  "E742",    # Ambiguous class name — test mocks
-  "INP001",  # Implicit namespace package
-  "PERF",    # Performance — not critical in tests
-  "PLC0206", # Dict index missing items
-  "PLR",     # Pylint refactor — relaxed in tests
-  "PLW0129", # Assert on string literal
-  "PT",      # Pytest style — preference
-  "RUF043",  # Pytest raises ambiguous pattern
-  "S",       # Security — tests are trusted code
-  "SIM117",  # Multiple with statements
-  "SLOT",    # No slots in subclass
-  "TRY",     # tryceratops — relaxed in tests
-  "UP045",   # Non-PEP 604 Optional
+"celery/**" = [
+  "A", "ARG", "ASYNC110", "B007", "B018", "B020", "B024", "B026", "B027", "COM818", "DTZ",
+  "E402", "E741", "ERA001", "EXE", "FIX", "G", "I001", "INP001", "ISC002", "N", "PERF",
+  "PGH003", "PGH004", "PLC0205", "PLE0704", "PLR0206", "PLR0911", "PLR0915", "PLR1714",
+  "PLW0127", "PLW1508", "PTH", "RET503", "RET504", "RET505", "RSE102", "RUF002", "RUF003",
+  "RUF006", "RUF013", "RUF015", "RUF022", "RUF046", "S", "SIM", "SLOT000", "T201", "TC", "TD",
+  "TID252", "TRY", "UP007", "UP031", "UP041",
 ]
-"examples/benchmark/render_results.py" = [
-  "ISC004",  # Markdown paragraphs are wrapped across source lines
-  "RUF001",  # The × in the config labels is a multiplication sign on purpose
+"tests/*.py" = [
+  "A", "ANN", "ARG", "ASYNC110", "B", "B007", "B018", "B020", "B024", "B026", "B027", "COM818",
+  "DTZ", "E402", "E721", "E741", "E742", "ERA001", "EXE", "FIX", "G", "I001", "INP001",
+  "ISC002", "N", "PERF", "PGH003", "PGH004", "PLC0205", "PLC0206", "PLE0704", "PLR", "PLR0206",
+  "PLR0911", "PLR0915", "PLR1714", "PLW0127", "PLW0129", "PLW1508", "PT", "PTH", "RET503",
+  "RET504", "RET505", "RSE102", "RUF002", "RUF003", "RUF006", "RUF013", "RUF015", "RUF022",
+  "RUF043", "RUF046", "S", "SIM", "SIM117", "SLOT", "SLOT000", "T201", "TC", "TD", "TID252",
+  "TRY", "UP007", "UP031", "UP041", "UP045",
 ]
+"tests/unit/**" = [
+  "A", "ANN", "ARG", "ASYNC110", "B", "B007", "B018", "B020", "B024", "B026", "B027", "COM818",
+  "DTZ", "E402", "E721", "E741", "E742", "ERA001", "EXE", "FIX", "G", "I001", "INP001",
+  "ISC002", "N", "PERF", "PGH003", "PGH004", "PLC0205", "PLC0206", "PLE0704", "PLR", "PLR0206",
+  "PLR0911", "PLR0915", "PLR1714", "PLW0127", "PLW0129", "PLW1508", "PT", "PTH", "RET503",
+  "RET504", "RET505", "RSE102", "RUF002", "RUF003", "RUF006", "RUF013", "RUF015", "RUF022",
+  "RUF043", "RUF046", "S", "SIM", "SIM117", "SLOT", "SLOT000", "T201", "TC", "TD", "TID252",
+  "TRY", "UP007", "UP031", "UP041", "UP045",
+]
+"tests/integration/**" = [
+  "A", "ANN", "ARG", "ASYNC110", "B", "B007", "B018", "B020", "B024", "B026", "B027", "COM818",
+  "DTZ", "E402", "E721", "E741", "E742", "ERA001", "EXE", "FIX", "G", "I001", "INP001",
+  "ISC002", "N", "PERF", "PGH003", "PGH004", "PLC0205", "PLC0206", "PLE0704", "PLR", "PLR0206",
+  "PLR0911", "PLR0915", "PLR1714", "PLW0127", "PLW0129", "PLW1508", "PT", "PTH", "RET503",
+  "RET504", "RET505", "RSE102", "RUF002", "RUF003", "RUF006", "RUF013", "RUF015", "RUF022",
+  "RUF043", "RUF046", "S", "SIM", "SIM117", "SLOT", "SLOT000", "T201", "TC", "TD", "TID252",
+  "TRY", "UP007", "UP031", "UP041", "UP045",
+]
+"tests/smoke/**" = [
+  "A", "ANN", "ARG", "ASYNC110", "B", "B007", "B018", "B020", "B024", "B026", "B027", "COM818",
+  "DTZ", "E402", "E721", "E741", "E742", "ERA001", "EXE", "FIX", "G", "I001", "INP001",
+  "ISC002", "N", "PERF", "PGH003", "PGH004", "PLC0205", "PLC0206", "PLE0704", "PLR", "PLR0206",
+  "PLR0911", "PLR0915", "PLR1714", "PLW0127", "PLW0129", "PLW1508", "PT", "PTH", "RET503",
+  "RET504", "RET505", "RSE102", "RUF002", "RUF003", "RUF006", "RUF013", "RUF015", "RUF022",
+  "RUF043", "RUF046", "S", "SIM", "SIM117", "SLOT", "SLOT000", "T201", "TC", "TD", "TID252",
+  "TRY", "UP007", "UP031", "UP041", "UP045",
+]
+"tests/benchmarks/**" = [
+  "A", "ANN", "ARG", "ASYNC110", "B", "B007", "B018", "B020", "B024", "B026", "B027", "COM818",
+  "DTZ", "E402", "E721", "E741", "E742", "ERA001", "EXE", "FIX", "G", "I001", "INP001",
+  "ISC002", "N", "PERF", "PGH003", "PGH004", "PLC0205", "PLC0206", "PLE0704", "PLR", "PLR0206",
+  "PLR0911", "PLR0915", "PLR1714", "PLW0127", "PLW0129", "PLW1508", "PT", "PTH", "RET503",
+  "RET504", "RET505", "RSE102", "RUF002", "RUF003", "RUF006", "RUF013", "RUF015", "RUF022",
+  "RUF043", "RUF046", "S", "SIM", "SIM117", "SLOT", "SLOT000", "T201", "TC", "TD", "TID252",
+  "TRY", "UP007", "UP031", "UP041", "UP045",
+]
+"examples/**" = [
+  "A", "ARG", "ASYNC110", "B007", "B018", "B020", "B024", "B026", "B027", "COM818", "DTZ",
+  "E402", "E741", "ERA001", "EXE", "FIX", "G", "I001", "INP001", "ISC002", "N", "PERF",
+  "PGH003", "PGH004", "PLC0205", "PLE0704", "PLR0206", "PLR0911", "PLR0915", "PLR1714",
+  "PLW0127", "PLW1508", "PTH", "RET503", "RET504", "RET505", "RSE102", "RUF002", "RUF003",
+  "RUF006", "RUF013", "RUF015", "RUF022", "RUF046", "S", "SIM", "SLOT000", "T201", "TC", "TD",
+  "TID252", "TRY", "UP007", "UP031", "UP041",
+]
+"tests/kombu/**" = ["ANN", "ARG", "B017", "PERF401", "PLR0133", "PT006", "PT011", "PT018", "PTH", "S101", "S301", "TRY301"]
+"examples/benchmark/render_results.py" = ["ISC004", "RUF001"]
 
 [tool.mypy]
 python_version = "3.14"

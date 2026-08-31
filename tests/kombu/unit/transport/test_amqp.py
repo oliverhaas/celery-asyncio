@@ -11,9 +11,9 @@ import pytest
 
 aio_pika = pytest.importorskip("aio_pika")
 
-from kombu.entity import Exchange, Queue  # noqa: E402
-from kombu.message import Message  # noqa: E402
-from kombu.transport.amqp import Channel, Transport, _get_exchange_type  # noqa: E402
+from kombu.entity import Exchange, Queue
+from kombu.message import Message
+from kombu.transport.amqp import Channel, Transport, _get_exchange_type
 
 # ---------------------------------------------------------------------------
 # Mock helpers
