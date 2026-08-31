@@ -144,13 +144,67 @@ allow-star-arg-any = true
 suppress-none-returning = true
 
 [tool.ruff.lint.per-file-ignores]
+# Inherited from upstream Celery. Branch 2 burns this list down; every entry
+# removed here is a rule celery/ now passes cleanly.
 "celery/**" = [
-  "A", "ARG", "ASYNC110", "B007", "B018", "B020", "B024", "B026", "B027", "COM818", "DTZ",
-  "E402", "E741", "ERA001", "EXE", "FIX", "G", "I001", "INP001", "ISC002", "N", "PERF",
-  "PGH003", "PGH004", "PLC0205", "PLE0704", "PLR0206", "PLR0911", "PLR0915", "PLR1714",
-  "PLW0127", "PLW1508", "PTH", "RET503", "RET504", "RET505", "RSE102", "RUF002", "RUF003",
-  "RUF006", "RUF013", "RUF015", "RUF022", "RUF046", "S", "SIM", "SLOT000", "T201", "TC", "TD",
-  "TID252", "TRY", "UP007", "UP031", "UP041",
+  "A",        # Builtin shadowing — celery uses type, format, id as params
+  "ARG",      # Unused arguments — signal handlers, overrides, API compat
+  "ASYNC110", # asyncio.Event suggestion — not always appropriate
+  "B007",     # Unused loop control variable — sometimes intentional
+  "B018",     # Useless expression — intentional in some celery patterns
+  "B020",     # Loop variable overrides iterator
+  "B024",     # Abstract base class without abstract method
+  "B026",     # Star-arg unpacking after keyword arg
+  "B027",     # Empty method without abstract decorator
+  "COM818",   # Trailing comma on bare tuple
+  "DTZ",      # Datetime timezone — celery uses naive datetimes throughout
+  "E402",     # Module-level import not at top — lazy imports
+  "E741",     # Ambiguous variable name — l, O, I used in celery
+  "ERA001",   # Commented-out code — every remaining hit is prose: an exploit
+              # illustration, an issue write-up, or shorthand like "chord([A, B], C)"
+  "EXE",      # Shebang — examples have shebangs for convenience
+  "FIX",      # TODO/FIXME/XXX comments — inherited from upstream Celery
+  "G",        # Logging format — celery uses % formatting in logging
+  "I001",     # Import sorting: kombu became first-party when it moved into this repo,
+              # so 40 celery modules have mis-grouped import blocks. Branch 2 fixes them.
+  "INP001",   # Implicit namespace package — examples are standalone scripts
+  "ISC002",   # Implicit string concatenation
+  "N",        # Naming conventions: celery has its own patterns
+  "PERF",     # Performance suggestions — readability over micro-optimization
+  "PGH003",   # Blanket type-ignore
+  "PGH004",   # Blanket noqa
+  "PLC0205",  # __slots__ style
+  "PLE0704",  # Misplaced bare raise
+  "PLR0206",  # Property with parameters
+  "PLR0911",  # Too many return statements
+  "PLR0915",  # Too many statements — complex functions
+  "PLR1714",  # Consider merging comparisons
+  "PLW0127",  # Self-assigning variable — protocol v1 destructuring
+  "PLW1508",  # Invalid envvar default
+  "PTH",      # Pathlib — celery uses os.path extensively
+  "RET503",   # Missing explicit return
+  "RET504",   # Unnecessary variable before return
+  "RET505",   # Superfluous else return — style preference
+  "RSE102",   # Unnecessary parentheses on raise
+  "RUF002",   # Ambiguous unicode in docstrings
+  "RUF003",   # Ambiguous unicode
+  "RUF006",   # asyncio.create_task without reference
+  "RUF013",   # Implicit Optional
+  "RUF015",   # Readability over micro-optimization
+  "RUF022",   # __all__ not sorted
+  "RUF046",   # Unnecessary cast
+  "S",        # Security — celery needs pickle, subprocess, exec, etc.
+  "SIM",      # Simplify — style preference, readability varies
+  "SLOT000",  # No __slots__ in str subclass
+  "T201",     # Print — the CLI banner, worker status output, and the example
+              # scripts all write to stdout on purpose
+  "TC",       # Typing-only imports: style preference
+  "TD",       # TODO comment formatting — inherited from upstream Celery
+  "TID252",   # Relative imports
+  "TRY",      # tryceratops — style preference throughout
+  "UP007",    # Non-PEP 604 annotation
+  "UP031",    # Printf-style formatting — keep for consistency
+  "UP041",    # Timeout error alias
 ]
 "tests/*.py" = [
   "A", "ANN", "ARG", "ASYNC110", "B", "B007", "B018", "B020", "B024", "B026", "B027", "COM818",
