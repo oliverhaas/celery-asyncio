@@ -159,7 +159,7 @@ class test_lookup_route(RouteCase):
 
     def test_compat_router_class(self):
         self.simple_queue_setup()
-        R = routes.prepare((TestRouter(),))
+        R = routes.prepare((RouterHelper(),))
         router = Router(self.app, R, self.app.amqp.queues)
         self.assert_routes_to_queue("bar", router, "celery.xaza")
         self.assert_routes_to_default_queue(router, "celery.poza")
@@ -198,7 +198,7 @@ class test_lookup_route(RouteCase):
         set_queues(self.app, foo=self.a_queue, bar=self.b_queue, **{self.app.conf.task_default_queue: self.d_queue})
 
 
-class TestRouter:
+class RouterHelper:
     def route_for_task(self, task, args, kwargs):
         if task == "celery.xaza":
             return "bar"
@@ -209,12 +209,12 @@ class test_prepare:
         o = object()
         R = [
             {"foo": "bar"},
-            qualname(TestRouter),
+            qualname(RouterHelper),
             o,
         ]
         p = routes.prepare(R)
         assert isinstance(p[0], routes.MapRoute)
-        assert isinstance(maybe_evaluate(p[1]), TestRouter)
+        assert isinstance(maybe_evaluate(p[1]), RouterHelper)
         assert p[2] is o
 
         assert routes.prepare(o) == [o]

@@ -295,9 +295,11 @@ ignore_missing_imports = true
 python-version = "3.14"
 
 [tool.pytest.ini_options]
-addopts = "--cov=celery --cov-report=term-missing --cov-report=xml --no-cov-on-fail"
-testpaths = ["tests/unit"]
-python_classes = "test_*"
+addopts = "--cov=celery --cov=kombu --cov-report=term-missing --cov-report=xml --no-cov-on-fail"
+testpaths = ["tests/unit", "tests/kombu/unit"]
+# celery's suite uses `test_*` class names; kombu's carries upstream kombu's
+# `test_Thing` convention alongside plain `Test*`. Both are collected.
+python_classes = ["Test*", "test_*"]
 xfail_strict = true
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -310,11 +312,13 @@ markers = [
   "flaky",
   "timeout",
   "amqp",
+  "unit: marks tests as unit tests",
+  "integration: marks tests as integration tests",
 ]
 
 [tool.coverage.run]
 branch = true
-source = ["celery"]
+source = ["celery", "kombu"]
 omit = ["*/__init__.py"]
 
 [tool.coverage.report]

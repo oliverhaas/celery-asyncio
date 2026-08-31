@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.mocks import MockChannel, MockTransport
+from tests.kombu.mocks import MockChannel, MockTransport
 
 
 @pytest.fixture
