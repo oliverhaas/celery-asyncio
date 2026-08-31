@@ -35,7 +35,6 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "kombu-asyncio==6.0.0a5",
   "asgiref>=3.5.0",
   "click>=8.1.2,<9.0",
   "click-didyoumean>=0.3.0",
@@ -59,12 +58,12 @@ msgpack = ["msgpack"]
 yaml = ["PyYAML>=3.10"]
 
 # Transports and Backends
-valkey = ["kombu-asyncio[valkey]"]
-redis = ["kombu-asyncio[redis]"]
+valkey = ["valkey>=6.1.0"]
+redis = ["redis>=7.1.0"]
 amqp = ["aio-pika>=9.0.0"]
 # Optimized C parsers
-hiredis = ["kombu-asyncio[redis]", "redis[hiredis]"]
-libvalkey = ["kombu-asyncio[valkey]", "valkey[libvalkey]"]
+hiredis = ["redis[hiredis]>=7.1.0"]
+libvalkey = ["valkey[libvalkey]>=6.1.0"]
 
 # Testing
 tblib = ["tblib>=1.3.0"]
@@ -114,10 +113,10 @@ requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["celery"]
+packages = ["celery", "kombu"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/celery", "/tests", "/LICENSE", "/README.md"]
+include = ["/celery", "/kombu", "/tests", "/LICENSE", "/README.md"]
 
 [tool.uv]
 # flower depends on "celery" (PyPI), but celery-asyncio provides the celery

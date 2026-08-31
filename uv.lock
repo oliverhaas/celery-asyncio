@@ -144,7 +144,6 @@ dependencies = [
     { name = "click" },
     { name = "click-didyoumean" },
     { name = "click-plugins" },
-    { name = "kombu-asyncio" },
     { name = "python-dateutil" },
     { name = "tzlocal" },
 ]
@@ -167,11 +166,9 @@ flower = [
     { name = "tornado" },
 ]
 hiredis = [
-    { name = "kombu-asyncio", extra = ["redis"] },
     { name = "redis", extra = ["hiredis"] },
 ]
 libvalkey = [
-    { name = "kombu-asyncio", extra = ["valkey"] },
     { name = "valkey", extra = ["libvalkey"] },
 ]
 msgpack = [
@@ -181,7 +178,7 @@ pytest = [
     { name = "pytest" },
 ]
 redis = [
-    { name = "kombu-asyncio", extra = ["redis"] },
+    { name = "redis" },
 ]
 solar = [
     { name = "ephem" },
@@ -190,7 +187,7 @@ tblib = [
     { name = "tblib" },
 ]
 valkey = [
-    { name = "kombu-asyncio", extra = ["valkey"] },
+    { name = "valkey" },
 ]
 yaml = [
     { name = "pyyaml" },
@@ -235,22 +232,19 @@ requires-dist = [
     { name = "ephem", marker = "extra == 'solar'" },
     { name = "flower", marker = "extra == 'flower'", specifier = ">=2.0" },
     { name = "humanize", marker = "extra == 'flower'" },
-    { name = "kombu-asyncio", specifier = "==6.0.0a5" },
-    { name = "kombu-asyncio", extras = ["redis"], marker = "extra == 'hiredis'" },
-    { name = "kombu-asyncio", extras = ["redis"], marker = "extra == 'redis'" },
-    { name = "kombu-asyncio", extras = ["valkey"], marker = "extra == 'libvalkey'" },
-    { name = "kombu-asyncio", extras = ["valkey"], marker = "extra == 'valkey'" },
     { name = "msgpack", marker = "extra == 'msgpack'" },
     { name = "prometheus-client", marker = "extra == 'flower'", specifier = ">=0.8" },
     { name = "pytest", marker = "extra == 'pytest'", specifier = ">=8.0.0" },
     { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "pytz", marker = "extra == 'flower'" },
     { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=3.10" },
-    { name = "redis", extras = ["hiredis"], marker = "extra == 'hiredis'" },
+    { name = "redis", marker = "extra == 'redis'", specifier = ">=7.1.0" },
+    { name = "redis", extras = ["hiredis"], marker = "extra == 'hiredis'", specifier = ">=7.1.0" },
     { name = "tblib", marker = "extra == 'tblib'", specifier = ">=1.3.0" },
     { name = "tornado", marker = "extra == 'flower'", specifier = ">=5,<7" },
     { name = "tzlocal" },
-    { name = "valkey", extras = ["libvalkey"], marker = "extra == 'libvalkey'" },
+    { name = "valkey", marker = "extra == 'valkey'", specifier = ">=6.1.0" },
+    { name = "valkey", extras = ["libvalkey"], marker = "extra == 'libvalkey'", specifier = ">=6.1.0" },
     { name = "zstandard", marker = "extra == 'zstd'", specifier = ">=0.22.0" },
 ]
 provides-extras = ["msgpack", "yaml", "valkey", "redis", "amqp", "hiredis", "libvalkey", "tblib", "pytest", "django", "solar", "flower", "brotli", "zstd"]
@@ -597,23 +591,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/df/bf/f7da0350254c0ed7c72f3e33cef02e048281fec7ecec5f032d4aac52226b/jinja2-3.1.6.tar.gz", hash = "sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d", size = 245115, upload-time = "2025-03-05T20:05:02.478Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl", hash = "sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67", size = 134899, upload-time = "2025-03-05T20:05:00.369Z" },
-]
-
-[[package]]
-name = "kombu-asyncio"
-version = "6.0.0a5"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ab/11/62b5572376c0bca774d4545f15e7a3745d215b7fbd1b01b1b7e18d537059/kombu_asyncio-6.0.0a5.tar.gz", hash = "sha256:0d151cb64a7c124826832a3b74a5db9e8ab1210c22882d206aabc3ab988da7d4", size = 89893, upload-time = "2026-08-30T14:37:26.794Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e7/d0/2ed4c73b9ca508e64d85538f662d0193e7198f83aa5d47ee5a635edcea03/kombu_asyncio-6.0.0a5-py3-none-any.whl", hash = "sha256:2b17b137c875f33e21778f22233b8bb780dfc1b3415aafb0288175da9e192df0", size = 111266, upload-time = "2026-08-30T14:37:25.072Z" },
-]
-
-[package.optional-dependencies]
-redis = [
-    { name = "redis" },
-]
-valkey = [
-    { name = "valkey" },
 ]
 
 [[package]]
