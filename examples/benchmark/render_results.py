@@ -199,10 +199,7 @@ def _modelled_cost_per_million(r: dict, rss_mb_per_process: float) -> float:
 # never acknowledge, so a dying worker drops its in-flight tasks.
 FW_ROWS = [
     ("celery-aio", "celery-asyncio", "1 proc, 4 loop x 25 + 1 sync", 101, "at-least-once"),
-    ("celery-aio-p4", "celery-asyncio", "4 proc x (1 loop x 25)", 100, "at-least-once"),
-    ("celery-thr", "celery (upstream)", "1 proc, 100 threads", 100, "at-least-once"),
     ("celery-thr-p4", "celery (upstream)", "4 proc x 25 threads", 100, "at-least-once"),
-    ("taskiq", "taskiq (list)", "4 proc x 25 async", 100, "at-most-once"),
     ("taskiq-stream", "taskiq (stream)", "4 proc x 25 async", 100, "at-least-once"),
     ("dramatiq", "dramatiq", "4 proc x 25 threads", 100, "at-least-once"),
     ("arq", "arq", "4 proc x 25 async", 100, "at-least-once"),
@@ -210,21 +207,22 @@ FW_ROWS = [
 ]
 
 FW_VENVS = {
-    "celery-asyncio": (".venv-async-314t", "celery_asyncio"),
-    "celery (upstream)": (".venv-classic-314t", "celery"),
-    "taskiq (list)": (".venv-taskiq-314t", "taskiq"),
-    "taskiq (stream)": (".venv-taskiq-314t", "taskiq"),
-    "dramatiq": (".venv-dramatiq-314t", "dramatiq"),
-    "arq": (".venv-arq-314t", "arq"),
-    "django-q2": (".venv-djangoq-314t", "django_q2"),
+    "celery-asyncio": (".venv-async-314t", "celery_asyncio", "celery"),
+    "celery (upstream)": (".venv-classic-314t", "celery", "celery"),
+    "taskiq (stream)": (".venv-taskiq-314t", "taskiq", "taskiq"),
+    "dramatiq": (".venv-dramatiq-314t", "dramatiq", "dramatiq"),
+    "arq": (".venv-arq-314t", "arq", "arq"),
+    "django-q2": (".venv-djangoq-314t", "django_q2", "django_q"),
 }
 
 
-def framework_table() -> tuple[str, list[str]]:
-    """One row per framework configuration, best of its repeats.
+def framework_table(stamped: dict[str, str]) -> tuple[str, list[str]]:
+    """One row per framework, best of its repeats.
 
     Reporting the best run rather than a mean keeps every number in a row from
     the same measurement; the spread column says how much that choice mattered.
+    `stamped` carries the versions the matrix recorded per venv, so the two
+    editable packages report what ran rather than whatever is checked out now.
     """
     body, notes = [], []
     measured = []
@@ -240,9 +238,8 @@ def framework_table() -> tuple[str, list[str]]:
         spread = (max(tps) - min(tps)) / (sum(tps) / len(tps)) * 100
         measured.append((name, best))
         s = best["summary"]
-        venv, dist = FW_VENVS[name]
-        found = sorted((ROOT / venv).glob(f"lib/*/site-packages/{dist}-*.dist-info"))
-        version = found[-1].name.removesuffix(".dist-info").rsplit("-", 1)[-1] if found else "?"
+        venv, dist, module = FW_VENVS[name]
+        version = stamped.get(venv) or _versions.framework_version(venv, dist, module)
         body.append(
             [
                 name,
@@ -527,8 +524,13 @@ def _git_date() -> str:
 
 def render() -> str:
     existing = keeps(RESULTS_MD.read_text()) if RESULTS_MD.exists() else {}
-    fw_table, fw_notes = framework_table()
     all_rows = [r for p in PROFILES for r in load_profile(p, include_uvloop=True)]
+    stamped = {}
+    for r in all_rows:
+        v = _versions.versions_for(r).get("celery", "")
+        if v:
+            stamped.setdefault(_versions.venv_for(r["config"]), v.split()[1])
+    fw_table, fw_notes = framework_table(stamped)
     counts = {p: len(load_profile(p, include_uvloop=True)) for p in PROFILES}
     total = sum(counts.values())
     stranded = sum(r["n_stranded"] for r in all_rows)
