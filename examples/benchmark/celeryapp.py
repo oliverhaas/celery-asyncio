@@ -50,7 +50,7 @@ app.conf.update(
     result_backend=RESULT_URL,
     task_acks_late=False,
     worker_prefetch_multiplier=int(os.environ.get("BENCH_PREFETCH", "16")),
-    task_ignore_result=False,
+    task_ignore_result=os.environ.get("BENCH_IGNORE_RESULT", "0") == "1",
     result_expires=600,
     broker_connection_retry_on_startup=True,
     task_default_queue="bench",
