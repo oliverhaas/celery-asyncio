@@ -96,6 +96,12 @@ dev = [
   "pytest-timeout==2.4.0",
   "pytest-xdist==3.8.0",
   "pytest-flakefinder==1.1.0",
+  # Optional-extra packages: installed so their transports and serializers are
+  # both type-checked and exercised by the suite instead of skipped.
+  "aio-pika==9.5.7",
+  "brotli==1.2.0",
+  "msgpack==1.1.2",
+  "pyyaml==6.0.3",
   "redis==8.1.0",
   "ruff==0.16.5",
   "valkey==6.1.1",
