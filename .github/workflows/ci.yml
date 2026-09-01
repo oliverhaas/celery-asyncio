@@ -118,14 +118,17 @@ jobs:
       # Redis database of its own (see tests/integration/conftest.py). The
       # global_pubsub tests are the ones that isolation cannot help, because
       # Redis reports PUBSUB channels per server rather than per database; they
-      # get a serial step below. tests/integration/known-failures.txt xfails the
-      # tests this fork does not pass yet, so the rest gates as normal.
+      # get a serial step below.
       # --timeout because the pytest config sets none, and a hung task would
-      # otherwise hang the job.
+      # otherwise hang the job. It is a guard against hangs, not a performance
+      # budget: several of these tests wait out deliberate timeouts to prove a
+      # task did *not* run, which puts them over two minutes on their own. 300s
+      # is also what the suite's own `flaky` decorator already gives the tests
+      # it wraps, so this makes the budget uniform.
       - name: Run celery integration tests
         timeout-minutes: 45
-        run: uv run pytest tests/integration/ -q --no-cov --timeout=60 -n 6 -m "not global_pubsub"
+        run: uv run pytest tests/integration/ -q --no-cov --timeout=300 -n 6 -m "not global_pubsub"
 
       - name: Run celery integration tests that need the broker to themselves
         timeout-minutes: 15
-        run: uv run pytest tests/integration/ -q --no-cov --timeout=60 -m global_pubsub
+        run: uv run pytest tests/integration/ -q --no-cov --timeout=300 -m global_pubsub

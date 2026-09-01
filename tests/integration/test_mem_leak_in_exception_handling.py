@@ -81,22 +81,15 @@ class MemoryLeakUnhandledExceptionsTest:
 
 
 def get_memory_usage():
-    """
-    Get current memory usage in bytes.
+    """Return the bytes Python currently has allocated.
 
-    Returns RSS (total process memory) if psutil is available,
-    otherwise returns Python heap allocations via tracemalloc.
-    Note: These measurements are not directly comparable.
+    tracemalloc rather than RSS: what #8882 leaked is a graph of Python
+    objects, which is what tracemalloc counts, whereas RSS also moves with
+    allocator arenas and everything else sharing the process -- under `pytest
+    -n` that noise is larger than the leak being measured.
     """
-    try:
-        import psutil
-
-        process = psutil.Process(os.getpid())
-        return process.memory_info().rss
-    except ImportError:
-        # Fallback to tracemalloc if psutil not available
-        current, peak = tracemalloc.get_traced_memory()
-        return current
+    current, _peak = tracemalloc.get_traced_memory()
+    return current
 
 
 def test_mem_leak_unhandled_exceptions():
@@ -159,15 +152,16 @@ def test_mem_leak_unhandled_exceptions():
     # This threshold may need adjustment based on the system
     memory_increase_mb = memory_increase / 1024 / 1024
 
-    # Verify the memory leak is fixed - memory increase should be minimal
+    # Verify the memory leak is fixed - memory increase should be minimal.
     # Before fix: >70MB for 1000 tasks (~70KB/task)
     # After fix: <5MB for 500 tasks (<10KB/task)
-    threshold_percent = float(os.getenv("MEMORY_LEAK_THRESHOLD_PERCENT", 10))  # Default: 10% increase
-    memory_threshold_mb = baseline_memory / 1024 / 1024 * (threshold_percent / 100)
+    # An absolute allowance, not a fraction of the baseline: the baseline is
+    # whatever the warm-up happened to leave allocated, so a percentage of it
+    # is a threshold that moves with everything except the thing under test.
+    memory_threshold_mb = float(os.getenv("MEMORY_LEAK_THRESHOLD_MB", 5))
     assert memory_increase_mb < memory_threshold_mb, (
         f"Memory leak still exists! Expected <{memory_threshold_mb:.2f}MB increase "
-        f"(based on {threshold_percent}% of baseline), "
-        f"but got {memory_increase_mb:.2f}MB. "
+        f"for 500 failing tasks, but got {memory_increase_mb:.2f}MB. "
         f"This indicates the memory leak fix is not working properly."
     )
 

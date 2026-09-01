@@ -3,7 +3,6 @@ import logging
 import os
 import re
 import time
-from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 import pytest
@@ -65,27 +64,20 @@ os.environ["REDIS_DB"] = str(REDIS_DATABASE)
 TEST_BROKER = _on_database(os.environ.get("TEST_BROKER", "redis://"), REDIS_DATABASE)
 TEST_BACKEND = _on_database(os.environ.get("TEST_BACKEND", "redis://"), REDIS_DATABASE)
 
-KNOWN_FAILURES_FILE = Path(__file__).parent / "known-failures.txt"
-
-
-def _known_failures() -> set[str]:
-    return {
-        stripped for line in KNOWN_FAILURES_FILE.read_text().splitlines() if (stripped := line.split("#")[0].strip())
-    }
-
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Mark the tests this fork is known to fail as xfail.
+    """Skip the RabbitMQ-only tests when the broker under test is not AMQP.
 
-    Without this the suite cannot run in CI at all, and the tests that do pass
-    guard nothing. `strict=False` because a listed test that starts passing
-    should report XPASS, not turn the build red -- that is the cue to delete
-    its line.
+    The `amqp` marker records that a test asserts on broker behaviour only
+    RabbitMQ has -- queue types, delayed-delivery bindings, quorum QoS. Run
+    against the default Redis broker they do not fail meaningfully, they fail
+    on the first connection argument the transport does not understand.
     """
-    known_failures = _known_failures()
-    marker = pytest.mark.xfail(reason=f"listed in {KNOWN_FAILURES_FILE.name}", strict=False)
+    if TEST_BROKER.startswith(("amqp", "amqps", "pyamqp")):
+        return
+    marker = pytest.mark.skip(reason=f"requires an AMQP broker, TEST_BROKER is {TEST_BROKER}")
     for item in items:
-        if item.nodeid in known_failures:
+        if item.get_closest_marker("amqp") is not None:
             item.add_marker(marker)
 
 

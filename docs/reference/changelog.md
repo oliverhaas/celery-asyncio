@@ -4,6 +4,21 @@
 
 ### Fixed
 
+- A chord whose body was itself a chord never reported the header's failure. A
+  chord's `task_id` option is its *header group's* id -- `freeze` assigns
+  `self.id = self.tasks.id` -- so `chord_error_from_stack` stored the error
+  under a key nobody reads, while the result the caller was handed, the
+  innermost body's, stayed `PENDING` and `get()` blocked until it timed out.
+  The error now walks down to the body, and the inner header's members, which
+  will never run either, are failed alongside it
+- `Connection.connection_errors`, `channel_errors` and `resource_locked_errors`
+  answered with a generic default until something had been connected -- which
+  is exactly when they are asked, since the caller is usually about to connect
+  or has just been disconnected. Against an unreachable AMQP broker the
+  worker's recoverable-error handler therefore never saw aiormq's
+  `AMQPConnectionError` and died with an unhandled traceback instead of the
+  shutdown it was supposed to report. The tuples now come from the transport
+  class, which does not require an instance
 - A chord header built from a generator was unrolled completely before any of
   its tasks were published, so the header could not be produced incrementally
   (upstream #3021). `_apply_tasks` had materialised the header to write
@@ -52,10 +67,7 @@
 
 - A Broker API (kombu) section in the docs nav: Connection, producers and
   consumers, exchanges and queues, and the simple interface
-- CI runs the celery integration suite, which nothing had ever run. The 74
-  tests this fork does not pass yet are listed in
-  `tests/integration/known-failures.txt` and reported as xfail, so the rest of
-  the suite gates as normal; a listed test that starts passing reports XPASS
+- CI runs the celery integration suite, which nothing had ever run
 - Each pytest-xdist worker now runs the integration suite against a Redis
   database of its own, so parallel workers no longer share broker queues,
   fanout channels or the keys the test tasks write to. Without it `inspect`
