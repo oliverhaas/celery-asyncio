@@ -49,7 +49,11 @@ def _on_database(url: str, database: int) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in {"redis", "rediss", "valkey"}:
         return url
-    return urlunparse(parsed._replace(path=f"/{database}"))
+    # Rebuilt rather than urlunparse(parsed._replace(...)): the default TEST_BROKER
+    # is "redis://", whose netloc is empty, and urlunparse drops the "//" when it
+    # is, which yields "redis:/0" and no usable host.
+    tail = urlunparse(("", "", f"/{database}", parsed.params, parsed.query, parsed.fragment))
+    return f"{parsed.scheme}://{parsed.netloc}{tail}"
 
 
 REDIS_DATABASE = _worker_database()
