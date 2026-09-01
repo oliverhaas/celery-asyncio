@@ -926,6 +926,34 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unreleased
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Unreleased">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v600a5" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -949,7 +977,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1110,6 +1138,34 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unreleased
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Unreleased">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v600a5" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1133,7 +1189,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1280,12 +1336,21 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Merged the <code>kombu-asyncio</code> package into this repository; <code>kombu</code> now ships as
+  a top-level package of <code>celery-asyncio</code> instead of a separate install</li>
+<li>Requirements no longer list <code>kombu-asyncio</code> as a dependency</li>
+<li>Raised the minimum <code>asgiref</code> version to 3.8.0, the floor that reliably
+  provides <code>asgiref.sync.async_to_sync</code>, which <code>kombu/connection.py</code> calls</li>
+</ul>
 <h2 id="v600a5">v6.0.0a5<a class="headerlink" href="#v600a5" title="Permanent link">&para;</a></h2>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Receiving an AMQP message with a TTL raised <code>AttributeError</code> (kombu-asyncio 6.0.0a5)</li>
 </ul>
-<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Every re-raise now names its cause, so a traceback points at the original error
   instead of stopping at the exception celery raised in its place</li>
