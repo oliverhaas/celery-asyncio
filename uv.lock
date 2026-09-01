@@ -6,9 +6,6 @@ resolution-markers = [
     "python_full_version < '3.15'",
 ]
 
-[manifest]
-overrides = [{ name = "celery", marker = "python_full_version < '0'" }]
-
 [[package]]
 name = "aio-pika"
 version = "9.5.7"
@@ -159,7 +156,6 @@ django = [
     { name = "django" },
 ]
 flower = [
-    { name = "flower" },
     { name = "humanize" },
     { name = "prometheus-client" },
     { name = "pytz" },
@@ -234,7 +230,6 @@ requires-dist = [
     { name = "click-plugins", specifier = ">=1.1.1" },
     { name = "django", marker = "extra == 'django'", specifier = ">=6.0" },
     { name = "ephem", marker = "extra == 'solar'" },
-    { name = "flower", marker = "extra == 'flower'", specifier = ">=2.0" },
     { name = "humanize", marker = "extra == 'flower'" },
     { name = "msgpack", marker = "extra == 'msgpack'" },
     { name = "prometheus-client", marker = "extra == 'flower'", specifier = ">=0.8" },
@@ -479,21 +474,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/98/f7/5e0dec5165ca52203d9f2c248db0a72dd31d6f15aad0b1e4a874f2187452/filelock-3.23.0.tar.gz", hash = "sha256:f64442f6f4707b9385049bb490be0bc48e3ab8e74ad27d4063435252917f4d4b", size = 32798, upload-time = "2026-02-14T02:53:58.703Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/10/da216e25ef2f3c9dfa75574aa27f5f4c7e5fb5540308f04e4d8c4d834ecb/filelock-3.23.0-py3-none-any.whl", hash = "sha256:4203c3f43983c7c95e4bbb68786f184f6acb7300899bf99d686bb82d526bdf62", size = 22227, upload-time = "2026-02-14T02:53:56.122Z" },
-]
-
-[[package]]
-name = "flower"
-version = "2.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "humanize" },
-    { name = "prometheus-client" },
-    { name = "pytz" },
-    { name = "tornado" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/fd/9f/e3061a153ba1928a96cf1a431449411ff4a9411465d1554fdcd0feb8d239/flower-2.1.0.tar.gz", hash = "sha256:ece79fd190bfd198947e30470c4b26a6d5df1861d54309430dd926ed516302ff", size = 3486971, upload-time = "2026-08-16T07:36:18.882Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/67/87/cd70fe77cb5ad4a79eaebe7d86d15efd8b1d950f8d0ab99470a4fd21c9a8/flower-2.1.0-py2.py3-none-any.whl", hash = "sha256:2f433aaee3efeba5b844b2ab7371f16058d892de76156b77e6d09de03a4095bc", size = 404618, upload-time = "2026-08-16T07:36:16.627Z" },
 ]
 
 [[package]]

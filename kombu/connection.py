@@ -349,8 +349,10 @@ class Connection:
         """Sync context manager entry (for compatibility with sync code like Flower)."""
         # On the shared background loop, not a throwaway one: the transport
         # opened here belongs to the loop that opened it, and __exit__ and
-        # everything in between have to reach that same loop.
-        default_loop_runner().run(self.connect())
+        # everything in between have to reach that same loop. Blocking form,
+        # because callers like Flower's tornado handlers invoke this from
+        # inside a loop of their own and cannot await a dunder.
+        default_loop_runner().run_from_any_thread(self.connect())
         return self
 
     def __exit__(
@@ -360,7 +362,7 @@ class Connection:
         exc_tb: Any,
     ) -> None:
         """Sync context manager exit (for compatibility with sync code like Flower)."""
-        default_loop_runner().run(self.close())
+        default_loop_runner().run_from_any_thread(self.close())
 
     def __repr__(self) -> str:
         return f"<Connection: {self._url} connected={self.is_connected}>"

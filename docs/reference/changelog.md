@@ -10,10 +10,20 @@
   and `app.events.default_dispatcher()` now share one long-lived loop, which
   also unbreaks Flower and `celery -A app worker --purge`
 
+- `with Connection(...)` raised from inside a running event loop, which is
+  where Flower's tornado request handlers call it, so Flower's pages 500'd
+
 ### Changed
 
 - Moved the shared loop runner to `kombu.utils.eventloop`, so kombu and celery
   drive a connection from the same loop; `celery.utils.eventloop` re-exports it
+- The `flower` extra no longer installs Flower itself, only Flower's other
+  dependencies. Flower requires upstream `celery` from PyPI, which installed
+  over this package for anyone who was not resolving inside this workspace.
+  Install it with `pip install "celery-asyncio[flower]" && pip install flower
+  --no-deps`
+- Dropped the `[tool.uv] override-dependencies` entry that neutralised
+  upstream `celery`; nothing in the project pulls it in any more
 - Merged the `kombu-asyncio` package into this repository; `kombu` now ships as
   a top-level package of `celery-asyncio` instead of a separate install
 - Requirements no longer list `kombu-asyncio` as a dependency

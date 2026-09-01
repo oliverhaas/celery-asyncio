@@ -66,10 +66,9 @@ All tasks completed successfully!
 ## Flower dashboard (optional)
 
 ```bash
-# Install Flower (note: reinstall celery-asyncio afterwards because flower
-# pulls in the upstream version from PyPI)
-uv pip install flower
-uv pip install -e ../..
+# --no-deps, because flower requires upstream celery from PyPI, which would
+# install over this package. The [flower] extra carries its other dependencies.
+uv pip install flower --no-deps
 
 # Start Flower
 PYTHONPATH=. uv run python -m celery -A celeryapp flower

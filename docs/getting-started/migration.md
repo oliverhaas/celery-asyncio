@@ -126,18 +126,21 @@ The result backend supports native async operations (`aget_task_meta()`,
 
 ## Monitoring with Flower
 
-Flower works but requires special installation since it depends on
-upstream `celery` from PyPI:
+Flower works, but has to be installed with `--no-deps`: it requires upstream
+`celery` from PyPI, which would install over the `celery` package this
+distribution provides. The `flower` extra carries Flower's other dependencies,
+so install the two together:
 
 ```bash
+pip install "celery-asyncio[flower]"
 pip install flower --no-deps
-pip install celery-asyncio[flower]
 ```
 
-Or with uv (handles the dependency conflict automatically):
+Or with uv:
 
 ```bash
 uv sync --extra flower
+uv pip install flower --no-deps
 ```
 
 Then start as usual:

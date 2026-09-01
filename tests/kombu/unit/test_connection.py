@@ -263,3 +263,18 @@ class test_sync_context_manager:
 
         assert len(loops) == 4
         assert len(set(map(id, loops))) == 1
+
+    async def test_works_from_inside_a_running_loop(self):
+        # Flower's tornado handlers call `with capp.connection()` from inside
+        # their own loop, where there is no dunder to await instead.
+        conn = Connection("memory://")
+        loops = []
+        self._recording(conn, loops)
+        caller_loop = asyncio.get_running_loop()
+
+        with conn:
+            assert conn.is_connected
+
+        assert not conn.is_connected
+        assert loops[0] is loops[1]
+        assert loops[0] is not caller_loop

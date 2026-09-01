@@ -96,3 +96,34 @@ class test_LoopRunner:
 class test_default_loop_runner:
     def test_one_runner_for_the_process(self):
         assert default_loop_runner() is default_loop_runner()
+
+
+class test_run_from_any_thread:
+    def test_returns_the_result(self):
+        runner = LoopRunner(name="test-loop")
+        try:
+
+            async def work():
+                return 42
+
+            assert runner.run_from_any_thread(work()) == 42
+        finally:
+            runner.stop()
+
+    async def test_runs_where_run_would_refuse(self):
+        # run() sends callers with an async form to await back to it; this one
+        # is for callers that have no such choice.
+        runner = LoopRunner(name="test-loop")
+        try:
+
+            async def work():
+                return asyncio.get_running_loop()
+
+            with pytest.raises(RuntimeError, match="Cannot block on the background loop"):
+                runner.run(work())
+
+            where = runner.run_from_any_thread(work())
+            assert where is runner.loop
+            assert where is not asyncio.get_running_loop()
+        finally:
+            runner.stop()

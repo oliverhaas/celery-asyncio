@@ -42,6 +42,10 @@ PYTHONPATH=. uv run python load.py 1000 --fast  # 1000 fast async tasks
 ## Flower dashboard
 
 ```bash
+# --no-deps, because flower requires upstream celery from PyPI, which would
+# install over this package. The [flower] extra carries its other dependencies.
+uv pip install flower --no-deps
+
 PYTHONPATH=. uv run python -m celery -A celeryapp flower
 ```
 

@@ -75,14 +75,11 @@ django = ["Django>=6.0"]
 # Scheduling
 solar = ["ephem"]
 
-# Monitoring
-flower = [
-  "flower>=2.0",
-  "tornado>=5,<7",
-  "prometheus-client>=0.8",
-  "humanize",
-  "pytz",
-]
+# Monitoring. Flower's own dependencies, minus flower itself: flower requires
+# upstream "celery" from PyPI, which installs over the celery package this
+# distribution provides. Install flower alongside this extra with --no-deps:
+#   pip install "celery-asyncio[flower]" && pip install flower --no-deps
+flower = ["tornado>=5,<7", "prometheus-client>=0.8", "humanize", "pytz"]
 
 # Compression
 brotli = ["brotli>=1.0.0"]
@@ -129,11 +126,6 @@ packages = ["celery", "kombu"]
 
 [tool.hatch.build.targets.sdist]
 include = ["/celery", "/kombu", "/tests", "/LICENSE", "/README.md"]
-
-[tool.uv]
-# flower depends on "celery" (PyPI), but celery-asyncio provides the celery
-# Python module. This override prevents uv from pulling in upstream celery.
-override-dependencies = ["celery ; python_version < '0'"]
 
 [tool.ruff]
 line-length = 120

@@ -68,7 +68,12 @@ class LoopRunner:
                 loop.close()
 
     def run(self, coro: Coroutine[Any, Any, _R]) -> _R:
-        """Run `coro` on the background loop, blocking until it returns."""
+        """Run `coro` on the background loop, blocking until it returns.
+
+        Refuses to run from inside a running loop, where the caller has an
+        async form to await instead. Callers with no such choice — a sync
+        dunder invoked by third-party code — use `run_from_any_thread`.
+        """
 
         if current_loop() is not None:
             coro.close()
@@ -77,6 +82,17 @@ class LoopRunner:
                 "Await the async form instead, for example asend_task() rather than send_task(), "
                 "or adelay()/aapply_async() rather than delay()/apply_async()."
             )
+
+        return self.run_from_any_thread(coro)
+
+    def run_from_any_thread(self, coro: Coroutine[Any, Any, _R]) -> _R:
+        """Run `coro` on the background loop, blocking the caller either way.
+
+        The background loop runs in its own thread, so blocking a caller that
+        has a loop of its own stalls that loop but cannot deadlock. For a sync
+        API reached from async code there is nothing else to do, so this is
+        what `Connection.__enter__` and friends use.
+        """
 
         loop = self.loop
         # Copied rather than inherited: the coroutine runs on another thread,

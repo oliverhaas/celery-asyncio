@@ -72,8 +72,13 @@ slow_add.delay(10, 20)
 
 ## 6. Monitor with Flower (optional)
 
+Flower requires upstream `celery` from PyPI, which would install over this
+package, so install it with `--no-deps` and take its other dependencies from
+the `flower` extra:
+
 ```console
-pip install flower
+pip install "celery-asyncio[flower]"
+pip install flower --no-deps
 celery -A celeryapp flower
 ```
 
