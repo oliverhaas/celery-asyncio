@@ -16,7 +16,6 @@ Example:
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from .exceptions import ChannelError, ConnectionError
 from .log import get_logger
 from .transport.base import Transport as BaseTransport  # noqa: TC001
 from .utils.eventloop import default_loop_runner
@@ -367,15 +366,30 @@ class Connection:
     # Connection error tuples
 
     @property
+    def _transport_cls(self) -> type[BaseTransport]:
+        """The transport class for this connection's URL.
+
+        The error tuples below are class attributes, so they can be read
+        before anything is connected -- and they have to be. A caller asking
+        which errors are recoverable is usually about to connect for the first
+        time, or has just been disconnected (:meth:`close` drops
+        ``_transport``); answering with a generic default in either case sends
+        transport-specific connection errors, such as aiormq's
+        ``AMQPConnectionError``, straight past the handler that was meant to
+        retry them.
+        """
+        if self._transport is not None:
+            return type(self._transport)
+        return _get_transport_class(self._scheme)
+
+    @property
     def connection_errors(self) -> tuple[type[Exception], ...]:
         """Tuple of connection exceptions.
 
         These are exceptions that indicate the connection was lost
         and the operation should be retried.
         """
-        if self._transport is not None:
-            return self._transport.connection_errors
-        return (ConnectionError, ConnectionRefusedError, TimeoutError)
+        return self._transport_cls.connection_errors
 
     @property
     def channel_errors(self) -> tuple[type[Exception], ...]:
@@ -384,9 +398,7 @@ class Connection:
         These are exceptions that indicate the channel is broken
         but the connection itself may be fine.
         """
-        if self._transport is not None:
-            return self._transport.channel_errors
-        return (ChannelError,)
+        return self._transport_cls.channel_errors
 
     @property
     def resource_locked_errors(self) -> tuple[type[Exception], ...]:
@@ -395,9 +407,7 @@ class Connection:
         A subset of :attr:`channel_errors`; empty for transports that have no
         notion of exclusive ownership.
         """
-        if self._transport is not None:
-            return self._transport.resource_locked_errors
-        return ()
+        return self._transport_cls.resource_locked_errors
 
     def as_uri(self, include_password: bool = False) -> str:
         """Return the connection URI, with password masked by default.

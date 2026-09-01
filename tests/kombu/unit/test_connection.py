@@ -170,6 +170,19 @@ class test_Connection:
         assert isinstance(errors, tuple)
         assert all(issubclass(e, Exception) for e in errors)
 
+    def test_error_tuples_are_the_transports_before_connecting(self):
+        # Whoever asks which errors are recoverable is usually about to
+        # connect for the first time, or has just been disconnected -- so a
+        # generic default here sent transport-specific connection errors past
+        # the very handler that was meant to retry them.
+        from kombu.transport.valkey_redis import Transport
+
+        conn = Connection("redis://localhost:6379")
+        assert conn.transport is None
+        assert conn.connection_errors == Transport.connection_errors
+        assert conn.channel_errors == Transport.channel_errors
+        assert conn.resource_locked_errors == Transport.resource_locked_errors
+
     def test_as_uri(self):
         conn = Connection("redis://user:secret@localhost:6379/0")
         uri = conn.as_uri()
