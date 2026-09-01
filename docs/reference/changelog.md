@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- `self.request` inside a sync task body was blank -- no `id`, no `retries`,
+  and `called_directly` still true. The worker runs sync task bodies in a
+  thread through `sync_to_async`, and the request stack was a
+  `threading.local`, so nothing the trace pushed was visible there. Most
+  visibly this made `self.retry()` take its "called directly" branch and
+  re-raise without ever publishing the retry, so a retried task hung in the
+  `RETRY` state forever. The stack is now backed by a `ContextVar`, which
+  `sync_to_async` carries into the thread
 - `with Connection(...)` opened the connection on a throwaway event loop and
   closed it on another, so leaving the block raised `RuntimeError: Event loop
   is closed`. The sync context manager, `Control.purge()`, `Control.broadcast()`

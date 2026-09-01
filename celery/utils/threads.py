@@ -9,6 +9,7 @@ import threading
 import traceback
 import types
 from contextlib import contextmanager
+from contextvars import ContextVar
 from threading import TIMEOUT_MAX as THREAD_TIMEOUT_MAX
 from threading import get_ident
 
@@ -297,21 +298,52 @@ class LocalManager:
         return f"<{self.__class__.__name__} storages: {len(self.locals)}>"
 
 
-class LocalStack(threading.local):
-    """Thread-local stack."""
+class LocalStack:
+    """Stack scoped to the current context.
+
+    Backed by a :class:`~contextvars.ContextVar` rather than
+    :class:`threading.local`. The async worker runs sync task bodies in a
+    worker thread through ``asgiref.sync_to_async``, which copies the calling
+    context into that thread but of course not its thread locals. A
+    thread-local stack is therefore empty inside the task body, so
+    ``self.request`` there was a blank :class:`~celery.app.task.Context` --
+    no ``id``, no ``retries``, and ``called_directly`` still true, which turned
+    every ``self.retry()`` into a silent no-op. A thread still gets a stack of
+    its own unless Python hands it a copy of its parent's context, which
+    free-threaded builds do by default (``sys.flags.thread_inherit_context``)
+    -- and a copy is what the thread-local could never give it.
+
+    The stack is held as a tuple and replaced on each push and pop rather than
+    mutated: a copied context shares the object the variable holds, so a
+    mutable stack would be one stack shared by every concurrent task in the
+    loop.
+    """
 
     def __init__(self):
-        self.stack = []
-        self.push = self.stack.append
-        self.pop = self.stack.pop
-        super().__init__()
+        self._stack = ContextVar(f"{__name__}.LocalStack", default=())
+
+    def push(self, obj):
+        """Push a new item onto the stack."""
+        self._stack.set((*self._stack.get(), obj))
+
+    def pop(self):
+        """Remove and return the topmost item, or :const:`None` if empty."""
+        stack = self._stack.get()
+        if not stack:
+            return None
+        self._stack.set(stack[:-1])
+        return stack[-1]
+
+    @property
+    def stack(self):
+        # get_current_worker_task uses this to find the original task that was
+        # executed by the worker.
+        return list(self._stack.get())
 
     @property
     def top(self):
-        try:
-            return self.stack[-1]
-        except (AttributeError, IndexError):  # fmt: skip
-            return None
+        stack = self._stack.get()
+        return stack[-1] if stack else None
 
     def __len__(self):
-        return len(self.stack)
+        return len(self._stack.get())

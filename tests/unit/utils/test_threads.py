@@ -1,6 +1,9 @@
+import contextvars
+import threading
 from unittest.mock import patch
 
 import pytest
+from asgiref.sync import sync_to_async
 
 from celery.utils.threads import Local, LocalManager, LocalStack, bgThread
 from tests.unit import conftest
@@ -52,6 +55,38 @@ class test_LocalStack:
         assert x.top == ["foo"]
         x.pop()
         assert x.top is None
+
+    def test_pop_empty(self):
+        assert LocalStack().pop() is None
+
+    def test_isolated_in_a_fresh_context(self):
+        # Whether a new thread starts from an empty context or a copy of its
+        # parent's is Python's call, not this class's: free-threaded builds
+        # default sys.flags.thread_inherit_context to 1 and the rest to 0. What
+        # the stack has to guarantee is that an empty context is an empty
+        # stack, and that a thread pushing onto its own copy cannot be seen by
+        # the thread that spawned it.
+        x = LocalStack()
+        x.push("main")
+        seen = []
+
+        def run():
+            seen.append(x.top)
+            x.push("thread")
+
+        thread = threading.Thread(target=run, context=contextvars.Context())
+        thread.start()
+        thread.join()
+        assert seen == [None]
+        assert x.top == "main"
+
+    async def test_visible_from_sync_to_async(self):
+        # The async worker runs sync task bodies in a thread through
+        # sync_to_async, which copies the context but not thread locals. The
+        # body has to see the request the trace pushed for it.
+        x = LocalStack()
+        x.push("request")
+        assert await sync_to_async(lambda: x.top, thread_sensitive=False)() == "request"
 
 
 class test_LocalManager:
