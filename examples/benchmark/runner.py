@@ -208,7 +208,7 @@ def main() -> None:
         "--stall-seconds",
         type=float,
         default=15.0,
-        help="if n_done has not advanced for this long AND >=99%% complete, declare done (kombu-asyncio leaks ~0.2%% of tasks).",
+        help="if n_done has not advanced for this long AND >=99%% complete, declare done (kombu leaks ~0.2%% of tasks).",
     )
     ap.add_argument("--queue", default="bench")
     ap.add_argument(
@@ -361,7 +361,7 @@ def main() -> None:
         t_publish_end = time.monotonic()
 
         # Poll for completion. ready() is a redis GET — cheap.
-        # Some kombu-asyncio versions strand a small fraction of tasks in the
+        # Some kombu versions strand a small fraction of tasks in the
         # broker (queue-index has them, consumer never picks them up). If
         # progress stalls near 100%, declare done and record the leak.
         deadline = time.monotonic() + args.run_timeout

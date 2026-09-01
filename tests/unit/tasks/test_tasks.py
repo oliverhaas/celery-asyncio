@@ -359,7 +359,7 @@ class TasksCase:
         self.task_replaced_by_other_task = task_replaced_by_other_task
         self.task_replaced_by_other_task_with_autoretry = task_replaced_by_other_task_with_autoretry
 
-        # kombu-asyncio: Channel no longer has class-level queues
+        # kombu: Channel no longer has class-level queues
 
 
 class MyCustomException(Exception):

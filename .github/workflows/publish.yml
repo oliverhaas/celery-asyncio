@@ -10,9 +10,6 @@ on:
         description: "Version to publish (e.g., 6.0.0a2)"
         required: true
 
-env:
-  UV_NO_SOURCES: "1"
-
 jobs:
   test:
     runs-on: ubuntu-latest

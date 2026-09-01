@@ -1,4 +1,4 @@
-"""Mock transport for testing kombu-asyncio.
+"""Mock transport for testing kombu.
 
 Provides async MockChannel and MockTransport that implement
 the base ABC from kombu.transport.base, useful for unit testing

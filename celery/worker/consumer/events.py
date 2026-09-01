@@ -46,7 +46,7 @@ class Events(bootsteps.StartStopStep):
             # remember changes from remote control commands:
             self.groups = dispatcher.groups
 
-            # close custom connection (async in kombu-asyncio)
+            # close custom connection (async in kombu)
             if dispatcher.connection:
                 try:
                     loop = asyncio.get_event_loop()

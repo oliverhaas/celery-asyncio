@@ -583,7 +583,7 @@ class Transport(BaseTransport):
     ) -> None:
         if aio_pika is None:
             raise ImportError(
-                "aio-pika package is required for AMQP transport. Install it with: pip install 'kombu-asyncio[amqp]'",
+                "aio-pika package is required for AMQP transport. Install it with: pip install 'celery-asyncio[amqp]'",
             )
         super().__init__(url, **options)
         self._connection: aio_pika.abc.AbstractConnection | None = None

@@ -99,5 +99,5 @@ app.config_from_object({
 The AMQP transport uses [aio-pika](https://github.com/mosquito/aio-pika) under the hood. Install it with:
 
 ```console
-uv add aio-pika
+uv add "celery-asyncio[amqp]"
 ```

@@ -60,7 +60,8 @@ yaml = ["PyYAML>=3.10"]
 # Transports and Backends
 valkey = ["valkey>=6.1.0"]
 redis = ["redis>=7.1.0"]
-amqp = ["aio-pika>=9.0.0"]
+# 9.5 is the floor CI runs against; nothing verifies the 9.0-9.4 aiormq/pamqp line.
+amqp = ["aio-pika>=9.5.0"]
 # Optimized C parsers
 hiredis = ["redis[hiredis]>=7.1.0"]
 libvalkey = ["valkey[libvalkey]>=6.1.0"]
@@ -81,9 +82,8 @@ solar = ["ephem"]
 #   pip install "celery-asyncio[flower]" && pip install flower --no-deps
 flower = ["tornado>=5,<7", "prometheus-client>=0.8", "humanize", "pytz"]
 
-# Compression
+# Compression. zstd needs no extra: PEP 784 put it in the stdlib as of 3.14.
 brotli = ["brotli>=1.0.0"]
-zstd = ["zstandard>=0.22.0"]
 
 [dependency-groups]
 dev = [
@@ -136,53 +136,53 @@ extend-exclude = ["*.md"]
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-  "A001",
-  "A002",
-  "A004",
-  "ANN",
-  "ARG002",
-  "ASYNC109",
-  "BLE001",
-  "C901",
-  "COM812",
-  "CPY001",
-  "D",
-  "E501",
-  "EM",
-  "FBT",
-  "FIX002",
-  "N801",
-  "N802",
-  "N803",
-  "N806",
-  "N812",
-  "N818",
-  "PERF203",
-  "PLC0415",
-  "PLR0912",
-  "PLR0913",
-  "PLR0917",
-  "PLR1704",
-  "PLR2004",
-  "PLW0603",
-  "PLW1641",
-  "PLW2901",
-  "PYI024",
-  "PYI034",
-  "PYI036",
-  "RUF005",
-  "RUF012",
-  "RUF059",
-  "S110",
-  "SIM105",
-  "SIM108",
-  "SIM212",
-  "SLF001",
-  "TC003",
-  "TD002",
-  "TD003",
-  "TRY003",
-  "TRY300",
+  "A001",     # Variable shadows a builtin — celery uses type, format, id
+  "A002",     # Argument shadows a builtin — same, in public signatures
+  "A004",     # Import shadows a builtin
+  "ANN",      # Type annotations — nearly all hits inherited from upstream Celery. mypy gates the package instead.
+  "ARG002",   # Unused method argument — signal handlers, overrides, API compat
+  "ASYNC109", # timeout param is task TTL, not asyncio.timeout
+  "BLE001",   # Blind except: needed for task error handling
+  "C901",     # Complex structure: some task functions are inherently complex
+  "COM812",   # Conflicts with ruff-format
+  "CPY001",   # Copyright notice per file. The LICENSE file covers the package.
+  "D",        # Docstrings — nearly all hits inherited from upstream Celery
+  "E501",     # Line length handled by config
+  "EM",       # Exception strings inline are fine
+  "FBT",      # Boolean params match task APIs (ignore_result, bind, etc.)
+  "FIX002",   # TODO comments — inherited from upstream Celery
+  "N801",     # Class naming: celery has its own patterns, e.g. test_Thing
+  "N802",     # Function naming: celery has its own patterns
+  "N803",     # Argument naming: celery has its own patterns
+  "N806",     # Variable naming: celery has its own patterns
+  "N812",     # Import alias casing: celery has its own patterns
+  "N818",     # Exception names without an Error suffix, as upstream named them
+  "PERF203",  # try/except inside a loop — the broker retry loops need it
+  "PLC0415",  # Dynamic imports for optional dependencies
+  "PLR0912",  # Too many branches: complex task routing logic
+  "PLR0913",  # Too many args — task APIs need many options
+  "PLR0917",  # Too many positional args, same reason as PLR0913 above
+  "PLR1704",  # Redefining argument from local — context manager patterns
+  "PLR2004",  # Magic values — task-specific constants
+  "PLW0603",  # Global statement: needed for module-level state
+  "PLW1641",  # eq without hash
+  "PLW2901",  # Redefining loop variable
+  "PYI024",   # collections.namedtuple: existing patterns
+  "PYI034",   # Non-self return type: __aenter__ patterns
+  "PYI036",   # Bad exit annotation: __aexit__ patterns
+  "RUF005",   # Tuple concatenation is clearer
+  "RUF012",   # Mutable class defaults: intentional for celery state
+  "RUF059",   # Unused unpacked variable
+  "S110",     # try/except/pass — best-effort cleanup that must not mask the real error
+  "SIM105",   # contextlib.suppress — the explicit try/except reads better here
+  "SIM108",   # Ternary instead of if/else — style preference
+  "SIM212",   # Operand order in a ternary — style preference
+  "SLF001",   # Private member access needed for internals
+  "TC003",    # Typing-only stdlib import — style preference
+  "TD002",    # TODO without an author — inherited from upstream Celery
+  "TD003",    # TODO without an issue link — inherited from upstream Celery
+  "TRY003",   # Long messages outside the exception class
+  "TRY300",   # return in try rather than else
 ]
 
 [tool.ruff.lint.flake8-annotations]
@@ -731,8 +731,6 @@ markers = [
   "flaky",
   "timeout",
   "amqp",
-  "unit: marks tests as unit tests",
-  "integration: marks tests as integration tests",
 ]
 
 [tool.coverage.run]

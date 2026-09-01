@@ -177,7 +177,7 @@ class EventDispatcher:
                 headers=self.headers,
                 delivery_mode=self.delivery_mode,
             )
-            # producer.publish() is async in kombu-asyncio.
+            # producer.publish() is async in kombu.
             # Always schedule on the main consumer loop (_event_loop)
             # because the producer's connection/channel is tied to that loop.
             if asyncio.iscoroutine(coro):

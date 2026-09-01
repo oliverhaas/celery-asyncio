@@ -13,9 +13,6 @@ permissions:
   pages: write
   id-token: write
 
-env:
-  UV_NO_SOURCES: "1"
-
 jobs:
   deploy:
     runs-on: ubuntu-latest

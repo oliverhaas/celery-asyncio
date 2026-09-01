@@ -733,7 +733,7 @@ class AMQP:
     def _create_async_task_sender(self):
         """Create async version of send_task_message for native asyncio.
 
-        This creates a coroutine function that uses kombu-asyncio's native
+        This creates a coroutine function that uses kombu's native
         async Producer.publish() instead of wrapping sync calls.
         """
         amqp = self
@@ -809,7 +809,7 @@ class AMQP:
                 exchange = queue.exchange.name or default_exchange
                 routing_key = routing_key or queue.routing_key or default_rkey
 
-            # Handle declare - in kombu-asyncio, we need to declare queues explicitly
+            # Handle declare - in kombu, we need to declare queues explicitly
             if declare:
                 channel = await producer._ensure_channel()
                 for entity in declare:

@@ -21,7 +21,7 @@ from typing import cast
 __version__ = "6.0.0a5"
 __author__ = "Oliver Haas"
 __contact__ = "ohaas@e1plus.de"
-__homepage__ = "https://github.com/oliverhaas/kombu-asyncio"
+__homepage__ = "https://oliverhaas.github.io/celery-asyncio/"
 __docformat__ = "restructuredtext en"
 
 # Version info

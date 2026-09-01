@@ -24,6 +24,15 @@
   --no-deps`
 - Dropped the `[tool.uv] override-dependencies` entry that neutralised
   upstream `celery`; nothing in the project pulls it in any more
+- Raised the `amqp` extra's floor to `aio-pika>=9.5.0`, the line CI runs against
+- Restored the per-rule reasons on the ruff `ignore` list, lost in the merge
+
+### Removed
+
+- The `zstd` extra. PEP 784 put zstd in the stdlib as of 3.14, this package's
+  floor, so `zstandard` was already unused
+- The unused `unit` and `integration` pytest markers, and the vestigial
+  `UV_NO_SOURCES` from the workflows: there is no `[tool.uv.sources]` table
 - Merged the `kombu-asyncio` package into this repository; `kombu` now ships as
   a top-level package of `celery-asyncio` instead of a separate install
 - Requirements no longer list `kombu-asyncio` as a dependency

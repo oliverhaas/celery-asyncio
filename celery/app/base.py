@@ -26,17 +26,17 @@ from kombu.common import oid_from
 
 
 # Note: RabbitMQ-style native delayed delivery (quorum queue exchange routing)
-# is not available in kombu-asyncio. Redis native delayed delivery uses a
+# is not available in kombu. Redis native delayed delivery uses a
 # different mechanism (sorted set scores) handled by the transport directly.
 def calculate_routing_key(countdown, routing_key):
     """Stub for RabbitMQ native delayed delivery routing key calculation.
 
-    This is a RabbitMQ/quorum-queue specific feature not available in kombu-asyncio.
+    This is a RabbitMQ/quorum-queue specific feature not available in kombu.
     Redis native delayed delivery uses sorted set scores instead.
     """
     raise NotImplementedError(
         "RabbitMQ native_delayed_delivery (quorum queues) is not available "
-        "in kombu-asyncio. Redis native delayed delivery is handled by the "
+        "in kombu. Redis native delayed delivery is handled by the "
         "transport via properties.eta."
     )
 
@@ -1113,7 +1113,7 @@ class Celery:
     async def _asend_task_message(self, name, message, task_id, ignore_result, connection=None, **options):
         """Send the prepared task message to the broker using native asyncio.
 
-        This is the native async implementation that uses kombu-asyncio's
+        This is the native async implementation that uses kombu's
         async Producer.publish() directly.
 
         Arguments:
@@ -1280,7 +1280,7 @@ class Celery:
         Send task by name using native asyncio.
 
         This method shares message preparation logic with :meth:`send_task`,
-        but uses native kombu-asyncio async methods for I/O operations.
+        but uses native kombu async methods for I/O operations.
 
         Arguments and return value are the same as :meth:`send_task`.
         """
@@ -1423,7 +1423,7 @@ class Celery:
     ):
         """Create a connection to the broker.
 
-        In kombu-asyncio, most parameters are embedded in the URL.
+        In kombu, most parameters are embedded in the URL.
         Only hostname (URL) and transport_options are used.
         """
         conf = self.conf

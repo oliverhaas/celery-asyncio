@@ -51,7 +51,7 @@ class EventReceiver(ConsumerMixin):
         queue_durable=None,
     ):
         self.app = app_or_default(app or self.app)
-        # In kombu-asyncio, channel is typically a Connection object.
+        # In kombu, channel is typically a Connection object.
         # Store it directly so ConsumerMixin.create_connection() can clone it.
         if isinstance(channel, Connection):
             self._connection = channel

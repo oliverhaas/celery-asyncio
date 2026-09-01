@@ -1,4 +1,4 @@
-"""Pytest configuration for kombu-asyncio unit tests."""
+"""Pytest configuration for kombu unit tests."""
 
 import pytest
 
