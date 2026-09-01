@@ -376,13 +376,16 @@ class test_add_to_chord:
 
 
 class test_apply_tasks_ordering(ChordCase):
-    """Verify set_chord_size is written before any header task is dispatched.
+    """Verify set_chord_size is written before the last header task is dispatched.
 
-    A producer crash between dispatch and set_chord_size would otherwise leave
-    early completers with chord_size_bytes=None and the chord stalled.
+    The header may be a generator that has to be published as it is consumed
+    (#3021), so the size cannot be known before the first dispatch. Writing it
+    before the last one is what matters: every part return after that point
+    sees the size, and the last one always does, so the completion check
+    cannot be skipped by the whole header finishing early.
     """
 
-    def test_set_chord_size_called_before_first_apply_async(self):
+    def test_set_chord_size_called_before_last_apply_async(self):
         from celery import chord
 
         body = self.add.signature((0, 0))
@@ -398,10 +401,29 @@ class test_apply_tasks_ordering(ChordCase):
             mock_apply.side_effect = lambda *a, **kw: call_order.append("apply_async")
             chord_sig.apply_async()
 
-        # set_chord_size must come first; apply_async called once per header member.
-        assert call_order[0] == "set_chord_size"
         assert call_order.count("set_chord_size") == 1
         assert call_order.count("apply_async") == len(header)
+        assert call_order[-2:] == ["set_chord_size", "apply_async"]
+
+    def test_generator_group_is_published_as_it_is_consumed(self):
+        from celery import group
+
+        events = []
+
+        def members():
+            for i in range(6):
+                events.append(f"yield {i}")
+                yield self.add.signature((i, i))
+
+        with patch("celery.canvas.Signature.apply_async") as mock_apply:
+            mock_apply.side_effect = lambda *a, **kw: events.append("apply_async")
+            group(members()).apply_async()
+
+        # Members are published while the generator is still being consumed,
+        # not after it runs out (#3021). How far ahead the regen layers read is
+        # an implementation detail, so this only pins the ordering property.
+        assert "apply_async" in events[: events.index("yield 5")]
+        assert events.count("apply_async") == 6
 
 
 @pytest.mark.skip(reason="Canvas sync path uses producer_or_acquire; needs async refactor")

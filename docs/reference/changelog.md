@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- A chord header built from a generator was unrolled completely before any of
+  its tasks were published, so the header could not be produced incrementally
+  (upstream #3021). `_apply_tasks` had materialised the header to write
+  `set_chord_size` before the first dispatch; it now looks one task ahead and
+  writes the size before the last dispatch instead, which closes the same race
+  -- the final part return always sees the size -- without draining the
+  generator
 - `self.request` inside a sync task body was blank -- no `id`, no `retries`,
   and `called_directly` still true. The worker runs sync task bodies in a
   thread through `sync_to_async`, and the request stack was a

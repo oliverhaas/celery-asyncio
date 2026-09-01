@@ -2180,26 +2180,27 @@ class group(Signature):
         """
         app = app or self.app
         with app.producer_or_acquire(producer) as producer:
-            # Materialize the task list so we can compute chord_size and
-            # write set_chord_size *before* publishing any header tasks.
-            # Otherwise a fast worker could complete every dispatched task,
-            # see chord_size missing in `on_chord_part_return`, and silently
-            # skip the completion check — leaving the chord stalled forever.
-            task_list = list(tasks)
+            # Walk `tasks` one step ahead of the publishing loop. `tasks` may be
+            # a generator whose header tasks are meant to be published as it is
+            # consumed rather than after (#3021), so the size cannot be counted
+            # up front -- but it has to be written before the last header task
+            # is published, or a worker that completes the whole header first
+            # would find no chord_size in `on_chord_part_return`, skip the
+            # completion check, and leave the chord stalled with no later event
+            # to retrigger it.
             chord_size = 0
-            chord_obj_seen = None
-            chord_group_id = None
-            for sig, _res, group_id in task_list:
-                chord_size += _chord._descend(sig)
-                current_chord = chord if chord is not None else sig.options.get("chord")
-                if current_chord is not None:
-                    chord_obj_seen = current_chord
-                    chord_group_id = group_id
-            if chord_obj_seen is not None:
-                app.backend.set_chord_size(chord_group_id, chord_size)
+            tasks_shifted, tasks = itertools.tee(tasks)
+            next(tasks_shifted, None)
+            next_task = next(tasks_shifted, None)
 
-            for sig, res, group_id in task_list:
+            for sig, res, group_id in tasks:
+                # Every task is expected to belong to the same group; if one did
+                # not, the chord counts would be wrong in ways with no good
+                # recovery, so this trusts the caller.
                 chord_obj = chord if chord is not None else sig.options.get("chord")
+                chord_size += _chord._descend(sig)
+                if chord_obj is not None and next_task is None:
+                    app.backend.set_chord_size(group_id, chord_size)
                 sig.apply_async(
                     producer=producer, add_to_parent=False, chord=chord_obj, args=args, kwargs=kwargs, **options
                 )
@@ -2213,6 +2214,7 @@ class group(Signature):
                     p.size += 1
                     res.then(p, weak=True)
                 yield res  # <-- r.parent, etc set in the frozen result.
+                next_task = next(tasks_shifted, None)
 
     async def _aapply_tasks(
         self,
@@ -2235,30 +2237,25 @@ class group(Signature):
         results = []
 
         # In native async mode, aapply_async handles its own connection/producer
-        # via app.asend_task -> app._asend_task_message
-        # Materialize first so set_chord_size lands before any header task is
-        # published — see _apply_tasks for the race this avoids.
-        task_list = list(tasks)
+        # via app.asend_task -> app._asend_task_message. The one-step lookahead
+        # is the same as in _apply_tasks -- see the comment there.
         chord_size = 0
-        chord_obj_seen = None
-        chord_group_id = None
-        for sig, _res, group_id in task_list:
-            chord_size += _chord._descend(sig)
-            current_chord = chord if chord is not None else sig.options.get("chord")
-            if current_chord is not None:
-                chord_obj_seen = current_chord
-                chord_group_id = group_id
-        if chord_obj_seen is not None:
-            await app.backend.aset_chord_size(chord_group_id, chord_size)
+        tasks_shifted, tasks = itertools.tee(tasks)
+        next(tasks_shifted, None)
+        next_task = next(tasks_shifted, None)
 
-        for sig, res, group_id in task_list:
+        for sig, res, group_id in tasks:
             chord_obj = chord if chord is not None else sig.options.get("chord")
+            chord_size += _chord._descend(sig)
+            if chord_obj is not None and next_task is None:
+                await app.backend.aset_chord_size(group_id, chord_size)
             await sig.aapply_async(add_to_parent=False, chord=chord_obj, args=args, kwargs=kwargs, **options)
 
             if p and not p.cancelled and not p.ready:
                 p.size += 1
                 res.then(p, weak=True)
             results.append(res)
+            next_task = next(tasks_shifted, None)
 
         return results
 
