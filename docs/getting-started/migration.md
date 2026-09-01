@@ -16,10 +16,10 @@ and concurrency model are completely different from upstream Celery.
 |------|----------------|----------------|
 | Python | 3.8+ | 3.14+ only |
 | Concurrency | prefork, eventlet, gevent, threads | asyncio + threads |
-| Messaging | kombu (sync) | kombu-asyncio (pure async) |
+| Messaging | kombu (sync) | kombu (asyncio, bundled) |
 | Transport | AMQP, Redis, SQS, ... | Valkey/Redis, AMQP, Memory, Filesystem |
 | Result backend | Redis, DB, memcached, ... | Valkey/Redis, Filesystem |
-| Dependencies | billiard, vine, kombu | kombu-asyncio, asgiref |
+| Dependencies | billiard, vine, kombu | asgiref (kombu bundled) |
 | Task types | sync only (async via eventlet/gevent) | native `async def` + sync |
 
 ## Installation

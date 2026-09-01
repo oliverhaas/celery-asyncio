@@ -1,0 +1,100 @@
+# Originally from Kombu by Ask Solem & contributors (BSD-3-Clause)
+# https://github.com/celery/kombu
+"""Compression utilities."""
+
+import bz2
+import lzma
+import zlib
+from collections.abc import Callable
+from compression import zstd
+
+from kombu.utils.encoding import ensure_bytes
+
+_aliases: dict[str, str] = {}
+_encoders: dict[str, Callable] = {}
+_decoders: dict[str, Callable] = {}
+
+__all__ = (
+    "compress",
+    "decompress",
+    "encoders",
+    "get_decoder",
+    "get_encoder",
+    "register",
+)
+
+
+def register(encoder, decoder, content_type, aliases=None):
+    """Register new compression method.
+
+    Arguments:
+    ---------
+        encoder (Callable): Function used to compress text.
+        decoder (Callable): Function used to decompress previously
+            compressed text.
+        content_type (str): The mime type this compression method
+            identifies as.
+        aliases (Sequence[str]): A list of names to associate with
+            this compression method.
+    """
+    _encoders[content_type] = encoder
+    _decoders[content_type] = decoder
+    if aliases:
+        _aliases.update((alias, content_type) for alias in aliases)
+
+
+def encoders():
+    """Return a list of available compression methods."""
+    return list(_encoders)
+
+
+def get_encoder(t):
+    """Get encoder by alias name."""
+    t = _aliases.get(t, t)
+    return _encoders[t], t
+
+
+def get_decoder(t):
+    """Get decoder by alias name."""
+    return _decoders[_aliases.get(t, t)]
+
+
+def compress(body, content_type):
+    """Compress text.
+
+    Arguments:
+    ---------
+        body (AnyStr): The text to compress.
+        content_type (str): mime-type of compression method to use.
+    """
+    encoder, content_type = get_encoder(content_type)
+    return encoder(ensure_bytes(body)), content_type
+
+
+def decompress(body, content_type):
+    """Decompress compressed text.
+
+    Arguments:
+    ---------
+        body (AnyStr): Previously compressed text to uncompress.
+        content_type (str): mime-type of compression method used.
+    """
+    return get_decoder(content_type)(body)
+
+
+register(zlib.compress, zlib.decompress, "application/x-gzip", aliases=["gzip", "zlib"])
+
+register(bz2.compress, bz2.decompress, "application/x-bz2", aliases=["bzip2", "bzip"])
+
+try:
+    import brotli
+except ImportError:  # pragma: no cover
+    pass
+else:
+    register(brotli.compress, brotli.decompress, "application/x-brotli", aliases=["brotli"])
+
+register(lzma.compress, lzma.decompress, "application/x-lzma", aliases=["lzma", "xz"])
+
+# PEP 784 put zstd in the stdlib as of 3.14, which is this package's floor, so
+# the third-party `zstandard` binding is neither needed nor declared any more.
+register(zstd.compress, zstd.decompress, "application/zstd", aliases=["zstd", "zstandard"])

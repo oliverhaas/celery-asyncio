@@ -25,7 +25,7 @@ jobs:
         run: uv sync --group dev
 
       - name: Run ruff check
-        run: uv run ruff check
+        run: uv run ruff check --no-fix
 
       - name: Run ruff format check
         run: uv run ruff format --check
@@ -45,13 +45,13 @@ jobs:
         run: uv sync --group dev
 
       - name: Run mypy
-        run: uv run mypy celery/
+        run: uv run mypy celery/ kombu/
 
       # ty is pre-1.0 and still reports several hundred findings against the
-      # modules inherited from upstream Celery, so it only gates the modules
-      # written from scratch for this fork.
+      # modules inherited from upstream Celery, so for celery/ it only gates
+      # the modules written from scratch for this fork. All of kombu/ is gated.
       - name: Run ty
-        run: uv run ty check celery/concurrency/aio.py celery/utils/promises.py celery/utils/scheduling.py celery/worker/loops.py
+        run: uv run ty check kombu/ celery/concurrency/aio.py celery/utils/promises.py celery/utils/scheduling.py celery/worker/loops.py
 
   test:
     runs-on: ubuntu-latest
@@ -80,3 +80,39 @@ jobs:
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      valkey:
+        image: valkey/valkey:9-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      rabbitmq:
+        image: rabbitmq:4-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run integration tests
+        run: uv run pytest tests/kombu/integration/ -q --no-cov

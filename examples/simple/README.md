@@ -66,10 +66,10 @@ All tasks completed successfully!
 ## Flower dashboard (optional)
 
 ```bash
-# Install Flower (note: reinstall celery-asyncio + kombu-asyncio afterwards
-# because flower pulls in the upstream versions from PyPI)
+# Install Flower (note: reinstall celery-asyncio afterwards because flower
+# pulls in the upstream version from PyPI)
 uv pip install flower
-uv pip install -e ../.. && uv pip install -e ../../../kombu
+uv pip install -e ../..
 
 # Start Flower
 PYTHONPATH=. uv run python -m celery -A celeryapp flower

@@ -9,7 +9,7 @@ This project is **exploratory**. It is not affiliated with or endorsed by the Ce
 - **Native asyncio worker** with hybrid thread pool for mixed async/sync workloads
 - **`async def` tasks** run directly on the event loop, no thread overhead
 - **Sync tasks** run in a thread pool alongside async tasks in the same worker
-- **Valkey/Redis and AMQP transports** via [kombu-asyncio](https://github.com/oliverhaas/kombu-asyncio)
+- **Valkey/Redis and AMQP transports** via the bundled asyncio `kombu` package
 - **Celery Flower** works out of the box for monitoring
 - **Django 6.0 Tasks** support via [django-tasks-celery](https://github.com/oliverhaas/django-tasks-celery)
 - **Targeting Python 3.14t** free-threading for true parallelism
@@ -43,12 +43,19 @@ Full documentation at [oliverhaas.github.io/celery-asyncio](https://oliverhaas.g
 ## Requirements
 
 - Python 3.14+
-- kombu-asyncio 6.0+
 - Valkey 8+ or Redis 7+ or RabbitMQ 4+
 
 ## Attribution
 
 This project is an asyncio rewrite of [Celery](https://github.com/celery/celery) by Ask Solem, Asif Saif Uddin & contributors. Much of the utility layer (`celery/utils/`, `celery/loaders/`, `celery/bin/`), scheduling (`celery/schedules.py`, `celery/beat.py`), data structures (`celery/canvas.py`, `celery/result.py`, `celery/states.py`), and app framework (`celery/app/`) are carried over from the original with targeted modifications. The worker event loop (`celery/worker/loops.py`), asyncio pool (`celery/concurrency/aio.py`), promise system (`celery/utils/promises.py`), and timer/hub (`celery/utils/scheduling.py`) were written from scratch. Files containing substantial original Celery code are marked with a header comment.
+
+This distribution also ships the `kombu` package, an asyncio rewrite of
+[Kombu](https://github.com/celery/kombu) by Ask Solem & contributors. Its utility
+modules (`kombu/utils/`, `kombu/clocks.py`, `kombu/compression.py`, `kombu/log.py`,
+`kombu/matcher.py`, `kombu/serialization.py`, `kombu/exceptions.py`) are largely
+carried over from the original with minor modernization; the transport layer and
+core messaging/connection modules were written from scratch for asyncio. Files
+containing substantial original Kombu code are marked with a header comment.
 
 ## License
 

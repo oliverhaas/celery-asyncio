@@ -13,12 +13,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 
-# The fork ships under its own distribution names and installs editable, so
-# both spellings are probed and the source tree's git revision is recorded
-# alongside: an alpha version does not move between runs, but the commit does.
+# The fork ships under its own distribution name and installs editable, so
+# both the distribution and module names are probed and the source tree's git
+# revision is recorded alongside: an alpha version does not move between
+# runs, but the commit does. kombu ships inside the celery-asyncio
+# distribution, so it resolves via that distribution name.
 DISTRIBUTIONS = {
     "celery": ("celery-asyncio", "celery"),
-    "kombu": ("kombu-asyncio", "kombu"),
+    "kombu": ("celery-asyncio",),
     "redis": ("redis",),
     "uvloop": ("uvloop",),
 }

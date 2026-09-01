@@ -1,0 +1,124 @@
+-- Lua script for enqueuing messages whose queue_at time has passed.
+-- This handles both delayed messages (first delivery) and timed-out messages (redelivery).
+-- Uses per-message hashes: message:{tag} with fields: payload, routing_key, priority, native_delayed, eta, delivery_count
+-- For native_delayed messages: set native_delayed=0 (first delivery, not a redelivery)
+-- For timed-out messages: increment delivery_count (message was consumed but not acked).
+-- A tag that is still in the queue was never delivered, only backlogged, so it is
+-- re-dated in the index but neither counted nor dropped.
+-- If delivery_limit is set and exceeded, the message is dropped (removed from index, hash deleted).
+-- Reads routing_key from hash to add message to the correct queue.
+-- KEYS: [1] = messages_index:{queue} (per-queue index, passed with global_keyprefix applied)
+-- ARGV: [1] = threshold, [2] = batch_limit, [3] = visibility_timeout,
+--       [4] = priority_multiplier, [5] = message_key_prefix, [6] = global_keyprefix,
+--       [7] = queue_key_prefix, [8] = delivery_limit (-1 = no limit),
+--       [9] = dropped_report_limit (max dropped payloads returned)
+-- Returns: {total_enqueued, total_dropped, total_redelivered, total_orphaned, dropped_payloads}
+-- dropped_payloads holds the payloads of up to dropped_report_limit dropped
+-- messages; the DEL below is their last trace, so they go back for logging.
+
+local messages_index = KEYS[1]
+local threshold = tonumber(ARGV[1])
+local batch_limit = tonumber(ARGV[2])
+local visibility_timeout = tonumber(ARGV[3])
+local priority_multiplier = tonumber(ARGV[4])
+local message_key_prefix = ARGV[5]
+local global_keyprefix = ARGV[6]
+local queue_key_prefix = ARGV[7]
+local delivery_limit = tonumber(ARGV[8])
+local dropped_report_limit = tonumber(ARGV[9])
+local total_enqueued = 0
+local total_dropped = 0
+local total_redelivered = 0
+local total_orphaned = 0
+local dropped_payloads = {}
+
+-- Get current time in seconds and milliseconds
+local time_result = redis.call('TIME')
+local now_sec = tonumber(time_result[1])
+local now_ms = now_sec * 1000 + math.floor(tonumber(time_result[2]) / 1000)
+
+-- Get messages ready for enqueue (score <= threshold)
+local ready = redis.call('ZRANGEBYSCORE', messages_index, '-inf', threshold, 'LIMIT', 0, batch_limit)
+
+for _, tag in ipairs(ready) do
+    -- Build prefixed message key
+    local message_key = global_keyprefix .. message_key_prefix .. tag
+
+    -- Get all needed fields in a single call
+    local fields = redis.call('HMGET', message_key, 'priority', 'routing_key', 'eta', 'native_delayed', 'delivery_count')
+    local priority = fields[1]
+
+    if priority then
+        priority = tonumber(priority)
+        local routing_key = fields[2]
+        local eta = fields[3]
+        eta = eta and tonumber(eta) or 0
+        local native_delayed = fields[4]
+        local delivery_count = tonumber(fields[5] or 0)
+
+        -- Calculate queue score using eta if it's in the future, else use now
+        local score_time_ms
+        if eta > 0 and eta * 1000 > now_ms then
+            score_time_ms = eta * 1000
+        else
+            score_time_ms = now_ms
+        end
+        local queue_score = (255 - priority) * priority_multiplier + score_time_ms
+
+        -- Add to the message's queue (with global prefix and queue: prefix).
+        -- NX reports whether the tag was actually absent: it returns 1 only on a
+        -- real (re)enqueue. A tag still sitting in a backlog past its deadline was
+        -- never delivered, so it must not be counted as a redelivery.
+        local queue_key = global_keyprefix .. queue_key_prefix .. routing_key
+        local restored = redis.call('ZADD', queue_key, 'NX', queue_score, tag) == 1
+
+        -- Check if this is a native delayed message (first delivery) or a timed-out message (redelivery)
+        if native_delayed and tonumber(native_delayed) == 1 then
+            -- Native delayed message: clear the flag (this is the first delivery)
+            redis.call('HSET', message_key, 'native_delayed', '0')
+        elseif restored then
+            -- Timed-out message: count the redelivery
+            delivery_count = delivery_count + 1
+
+            -- delivery_count counts redeliveries and is 0 on the first
+            -- delivery, so a count that has reached the limit means this
+            -- restore would start attempt limit+1. '>=' makes the limit the
+            -- number of attempts, as in RabbitMQ.
+            if delivery_limit >= 0 and delivery_count >= delivery_limit then
+                -- Drop the message: remove from index, queue, and delete hash
+                if #dropped_payloads < dropped_report_limit then
+                    local dropped_payload = redis.call('HGET', message_key, 'payload')
+                    if dropped_payload then
+                        table.insert(dropped_payloads, dropped_payload)
+                    end
+                end
+                redis.call('ZREM', messages_index, tag)
+                redis.call('ZREM', queue_key, tag)
+                redis.call('DEL', message_key)
+                total_dropped = total_dropped + 1
+                -- Skip to next message (do not use goto, use flag approach below)
+                routing_key = nil
+            else
+                redis.call('HSET', message_key, 'delivery_count', tostring(delivery_count))
+                total_redelivered = total_redelivered + 1
+            end
+        end
+
+        if routing_key then
+            -- Update queue_at for next cycle (now + visibility_timeout).
+            -- Done for backlogged tags too, otherwise their deadline stays in the
+            -- past and every cycle re-checks them.
+            local new_queue_at = now_sec + visibility_timeout
+            redis.call('ZADD', messages_index, new_queue_at, tag)
+            if restored then
+                total_enqueued = total_enqueued + 1
+            end
+        end
+    else
+        -- No message hash = message was already acked/deleted, clean up index
+        redis.call('ZREM', messages_index, tag)
+        total_orphaned = total_orphaned + 1
+    end
+end
+
+return {total_enqueued, total_dropped, total_redelivered, total_orphaned, dropped_payloads}
