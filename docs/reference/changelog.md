@@ -2,13 +2,22 @@
 
 ## Unreleased
 
+### Fixed
+
+- `with Connection(...)` opened the connection on a throwaway event loop and
+  closed it on another, so leaving the block raised `RuntimeError: Event loop
+  is closed`. The sync context manager, `Control.purge()`, `Control.broadcast()`
+  and `app.events.default_dispatcher()` now share one long-lived loop, which
+  also unbreaks Flower and `celery -A app worker --purge`
+
 ### Changed
 
+- Moved the shared loop runner to `kombu.utils.eventloop`, so kombu and celery
+  drive a connection from the same loop; `celery.utils.eventloop` re-exports it
 - Merged the `kombu-asyncio` package into this repository; `kombu` now ships as
   a top-level package of `celery-asyncio` instead of a separate install
 - Requirements no longer list `kombu-asyncio` as a dependency
-- Raised the minimum `asgiref` version to 3.8.0, the floor that reliably
-  provides `asgiref.sync.async_to_sync`, which `kombu/connection.py` calls
+- Raised the minimum `asgiref` version to 3.8.0
 
 ## v6.0.0a5
 

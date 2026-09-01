@@ -14,13 +14,13 @@ There are two types of remote control commands:
   Commands are accessible via :class:`Control` class.
 """
 
-import asyncio
 import warnings
 
 # Signal name constant
 TERM_SIGNAME = "SIGTERM"
 from kombu.matcher import match
 from kombu.pidbox import Mailbox
+from kombu.utils.eventloop import default_loop_runner
 from kombu.utils.functional import lazy
 from kombu.utils.objects import cached_property
 
@@ -506,7 +506,7 @@ class Control:
         Returns:
             int: the number of tasks discarded.
         """
-        return asyncio.run(self._apurge(connection))
+        return default_loop_runner().run(self._apurge(connection))
 
     async def _apurge(self, connection=None):
         """Async implementation of purge."""
@@ -838,7 +838,7 @@ class Control:
             pattern (str): Custom pattern string to match
             matcher (Callable): Custom matcher to run the pattern to match
         """
-        return asyncio.run(
+        return default_loop_runner().run(
             self.abroadcast(
                 command,
                 arguments,

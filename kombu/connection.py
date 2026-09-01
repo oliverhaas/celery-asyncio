@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 from .exceptions import ChannelError, ConnectionError
 from .log import get_logger
 from .transport.base import Transport as BaseTransport  # noqa: TC001
+from .utils.eventloop import default_loop_runner
 from .utils.url import maybe_sanitize_url
 
 if TYPE_CHECKING:
@@ -346,9 +347,10 @@ class Connection:
 
     def __enter__(self) -> Connection:
         """Sync context manager entry (for compatibility with sync code like Flower)."""
-        from asgiref.sync import async_to_sync
-
-        async_to_sync(self.connect)()
+        # On the shared background loop, not a throwaway one: the transport
+        # opened here belongs to the loop that opened it, and __exit__ and
+        # everything in between have to reach that same loop.
+        default_loop_runner().run(self.connect())
         return self
 
     def __exit__(
@@ -358,9 +360,7 @@ class Connection:
         exc_tb: Any,
     ) -> None:
         """Sync context manager exit (for compatibility with sync code like Flower)."""
-        from asgiref.sync import async_to_sync
-
-        async_to_sync(self.close)()
+        default_loop_runner().run(self.close())
 
     def __repr__(self) -> str:
         return f"<Connection: {self._url} connected={self.is_connected}>"

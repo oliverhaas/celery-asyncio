@@ -2,9 +2,9 @@
 # https://github.com/celery/celery
 """Implementation for the app.events shortcuts."""
 
-import asyncio
 from contextlib import contextmanager
 
+from kombu.utils.eventloop import default_loop_runner
 from kombu.utils.objects import cached_property
 
 
@@ -39,4 +39,4 @@ class Events:
                 d.producer = prod
                 yield d
         finally:
-            asyncio.run(conn.close())
+            default_loop_runner().run(conn.close())

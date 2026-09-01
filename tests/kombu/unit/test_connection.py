@@ -1,8 +1,11 @@
 """Tests for kombu.connection - async Connection."""
 
+import asyncio
+
 import pytest
 
 from kombu import Connection
+from kombu.utils.eventloop import default_loop_runner
 
 
 class test_Connection:
@@ -197,3 +200,66 @@ class test_Connection:
             info = conn.info()
             assert info["is_connected"] is True
             assert info["driver_type"] == "memory"
+
+
+class test_sync_context_manager:
+    """The sync `with Connection(...)` path, used by Flower and `worker --purge`."""
+
+    @staticmethod
+    def _recording(conn, loops):
+        """Wrap connect/close so each records the loop it was awaited on."""
+        connect, close = conn.connect, conn.close
+
+        async def recording_connect():
+            loops.append(asyncio.get_running_loop())
+            return await connect()
+
+        async def recording_close():
+            loops.append(asyncio.get_running_loop())
+            await close()
+
+        conn.connect, conn.close = recording_connect, recording_close
+
+    def test_enter_and_exit_run_on_one_loop(self):
+        # A transport belongs to the loop that opened it, so entering on one
+        # loop and exiting on another leaves close() with a dead loop.
+        conn = Connection("memory://")
+        loops = []
+        self._recording(conn, loops)
+
+        with conn as entered:
+            assert entered is conn
+            assert conn.is_connected
+
+        assert not conn.is_connected
+        assert len(loops) == 2
+        assert loops[0] is loops[1]
+
+    def test_body_reaches_the_same_loop_as_enter(self):
+        # Whatever the caller does between enter and exit has to land on the
+        # loop that opened the transport.
+        conn = Connection("memory://")
+        loops = []
+        self._recording(conn, loops)
+
+        async def body():
+            return asyncio.get_running_loop(), await conn.default_channel()
+
+        with conn:
+            body_loop, channel = default_loop_runner().run(body())
+
+        assert channel is not None
+        assert body_loop is loops[0]
+
+    def test_consecutive_blocks_share_one_loop(self):
+        conn = Connection("memory://")
+        loops = []
+        self._recording(conn, loops)
+
+        with conn:
+            pass
+        with conn:
+            pass
+
+        assert len(loops) == 4
+        assert len(set(map(id, loops))) == 1
