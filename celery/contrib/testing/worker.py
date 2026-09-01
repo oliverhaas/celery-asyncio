@@ -1,6 +1,7 @@
 """Embedded workers for integration tests."""
 
 import asyncio
+import concurrent.futures
 import os
 import threading
 from collections.abc import Iterator
@@ -11,6 +12,7 @@ import celery.worker.consumer  # noqa
 from celery import Celery, worker
 from celery.result import _set_task_join_will_block, allow_join_result
 from celery.utils.dispatch import Signal
+from celery.utils.eventloop import default_loop_runner
 from celery.utils.nodenames import anon_nodename
 
 WORKER_LOGLEVEL = os.environ.get("WORKER_LOGLEVEL", "error")
@@ -114,7 +116,7 @@ def _start_worker_thread(
     Yields:
         celery.worker.Worker: worker instance.
     """
-    setup_app_for_worker(app, loglevel, logfile or "")
+    setup_app_for_worker(app, loglevel, logfile)
     if perform_ping_check:
         assert "celery.ping" in app.tasks
 
@@ -133,9 +135,10 @@ def _start_worker_thread(
         **kwargs,
     )
 
-    # worker.start() is async, run it inside its own event loop on a thread
-    t = threading.Thread(target=asyncio.run, args=(w.start(),), daemon=True)
-    t.start()
+    # worker.start() is async. It runs on the process-wide background loop, not
+    # a private one: the test publishes through that same loop, and a transport
+    # object cannot be shared across two of them.
+    running = asyncio.run_coroutine_threadsafe(w.start(), default_loop_runner().loop)
     w.ensure_started()
     _set_task_join_will_block(False)
 
@@ -145,18 +148,25 @@ def _start_worker_thread(
         from celery.worker import state
 
         state.should_terminate = 0
-        t.join(shutdown_timeout)
-        if t.is_alive():
+        try:
+            running.result(timeout=shutdown_timeout)
+        except concurrent.futures.TimeoutError:
+            running.cancel()
             raise RuntimeError(
-                "Worker thread failed to exit within the allocated timeout. "
+                "Worker failed to exit within the allocated timeout. "
                 "Consider raising `shutdown_timeout` if your tasks take longer "
                 "to execute."
-            )
-        state.should_terminate = None
+            ) from None
+        finally:
+            state.should_terminate = None
 
 
-def setup_app_for_worker(app: Celery, loglevel: str | int, logfile: str) -> None:
-    """Setup the app to be used for starting an embedded worker."""
+def setup_app_for_worker(app: Celery, loglevel: str | int, logfile: str | None = None) -> None:
+    """Setup the app to be used for starting an embedded worker.
+
+    `logfile` of None means log to stderr; an empty string would be taken for a
+    filename and open the working directory.
+    """
     app.finalize()
     app.set_current()
     app.set_default()

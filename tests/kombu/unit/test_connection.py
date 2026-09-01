@@ -221,8 +221,6 @@ class test_sync_context_manager:
         conn.connect, conn.close = recording_connect, recording_close
 
     def test_enter_and_exit_run_on_one_loop(self):
-        # A transport belongs to the loop that opened it, so entering on one
-        # loop and exiting on another leaves close() with a dead loop.
         conn = Connection("memory://")
         loops = []
         self._recording(conn, loops)
@@ -236,8 +234,6 @@ class test_sync_context_manager:
         assert loops[0] is loops[1]
 
     def test_body_reaches_the_same_loop_as_enter(self):
-        # Whatever the caller does between enter and exit has to land on the
-        # loop that opened the transport.
         conn = Connection("memory://")
         loops = []
         self._recording(conn, loops)
@@ -265,8 +261,6 @@ class test_sync_context_manager:
         assert len(set(map(id, loops))) == 1
 
     async def test_works_from_inside_a_running_loop(self):
-        # Flower's tornado handlers call `with capp.connection()` from inside
-        # their own loop, where there is no dunder to await instead.
         conn = Connection("memory://")
         loops = []
         self._recording(conn, loops)

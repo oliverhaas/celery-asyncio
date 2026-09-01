@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 from time import sleep
 
 import pytest
-import pytest_subtests  # noqa
 
 from celery import chain, chord, group, signature
 from celery.backends.base import BaseKeyValueStoreBackend

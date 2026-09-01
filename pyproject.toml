@@ -99,6 +99,9 @@ dev = [
   "pytest-timeout==2.4.0",
   "pytest-xdist==3.8.0",
   "pytest-flakefinder==1.1.0",
+  # tests/integration/test_native_delayed_delivery_binding.py reads RabbitMQ's
+  # management API over HTTP.
+  "requests==2.33.0",
   # Optional-extra packages: installed so their transports and serializers are
   # both type-checked and exercised by the suite instead of skipped.
   "aio-pika==9.5.7",

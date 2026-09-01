@@ -111,8 +111,6 @@ class test_run_from_any_thread:
             runner.stop()
 
     async def test_runs_where_run_would_refuse(self):
-        # run() sends callers with an async form to await back to it; this one
-        # is for callers that have no such choice.
         runner = LoopRunner(name="test-loop")
         try:
 

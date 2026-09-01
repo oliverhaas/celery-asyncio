@@ -12,6 +12,12 @@
 
 - `with Connection(...)` raised from inside a running event loop, which is
   where Flower's tornado request handlers call it, so Flower's pages 500'd
+- `start_worker()` ran the embedded test worker under its own `asyncio.run()`
+  while the test published through the process-wide loop, so the two shared
+  transports across two loops. It now runs on the shared loop, which un-skips
+  the `celery.contrib.testing` tests
+- `start_worker(logfile=None)` passed `""` on to the logging setup, which took
+  it for a filename and opened the working directory
 
 ### Changed
 
