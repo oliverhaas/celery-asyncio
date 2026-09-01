@@ -734,6 +734,10 @@ markers = [
   "flaky",
   "timeout",
   "amqp",
+  # Asserts on the set of active Redis PUBSUB channels, which Redis reports
+  # globally rather than per database, so these cannot share a server with a
+  # parallel worker. CI runs them in a step of their own.
+  "global_pubsub",
 ]
 
 [tool.coverage.run]

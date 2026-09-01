@@ -1616,6 +1616,7 @@ class test_chord:
         assert result.get() == inputs
 
     @pytest.mark.xfail(reason="async_results aren't performed in async way")
+    @pytest.mark.global_pubsub
     def test_redis_subscribed_channels_leak(self, manager):
         if not manager.app.conf.result_backend.startswith("redis"):
             raise pytest.skip("Requires redis result backend.")

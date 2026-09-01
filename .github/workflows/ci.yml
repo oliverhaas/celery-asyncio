@@ -111,5 +111,21 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
-      - name: Run integration tests
+      - name: Run kombu integration tests
         run: uv run pytest tests/kombu/integration/ -q --no-cov
+
+      # Serially this suite takes hours, so it runs on six workers, each on a
+      # Redis database of its own (see tests/integration/conftest.py). The
+      # global_pubsub tests are the ones that isolation cannot help, because
+      # Redis reports PUBSUB channels per server rather than per database; they
+      # get a serial step below. tests/integration/known-failures.txt xfails the
+      # tests this fork does not pass yet, so the rest gates as normal.
+      # --timeout because the pytest config sets none, and a hung task would
+      # otherwise hang the job.
+      - name: Run celery integration tests
+        timeout-minutes: 45
+        run: uv run pytest tests/integration/ -q --no-cov --timeout=60 -n 6 -m "not global_pubsub"
+
+      - name: Run celery integration tests that need the broker to themselves
+        timeout-minutes: 15
+        run: uv run pytest tests/integration/ -q --no-cov --timeout=60 -m global_pubsub

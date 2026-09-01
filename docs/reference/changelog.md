@@ -37,6 +37,17 @@
 
 - A Broker API (kombu) section in the docs nav: Connection, producers and
   consumers, exchanges and queues, and the simple interface
+- CI runs the celery integration suite, which nothing had ever run. The 74
+  tests this fork does not pass yet are listed in
+  `tests/integration/known-failures.txt` and reported as xfail, so the rest of
+  the suite gates as normal; a listed test that starts passing reports XPASS
+- Each pytest-xdist worker now runs the integration suite against a Redis
+  database of its own, so parallel workers no longer share broker queues,
+  fanout channels or the keys the test tasks write to. Without it `inspect`
+  saw every worker's embedded worker
+- A `global_pubsub` marker for the four tests that assert on the set of active
+  Redis PUBSUB channels. Redis reports those per server rather than per
+  database, so CI runs them in a step of their own
 
 ### Removed
 

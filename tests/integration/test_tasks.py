@@ -667,6 +667,7 @@ class test_task_redis_result_backend:
 
         return manager
 
+    @pytest.mark.global_pubsub
     def test_ignoring_result_no_subscriptions(self, manager):
         channels_before_test = get_active_redis_channels()
 
@@ -677,6 +678,7 @@ class test_task_redis_result_backend:
         assert new_channels == []
 
     @flaky
+    @pytest.mark.global_pubsub
     def test_asyncresult_forget_no_pubsub(self, manager):
         """With polling-based results, forget() should not create PUBSUB channels."""
         channels_before_test = get_active_redis_channels()
@@ -689,6 +691,7 @@ class test_task_redis_result_backend:
         assert new_channels == []
 
     @flaky
+    @pytest.mark.global_pubsub
     def test_asyncresult_get_no_pubsub(self, manager):
         """With polling-based results, get() should not create PUBSUB channels."""
         channels_before_test = get_active_redis_channels()

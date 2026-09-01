@@ -25,7 +25,10 @@ def get_redis_connection():
 
     host = os.environ.get("REDIS_HOST", "localhost")
     port = os.environ.get("REDIS_PORT", 6379)
-    return StrictRedis(host=host, port=port)
+    # conftest sets REDIS_DB per xdist worker so parallel runs do not push to
+    # each other's keys.
+    database = int(os.environ.get("REDIS_DB", 0))
+    return StrictRedis(host=host, port=port, db=database)
 
 
 logger = get_task_logger(__name__)
