@@ -23,6 +23,35 @@ def current_loop() -> asyncio.AbstractEventLoop | None:
         return None
 
 
+def _cancel_all_tasks(loop: asyncio.AbstractEventLoop) -> None:
+    """Cancel what is still running on `loop` and let it unwind.
+
+    The same shutdown :func:`asyncio.run` performs, which this loop never gets
+    because it is stopped rather than returned from. Without it a transport's
+    long-lived background tasks -- consumer iterations, heartbeats, expiry
+    refreshes -- are still pending when the loop closes, and the interpreter
+    reports each of them as "Task was destroyed but it is pending!" on the way
+    out, sometimes with a "no running event loop" traceback from whatever the
+    dying coroutine tried to await next.
+    """
+
+    tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
+    if not tasks:
+        return
+    for task in tasks:
+        task.cancel()
+    loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+    for task in tasks:
+        if not task.cancelled() and task.exception() is not None:
+            loop.call_exception_handler(
+                {
+                    "message": "unhandled exception during loop shutdown",
+                    "exception": task.exception(),
+                    "task": task,
+                },
+            )
+
+
 class LoopRunner:
     """Runs coroutines on one event loop kept alive in a daemon thread."""
 
@@ -63,8 +92,10 @@ class LoopRunner:
             loop.run_forever()
         finally:
             try:
+                _cancel_all_tasks(loop)
                 loop.run_until_complete(loop.shutdown_asyncgens())
             finally:
+                asyncio.set_event_loop(None)
                 loop.close()
 
     def run(self, coro: Coroutine[Any, Any, _R]) -> _R:

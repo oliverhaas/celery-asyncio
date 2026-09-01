@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- `Mailbox._collect` waited for replies until `drain_events` timed out, which
+  on a channel shared with a busy consumer it never does -- it returns for as
+  long as messages keep arriving. With no reply limit nothing ended the loop,
+  so `inspect` and any other `broadcast(reply=True)` blocked on a set of
+  replies that was already complete. The `timeout` is now the window it says
+  it is
+- The shared loop was stopped and closed with whatever was still running on
+  it, so a transport's background tasks -- consumer iterations, heartbeats,
+  expiry refreshes -- were reported as `Task was destroyed but it is pending!`
+  at interpreter exit, sometimes trailed by a `no running event loop`
+  traceback from the coroutine's next `await`. It now performs the same
+  shutdown `asyncio.run` does
 - A chord whose body was itself a chord never reported the header's failure. A
   chord's `task_id` option is its *header group's* id -- `freeze` assigns
   `self.id = self.tasks.id` -- so `chord_error_from_stack` stored the error

@@ -1,6 +1,8 @@
 """Tests for kombu.pidbox - Mailbox and Node."""
 
-from unittest.mock import AsyncMock, Mock
+import asyncio
+import time
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -70,3 +72,30 @@ async def test_listen_on_a_transport_without_exclusive_queues_passes_errors_thro
 
     with pytest.raises(Locked):
         await node.listen()
+
+
+async def test_collect_stops_at_the_timeout_even_while_events_keep_arriving():
+    # `drain_events` returns without raising for as long as messages keep
+    # arriving, and on a channel shared with a busy consumer they do. With no
+    # reply limit nothing else ends the collection loop, so the caller blocked
+    # forever on a set of replies that was already complete.
+    mailbox = Mailbox("testns")
+    mailbox.connection = Mock()
+    mailbox.connection.default_channel = AsyncMock(return_value=Mock())
+    drained = 0
+
+    async def drain_events(timeout=None):
+        nonlocal drained
+        drained += 1
+        await asyncio.sleep(0)
+
+    mailbox.connection.drain_events = drain_events
+
+    with patch("kombu.pidbox.Consumer", return_value=MagicMock()):
+        started = time.monotonic()
+        responses = await mailbox._collect("ticket", timeout=0.2)
+        elapsed = time.monotonic() - started
+
+    assert responses == []
+    assert drained > 1
+    assert elapsed < 5

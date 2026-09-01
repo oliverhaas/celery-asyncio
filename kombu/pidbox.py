@@ -2,6 +2,7 @@
 # https://github.com/celery/kombu
 """Generic process mailbox - async implementation."""
 
+import asyncio
 import socket
 from collections import defaultdict, deque
 from copy import copy
@@ -454,16 +455,29 @@ class Mailbox:
                 unclaimed[this_id].append(body)
 
         consumer.register_callback(on_message)
-        try:
-            async with consumer:
-                for _i in (limit and range(limit)) or count():
-                    try:
-                        await self.connection.drain_events(timeout=timeout)
-                    except TimeoutError:
-                        break
-                return responses
-        finally:
-            pass
+
+        async def drain():
+            for _i in (limit and range(limit)) or count():
+                try:
+                    await self.connection.drain_events(timeout=timeout)
+                except TimeoutError:
+                    break
+
+        async with consumer:
+            # `timeout` is the window replies are collected in, not a budget
+            # spent per event. `drain_events` returns without raising for as
+            # long as messages keep arriving -- and on a channel shared with a
+            # busy consumer they do -- so with no `limit` there is nothing to
+            # end the loop above; the caller then blocks on a reply set that is
+            # already complete. The deadline has to be kept out here.
+            if timeout:
+                try:
+                    await asyncio.wait_for(drain(), timeout)
+                except TimeoutError:
+                    pass
+            else:
+                await drain()
+            return responses
 
     def _get_exchange(self, namespace, type):
         return Exchange(self.exchange_fmt % namespace, type=type, durable=False, delivery_mode="transient")

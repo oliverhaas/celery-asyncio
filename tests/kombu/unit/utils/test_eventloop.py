@@ -78,6 +78,29 @@ class test_LoopRunner:
         assert first.is_closed()
         assert runner.run(which_loop()) is not first
 
+    def test_stop_cancels_what_is_still_running(self, runner):
+        # A transport leaves long-lived background tasks on the loop --
+        # consumer iterations, heartbeats. Closing the loop with those still
+        # pending is what produces "Task was destroyed but it is pending!" at
+        # interpreter exit, so stop() has to unwind them first.
+        cancelled = threading.Event()
+
+        async def forever():
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        async def spawn():
+            return asyncio.get_running_loop().create_task(forever())
+
+        task = runner.run(spawn())
+        runner.stop()
+
+        assert cancelled.wait(5)
+        assert task.cancelled()
+
     def test_stop_is_harmless_before_anything_ran(self, runner):
         runner.stop()
 
