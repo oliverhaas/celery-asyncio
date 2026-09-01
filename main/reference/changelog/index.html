@@ -1578,6 +1578,18 @@
 <h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
 <ul>
+<li><code>Mailbox._collect</code> waited for replies until <code>drain_events</code> timed out, which
+  on a channel shared with a busy consumer it never does -- it returns for as
+  long as messages keep arriving. With no reply limit nothing ended the loop,
+  so <code>inspect</code> and any other <code>broadcast(reply=True)</code> blocked on a set of
+  replies that was already complete. The <code>timeout</code> is now the window it says
+  it is</li>
+<li>The shared loop was stopped and closed with whatever was still running on
+  it, so a transport's background tasks -- consumer iterations, heartbeats,
+  expiry refreshes -- were reported as <code>Task was destroyed but it is pending!</code>
+  at interpreter exit, sometimes trailed by a <code>no running event loop</code>
+  traceback from the coroutine's next <code>await</code>. It now performs the same
+  shutdown <code>asyncio.run</code> does</li>
 <li>A chord whose body was itself a chord never reported the header's failure. A
   chord's <code>task_id</code> option is its <em>header group's</em> id -- <code>freeze</code> assigns
   <code>self.id = self.tasks.id</code> -- so <code>chord_error_from_stack</code> stored the error
