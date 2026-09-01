@@ -76,7 +76,13 @@ django = ["Django>=6.0"]
 solar = ["ephem"]
 
 # Monitoring
-flower =["flower>=2.0", "tornado>=5,<7", "prometheus-client>=0.8", "humanize", "pytz"]
+flower = [
+  "flower>=2.0",
+  "tornado>=5,<7",
+  "prometheus-client>=0.8",
+  "humanize",
+  "pytz",
+]
 
 # Compression
 brotli = ["brotli>=1.0.0"]
@@ -108,10 +114,10 @@ dev = [
   "ty==0.0.75",
 ]
 docs = [
-    "mkdocs==1.6.1",
-    "mkdocs-material==9.7.7",
-    "mike==2.2.0",
-    "mkdocstrings-python>=2.0.3",
+  "mkdocs==1.6.1",
+  "mkdocs-material==9.7.7",
+  "mike==2.2.0",
+  "mkdocstrings-python>=2.0.3",
 ]
 
 [build-system]
@@ -138,11 +144,53 @@ extend-exclude = ["*.md"]
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-  "A001", "A002", "A004", "ANN", "ARG002", "ASYNC109", "BLE001", "C901", "COM812", "CPY001",
-  "D", "E501", "EM", "FBT", "FIX002", "N801", "N802", "N803", "N806", "N812", "N818",
-  "PERF203", "PLC0415", "PLR0912", "PLR0913", "PLR0917", "PLR1704", "PLR2004", "PLW0603",
-  "PLW1641", "PLW2901", "PYI024", "PYI034", "PYI036", "RUF005", "RUF012", "RUF059", "S110",
-  "SIM105", "SIM108", "SIM212", "SLF001", "TC003", "TD002", "TD003", "TRY003", "TRY300",
+  "A001",
+  "A002",
+  "A004",
+  "ANN",
+  "ARG002",
+  "ASYNC109",
+  "BLE001",
+  "C901",
+  "COM812",
+  "CPY001",
+  "D",
+  "E501",
+  "EM",
+  "FBT",
+  "FIX002",
+  "N801",
+  "N802",
+  "N803",
+  "N806",
+  "N812",
+  "N818",
+  "PERF203",
+  "PLC0415",
+  "PLR0912",
+  "PLR0913",
+  "PLR0917",
+  "PLR1704",
+  "PLR2004",
+  "PLW0603",
+  "PLW1641",
+  "PLW2901",
+  "PYI024",
+  "PYI034",
+  "PYI036",
+  "RUF005",
+  "RUF012",
+  "RUF059",
+  "S110",
+  "SIM105",
+  "SIM108",
+  "SIM212",
+  "SLF001",
+  "TC003",
+  "TD002",
+  "TD003",
+  "TRY003",
+  "TRY300",
 ]
 
 [tool.ruff.lint.flake8-annotations]
@@ -167,105 +215,467 @@ suppress-none-returning = true
   "E402",     # Module-level import not at top — lazy imports
   "E741",     # Ambiguous variable name — l, O, I used in celery
   "ERA001",   # Commented-out code — every remaining hit is prose: an exploit
-              # illustration, an issue write-up, or shorthand like "chord([A, B], C)"
-  "EXE",      # Shebang — examples have shebangs for convenience
-  "FIX",      # TODO/FIXME/XXX comments — inherited from upstream Celery
-  "G",        # Logging format — celery uses % formatting in logging
-  "I001",     # Import sorting: kombu became first-party when it moved into this repo,
-              # so 40 celery modules have mis-grouped import blocks. Branch 2 fixes them.
-  "INP001",   # Implicit namespace package — examples are standalone scripts
-  "ISC002",   # Implicit string concatenation
-  "N",        # Naming conventions: celery has its own patterns
-  "PERF",     # Performance suggestions — readability over micro-optimization
-  "PGH003",   # Blanket type-ignore
-  "PGH004",   # Blanket noqa
-  "PLC0205",  # __slots__ style
-  "PLE0704",  # Misplaced bare raise
-  "PLR0206",  # Property with parameters
-  "PLR0911",  # Too many return statements
-  "PLR0915",  # Too many statements — complex functions
-  "PLR1714",  # Consider merging comparisons
-  "PLW0127",  # Self-assigning variable — protocol v1 destructuring
-  "PLW1508",  # Invalid envvar default
-  "PTH",      # Pathlib — celery uses os.path extensively
-  "RET503",   # Missing explicit return
-  "RET504",   # Unnecessary variable before return
-  "RET505",   # Superfluous else return — style preference
-  "RSE102",   # Unnecessary parentheses on raise
-  "RUF002",   # Ambiguous unicode in docstrings
-  "RUF003",   # Ambiguous unicode
-  "RUF006",   # asyncio.create_task without reference
-  "RUF013",   # Implicit Optional
-  "RUF015",   # Readability over micro-optimization
-  "RUF022",   # __all__ not sorted
-  "RUF046",   # Unnecessary cast
-  "S",        # Security — celery needs pickle, subprocess, exec, etc.
-  "SIM",      # Simplify — style preference, readability varies
-  "SLOT000",  # No __slots__ in str subclass
-  "T201",     # Print — the CLI banner, worker status output, and the example
-              # scripts all write to stdout on purpose
-  "TC",       # Typing-only imports: style preference
-  "TD",       # TODO comment formatting — inherited from upstream Celery
-  "TID252",   # Relative imports
-  "TRY",      # tryceratops — style preference throughout
-  "UP007",    # Non-PEP 604 annotation
-  "UP031",    # Printf-style formatting — keep for consistency
-  "UP041",    # Timeout error alias
+  # illustration, an issue write-up, or shorthand like "chord([A, B], C)"
+  "EXE",  # Shebang — examples have shebangs for convenience
+  "FIX",  # TODO/FIXME/XXX comments — inherited from upstream Celery
+  "G",    # Logging format — celery uses % formatting in logging
+  "I001", # Import sorting: kombu became first-party when it moved into this repo,
+  # so 40 celery modules have mis-grouped import blocks. Branch 2 fixes them.
+  "INP001",  # Implicit namespace package — examples are standalone scripts
+  "ISC002",  # Implicit string concatenation
+  "N",       # Naming conventions: celery has its own patterns
+  "PERF",    # Performance suggestions — readability over micro-optimization
+  "PGH003",  # Blanket type-ignore
+  "PGH004",  # Blanket noqa
+  "PLC0205", # __slots__ style
+  "PLE0704", # Misplaced bare raise
+  "PLR0206", # Property with parameters
+  "PLR0911", # Too many return statements
+  "PLR0915", # Too many statements — complex functions
+  "PLR1714", # Consider merging comparisons
+  "PLW0127", # Self-assigning variable — protocol v1 destructuring
+  "PLW1508", # Invalid envvar default
+  "PTH",     # Pathlib — celery uses os.path extensively
+  "RET503",  # Missing explicit return
+  "RET504",  # Unnecessary variable before return
+  "RET505",  # Superfluous else return — style preference
+  "RSE102",  # Unnecessary parentheses on raise
+  "RUF002",  # Ambiguous unicode in docstrings
+  "RUF003",  # Ambiguous unicode
+  "RUF006",  # asyncio.create_task without reference
+  "RUF013",  # Implicit Optional
+  "RUF015",  # Readability over micro-optimization
+  "RUF022",  # __all__ not sorted
+  "RUF046",  # Unnecessary cast
+  "S",       # Security — celery needs pickle, subprocess, exec, etc.
+  "SIM",     # Simplify — style preference, readability varies
+  "SLOT000", # No __slots__ in str subclass
+  "T201",    # Print — the CLI banner, worker status output, and the example
+  # scripts all write to stdout on purpose
+  "TC",     # Typing-only imports: style preference
+  "TD",     # TODO comment formatting — inherited from upstream Celery
+  "TID252", # Relative imports
+  "TRY",    # tryceratops — style preference throughout
+  "UP007",  # Non-PEP 604 annotation
+  "UP031",  # Printf-style formatting — keep for consistency
+  "UP041",  # Timeout error alias
 ]
 "tests/*.py" = [
-  "A", "ANN", "ARG", "ASYNC110", "B", "B007", "B018", "B020", "B024", "B026", "B027", "COM818",
-  "DTZ", "E402", "E721", "E741", "E742", "ERA001", "EXE", "FIX", "G", "I001", "INP001",
-  "ISC002", "N", "PERF", "PGH003", "PGH004", "PLC0205", "PLC0206", "PLE0704", "PLR", "PLR0206",
-  "PLR0911", "PLR0915", "PLR1714", "PLW0127", "PLW0129", "PLW1508", "PT", "PTH", "RET503",
-  "RET504", "RET505", "RSE102", "RUF002", "RUF003", "RUF006", "RUF013", "RUF015", "RUF022",
-  "RUF043", "RUF046", "S", "SIM", "SIM117", "SLOT", "SLOT000", "T201", "TC", "TD", "TID252",
-  "TRY", "UP007", "UP031", "UP041", "UP045",
+  "A",
+  "ANN",
+  "ARG",
+  "ASYNC110",
+  "B",
+  "B007",
+  "B018",
+  "B020",
+  "B024",
+  "B026",
+  "B027",
+  "COM818",
+  "DTZ",
+  "E402",
+  "E721",
+  "E741",
+  "E742",
+  "ERA001",
+  "EXE",
+  "FIX",
+  "G",
+  "I001",
+  "INP001",
+  "ISC002",
+  "N",
+  "PERF",
+  "PGH003",
+  "PGH004",
+  "PLC0205",
+  "PLC0206",
+  "PLE0704",
+  "PLR",
+  "PLR0206",
+  "PLR0911",
+  "PLR0915",
+  "PLR1714",
+  "PLW0127",
+  "PLW0129",
+  "PLW1508",
+  "PT",
+  "PTH",
+  "RET503",
+  "RET504",
+  "RET505",
+  "RSE102",
+  "RUF002",
+  "RUF003",
+  "RUF006",
+  "RUF013",
+  "RUF015",
+  "RUF022",
+  "RUF043",
+  "RUF046",
+  "S",
+  "SIM",
+  "SIM117",
+  "SLOT",
+  "SLOT000",
+  "T201",
+  "TC",
+  "TD",
+  "TID252",
+  "TRY",
+  "UP007",
+  "UP031",
+  "UP041",
+  "UP045",
 ]
 "tests/unit/**" = [
-  "A", "ANN", "ARG", "ASYNC110", "B", "B007", "B018", "B020", "B024", "B026", "B027", "COM818",
-  "DTZ", "E402", "E721", "E741", "E742", "ERA001", "EXE", "FIX", "G", "I001", "INP001",
-  "ISC002", "N", "PERF", "PGH003", "PGH004", "PLC0205", "PLC0206", "PLE0704", "PLR", "PLR0206",
-  "PLR0911", "PLR0915", "PLR1714", "PLW0127", "PLW0129", "PLW1508", "PT", "PTH", "RET503",
-  "RET504", "RET505", "RSE102", "RUF002", "RUF003", "RUF006", "RUF013", "RUF015", "RUF022",
-  "RUF043", "RUF046", "S", "SIM", "SIM117", "SLOT", "SLOT000", "T201", "TC", "TD", "TID252",
-  "TRY", "UP007", "UP031", "UP041", "UP045",
+  "A",
+  "ANN",
+  "ARG",
+  "ASYNC110",
+  "B",
+  "B007",
+  "B018",
+  "B020",
+  "B024",
+  "B026",
+  "B027",
+  "COM818",
+  "DTZ",
+  "E402",
+  "E721",
+  "E741",
+  "E742",
+  "ERA001",
+  "EXE",
+  "FIX",
+  "G",
+  "I001",
+  "INP001",
+  "ISC002",
+  "N",
+  "PERF",
+  "PGH003",
+  "PGH004",
+  "PLC0205",
+  "PLC0206",
+  "PLE0704",
+  "PLR",
+  "PLR0206",
+  "PLR0911",
+  "PLR0915",
+  "PLR1714",
+  "PLW0127",
+  "PLW0129",
+  "PLW1508",
+  "PT",
+  "PTH",
+  "RET503",
+  "RET504",
+  "RET505",
+  "RSE102",
+  "RUF002",
+  "RUF003",
+  "RUF006",
+  "RUF013",
+  "RUF015",
+  "RUF022",
+  "RUF043",
+  "RUF046",
+  "S",
+  "SIM",
+  "SIM117",
+  "SLOT",
+  "SLOT000",
+  "T201",
+  "TC",
+  "TD",
+  "TID252",
+  "TRY",
+  "UP007",
+  "UP031",
+  "UP041",
+  "UP045",
 ]
 "tests/integration/**" = [
-  "A", "ANN", "ARG", "ASYNC110", "B", "B007", "B018", "B020", "B024", "B026", "B027", "COM818",
-  "DTZ", "E402", "E721", "E741", "E742", "ERA001", "EXE", "FIX", "G", "I001", "INP001",
-  "ISC002", "N", "PERF", "PGH003", "PGH004", "PLC0205", "PLC0206", "PLE0704", "PLR", "PLR0206",
-  "PLR0911", "PLR0915", "PLR1714", "PLW0127", "PLW0129", "PLW1508", "PT", "PTH", "RET503",
-  "RET504", "RET505", "RSE102", "RUF002", "RUF003", "RUF006", "RUF013", "RUF015", "RUF022",
-  "RUF043", "RUF046", "S", "SIM", "SIM117", "SLOT", "SLOT000", "T201", "TC", "TD", "TID252",
-  "TRY", "UP007", "UP031", "UP041", "UP045",
+  "A",
+  "ANN",
+  "ARG",
+  "ASYNC110",
+  "B",
+  "B007",
+  "B018",
+  "B020",
+  "B024",
+  "B026",
+  "B027",
+  "COM818",
+  "DTZ",
+  "E402",
+  "E721",
+  "E741",
+  "E742",
+  "ERA001",
+  "EXE",
+  "FIX",
+  "G",
+  "I001",
+  "INP001",
+  "ISC002",
+  "N",
+  "PERF",
+  "PGH003",
+  "PGH004",
+  "PLC0205",
+  "PLC0206",
+  "PLE0704",
+  "PLR",
+  "PLR0206",
+  "PLR0911",
+  "PLR0915",
+  "PLR1714",
+  "PLW0127",
+  "PLW0129",
+  "PLW1508",
+  "PT",
+  "PTH",
+  "RET503",
+  "RET504",
+  "RET505",
+  "RSE102",
+  "RUF002",
+  "RUF003",
+  "RUF006",
+  "RUF013",
+  "RUF015",
+  "RUF022",
+  "RUF043",
+  "RUF046",
+  "S",
+  "SIM",
+  "SIM117",
+  "SLOT",
+  "SLOT000",
+  "T201",
+  "TC",
+  "TD",
+  "TID252",
+  "TRY",
+  "UP007",
+  "UP031",
+  "UP041",
+  "UP045",
 ]
 "tests/smoke/**" = [
-  "A", "ANN", "ARG", "ASYNC110", "B", "B007", "B018", "B020", "B024", "B026", "B027", "COM818",
-  "DTZ", "E402", "E721", "E741", "E742", "ERA001", "EXE", "FIX", "G", "I001", "INP001",
-  "ISC002", "N", "PERF", "PGH003", "PGH004", "PLC0205", "PLC0206", "PLE0704", "PLR", "PLR0206",
-  "PLR0911", "PLR0915", "PLR1714", "PLW0127", "PLW0129", "PLW1508", "PT", "PTH", "RET503",
-  "RET504", "RET505", "RSE102", "RUF002", "RUF003", "RUF006", "RUF013", "RUF015", "RUF022",
-  "RUF043", "RUF046", "S", "SIM", "SIM117", "SLOT", "SLOT000", "T201", "TC", "TD", "TID252",
-  "TRY", "UP007", "UP031", "UP041", "UP045",
+  "A",
+  "ANN",
+  "ARG",
+  "ASYNC110",
+  "B",
+  "B007",
+  "B018",
+  "B020",
+  "B024",
+  "B026",
+  "B027",
+  "COM818",
+  "DTZ",
+  "E402",
+  "E721",
+  "E741",
+  "E742",
+  "ERA001",
+  "EXE",
+  "FIX",
+  "G",
+  "I001",
+  "INP001",
+  "ISC002",
+  "N",
+  "PERF",
+  "PGH003",
+  "PGH004",
+  "PLC0205",
+  "PLC0206",
+  "PLE0704",
+  "PLR",
+  "PLR0206",
+  "PLR0911",
+  "PLR0915",
+  "PLR1714",
+  "PLW0127",
+  "PLW0129",
+  "PLW1508",
+  "PT",
+  "PTH",
+  "RET503",
+  "RET504",
+  "RET505",
+  "RSE102",
+  "RUF002",
+  "RUF003",
+  "RUF006",
+  "RUF013",
+  "RUF015",
+  "RUF022",
+  "RUF043",
+  "RUF046",
+  "S",
+  "SIM",
+  "SIM117",
+  "SLOT",
+  "SLOT000",
+  "T201",
+  "TC",
+  "TD",
+  "TID252",
+  "TRY",
+  "UP007",
+  "UP031",
+  "UP041",
+  "UP045",
 ]
 "tests/benchmarks/**" = [
-  "A", "ANN", "ARG", "ASYNC110", "B", "B007", "B018", "B020", "B024", "B026", "B027", "COM818",
-  "DTZ", "E402", "E721", "E741", "E742", "ERA001", "EXE", "FIX", "G", "I001", "INP001",
-  "ISC002", "N", "PERF", "PGH003", "PGH004", "PLC0205", "PLC0206", "PLE0704", "PLR", "PLR0206",
-  "PLR0911", "PLR0915", "PLR1714", "PLW0127", "PLW0129", "PLW1508", "PT", "PTH", "RET503",
-  "RET504", "RET505", "RSE102", "RUF002", "RUF003", "RUF006", "RUF013", "RUF015", "RUF022",
-  "RUF043", "RUF046", "S", "SIM", "SIM117", "SLOT", "SLOT000", "T201", "TC", "TD", "TID252",
-  "TRY", "UP007", "UP031", "UP041", "UP045",
+  "A",
+  "ANN",
+  "ARG",
+  "ASYNC110",
+  "B",
+  "B007",
+  "B018",
+  "B020",
+  "B024",
+  "B026",
+  "B027",
+  "COM818",
+  "DTZ",
+  "E402",
+  "E721",
+  "E741",
+  "E742",
+  "ERA001",
+  "EXE",
+  "FIX",
+  "G",
+  "I001",
+  "INP001",
+  "ISC002",
+  "N",
+  "PERF",
+  "PGH003",
+  "PGH004",
+  "PLC0205",
+  "PLC0206",
+  "PLE0704",
+  "PLR",
+  "PLR0206",
+  "PLR0911",
+  "PLR0915",
+  "PLR1714",
+  "PLW0127",
+  "PLW0129",
+  "PLW1508",
+  "PT",
+  "PTH",
+  "RET503",
+  "RET504",
+  "RET505",
+  "RSE102",
+  "RUF002",
+  "RUF003",
+  "RUF006",
+  "RUF013",
+  "RUF015",
+  "RUF022",
+  "RUF043",
+  "RUF046",
+  "S",
+  "SIM",
+  "SIM117",
+  "SLOT",
+  "SLOT000",
+  "T201",
+  "TC",
+  "TD",
+  "TID252",
+  "TRY",
+  "UP007",
+  "UP031",
+  "UP041",
+  "UP045",
 ]
 "examples/**" = [
-  "A", "ARG", "ASYNC110", "B007", "B018", "B020", "B024", "B026", "B027", "COM818", "DTZ",
-  "E402", "E741", "ERA001", "EXE", "FIX", "G", "I001", "INP001", "ISC002", "N", "PERF",
-  "PGH003", "PGH004", "PLC0205", "PLE0704", "PLR0206", "PLR0911", "PLR0915", "PLR1714",
-  "PLW0127", "PLW1508", "PTH", "RET503", "RET504", "RET505", "RSE102", "RUF002", "RUF003",
-  "RUF006", "RUF013", "RUF015", "RUF022", "RUF046", "S", "SIM", "SLOT000", "T201", "TC", "TD",
-  "TID252", "TRY", "UP007", "UP031", "UP041",
+  "A",
+  "ARG",
+  "ASYNC110",
+  "B007",
+  "B018",
+  "B020",
+  "B024",
+  "B026",
+  "B027",
+  "COM818",
+  "DTZ",
+  "E402",
+  "E741",
+  "ERA001",
+  "EXE",
+  "FIX",
+  "G",
+  "I001",
+  "INP001",
+  "ISC002",
+  "N",
+  "PERF",
+  "PGH003",
+  "PGH004",
+  "PLC0205",
+  "PLE0704",
+  "PLR0206",
+  "PLR0911",
+  "PLR0915",
+  "PLR1714",
+  "PLW0127",
+  "PLW1508",
+  "PTH",
+  "RET503",
+  "RET504",
+  "RET505",
+  "RSE102",
+  "RUF002",
+  "RUF003",
+  "RUF006",
+  "RUF013",
+  "RUF015",
+  "RUF022",
+  "RUF046",
+  "S",
+  "SIM",
+  "SLOT000",
+  "T201",
+  "TC",
+  "TD",
+  "TID252",
+  "TRY",
+  "UP007",
+  "UP031",
+  "UP041",
 ]
-"tests/kombu/**" = ["ANN", "ARG", "B017", "PERF401", "PLR0133", "PT006", "PT011", "PT018", "PTH", "S101", "S301", "TRY301"]
+"tests/kombu/**" = [
+  "ANN",
+  "ARG",
+  "B017",
+  "PERF401",
+  "PLR0133",
+  "PT006",
+  "PT011",
+  "PT018",
+  "PTH",
+  "S101",
+  "S301",
+  "TRY301",
+]
 "examples/benchmark/render_results.py" = ["ISC004", "RUF001"]
 
 [tool.mypy]
@@ -292,19 +702,19 @@ ignore_missing_imports = true
 # Optional extras and stub-less third-party packages.
 [[tool.mypy.overrides]]
 module = [
-    "aio_pika.*",
-    "aiormq.*",
-    "brotli.*",
-    "click_plugins.*",
-    "django.*",
-    "msgpack.*",
-    "objgraph.*",
-    "psutil.*",
-    "pygments.*",
-    "redis.*",
-    "tblib.*",
-    "valkey.*",
-    "yaml.*",
+  "aio_pika.*",
+  "aiormq.*",
+  "brotli.*",
+  "click_plugins.*",
+  "django.*",
+  "msgpack.*",
+  "objgraph.*",
+  "psutil.*",
+  "pygments.*",
+  "redis.*",
+  "tblib.*",
+  "valkey.*",
+  "yaml.*",
 ]
 ignore_missing_imports = true
 

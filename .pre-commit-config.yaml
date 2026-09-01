@@ -28,14 +28,11 @@ repos:
   - repo: https://github.com/ComPWA/taplo-pre-commit
     rev: v0.9.3
     hooks:
+      # Formatting only. --reorder-keys and --reorder-arrays rewrite the file's
+      # meaning-bearing order (dependency groups, the ruff ignore lists) and are
+      # not something a format hook should decide.
       - id: taplo-format
-        args:
-          ["--", "--indent-string", "  ", "--reorder-arrays", "--reorder-keys"]
-
-  - repo: https://github.com/asottile/add-trailing-comma
-    rev: v3.1.0
-    hooks:
-      - id: add-trailing-comma
+        args: ["--", "--indent-string", "  "]
 
   - repo: local
     hooks:
