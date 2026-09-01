@@ -10,11 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://oliverhaas.github.io/celery-asyncio/main/reference/changelog/">
+        <link rel="canonical" href="https://oliverhaas.github.io/celery-asyncio/main/reference/kombu-simple/">
       
       
-        <link rel="prev" href="../kombu-simple/">
+        <link rel="prev" href="../kombu-entities/">
       
+      
+        <link rel="next" href="../changelog/">
       
       
         
@@ -25,7 +27,7 @@
     
     
       
-        <title>Changelog - celery-asyncio</title>
+        <title>Simple Interface - celery-asyncio</title>
       
     
     
@@ -78,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#changelog" class="md-skip">
+        <a href="#simple-interface" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Changelog
+              Simple Interface
             
           </span>
         </div>
@@ -863,8 +865,10 @@
       
   
   
+    
   
   
+  
     
     
     
@@ -875,13 +879,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
@@ -902,7 +904,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1001,41 +1003,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../kombu-simple/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Simple Interface
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
     
   
   
@@ -1055,7 +1022,7 @@
   <span class="md-ellipsis">
     
   
-    Changelog
+    Simple Interface
   
 
     
@@ -1073,7 +1040,7 @@
   <span class="md-ellipsis">
     
   
-    Changelog
+    Simple Interface
   
 
     
@@ -1099,22 +1066,33 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#unreleased" class="md-nav__link">
+  <a href="#simplequeue" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Unreleased
+        SimpleQueue
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Unreleased">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kombu.simple.SimpleQueue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SimpleQueue
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SimpleQueue">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed" class="md-nav__link">
+  <a href="#kombu.simple.SimpleQueue.put" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fixed
+        put
       
     </span>
   </a>
@@ -1122,10 +1100,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#kombu.simple.SimpleQueue.get" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Changed
+        get
       
     </span>
   </a>
@@ -1133,10 +1111,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added" class="md-nav__link">
+  <a href="#kombu.simple.SimpleQueue.get_nowait" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Added
+        get_nowait
       
     </span>
   </a>
@@ -1144,10 +1122,54 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#removed" class="md-nav__link">
+  <a href="#kombu.simple.SimpleQueue.clear" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Removed
+        clear
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kombu.simple.SimpleQueue.qsize" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qsize
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kombu.simple.SimpleQueue.close" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        close
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kombu.simple.SimpleQueue.__aenter__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __aenter__
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kombu.simple.SimpleQueue.__aexit__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __aexit__
       
     </span>
   </a>
@@ -1160,99 +1182,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#v600a5" class="md-nav__link">
+  <a href="#simplebuffer" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v6.0.0a5
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="v6.0.0a5">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#fixed_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fixed
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#changed_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Changed
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#v600a4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        v6.0.0a4
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="v6.0.0a4">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#added_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Added
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#fixed_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fixed
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#fixed-production-readiness-audit" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fixed (production readiness audit)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#v600a3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        v6.0.0a3
+        SimpleBuffer
       
     </span>
   </a>
@@ -1260,52 +1193,57 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#v600a2" class="md-nav__link">
+  <a href="#kombu.simple.SimpleBuffer" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v6.0.0a2
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="v6.0.0a2">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What works
+        SimpleBuffer
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#whats-not-yet-tested" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#broadcast" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What's not yet tested
+        Broadcast
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#breaking-changes-from-upstream-celery" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#kombu.common.Broadcast" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Breaking changes from upstream Celery
+        Broadcast
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
+      
+        <li class="md-nav__item">
+  <a href="#maybe_declare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        maybe_declare
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kombu.common.maybe_declare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        maybe_declare
+      
+    </span>
+  </a>
   
 </li>
       
@@ -1313,6 +1251,41 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1344,22 +1317,33 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#unreleased" class="md-nav__link">
+  <a href="#simplequeue" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Unreleased
+        SimpleQueue
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Unreleased">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kombu.simple.SimpleQueue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SimpleQueue
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SimpleQueue">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed" class="md-nav__link">
+  <a href="#kombu.simple.SimpleQueue.put" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fixed
+        put
       
     </span>
   </a>
@@ -1367,10 +1351,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#kombu.simple.SimpleQueue.get" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Changed
+        get
       
     </span>
   </a>
@@ -1378,10 +1362,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#added" class="md-nav__link">
+  <a href="#kombu.simple.SimpleQueue.get_nowait" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Added
+        get_nowait
       
     </span>
   </a>
@@ -1389,10 +1373,54 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#removed" class="md-nav__link">
+  <a href="#kombu.simple.SimpleQueue.clear" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Removed
+        clear
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kombu.simple.SimpleQueue.qsize" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        qsize
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kombu.simple.SimpleQueue.close" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        close
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kombu.simple.SimpleQueue.__aenter__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __aenter__
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kombu.simple.SimpleQueue.__aexit__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __aexit__
       
     </span>
   </a>
@@ -1405,99 +1433,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#v600a5" class="md-nav__link">
+  <a href="#simplebuffer" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v6.0.0a5
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="v6.0.0a5">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#fixed_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fixed
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#changed_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Changed
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#v600a4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        v6.0.0a4
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="v6.0.0a4">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#added_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Added
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#fixed_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fixed
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#fixed-production-readiness-audit" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fixed (production readiness audit)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#v600a3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        v6.0.0a3
+        SimpleBuffer
       
     </span>
   </a>
@@ -1505,52 +1444,57 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#v600a2" class="md-nav__link">
+  <a href="#kombu.simple.SimpleBuffer" class="md-nav__link">
     <span class="md-ellipsis">
       
-        v6.0.0a2
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="v6.0.0a2">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#what-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What works
+        SimpleBuffer
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#whats-not-yet-tested" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#broadcast" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What's not yet tested
+        Broadcast
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#breaking-changes-from-upstream-celery" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#kombu.common.Broadcast" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Breaking changes from upstream Celery
+        Broadcast
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
+      
+        <li class="md-nav__item">
+  <a href="#maybe_declare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        maybe_declare
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#kombu.common.maybe_declare" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        maybe_declare
+      
+    </span>
+  </a>
   
 </li>
       
@@ -1574,154 +1518,444 @@
   
 
 
-<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
-<h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
-<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
-<ul>
-<li>
-<p><code>with Connection(...)</code> opened the connection on a throwaway event loop and
-  closed it on another, so leaving the block raised <code>RuntimeError: Event loop
-  is closed</code>. The sync context manager, <code>Control.purge()</code>, <code>Control.broadcast()</code>
-  and <code>app.events.default_dispatcher()</code> now share one long-lived loop, which
-  also unbreaks Flower and <code>celery -A app worker --purge</code></p>
-</li>
-<li>
-<p><code>with Connection(...)</code> raised from inside a running event loop, which is
-  where Flower's tornado request handlers call it, so Flower's pages 500'd</p>
-</li>
-<li><code>start_worker()</code> ran the embedded test worker under its own <code>asyncio.run()</code>
-  while the test published through the process-wide loop, so the two shared
-  transports across two loops. It now runs on the shared loop, which un-skips
-  the <code>celery.contrib.testing</code> tests</li>
-<li><code>start_worker(logfile=None)</code> passed <code>""</code> on to the logging setup, which took
-  it for a filename and opened the working directory</li>
-</ul>
-<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
-<ul>
-<li>Moved the shared loop runner to <code>kombu.utils.eventloop</code>, so kombu and celery
-  drive a connection from the same loop; <code>celery.utils.eventloop</code> re-exports it</li>
-<li>The <code>flower</code> extra no longer installs Flower itself, only Flower's other
-  dependencies. Flower requires upstream <code>celery</code> from PyPI, which installed
-  over this package for anyone who was not resolving inside this workspace.
-  Install it with <code>pip install "celery-asyncio[flower]" &amp;&amp; pip install flower
-  --no-deps</code></li>
-<li>Dropped the <code>[tool.uv] override-dependencies</code> entry that neutralised
-  upstream <code>celery</code>; nothing in the project pulls it in any more</li>
-<li>Raised the <code>amqp</code> extra's floor to <code>aio-pika&gt;=9.5.0</code>, the line CI runs against</li>
-<li>Restored the per-rule reasons on the ruff <code>ignore</code> list, lost in the merge</li>
-</ul>
-<h3 id="added">Added<a class="headerlink" href="#added" title="Permanent link">&para;</a></h3>
-<ul>
-<li>A Broker API (kombu) section in the docs nav: Connection, producers and
-  consumers, exchanges and queues, and the simple interface</li>
-</ul>
-<h3 id="removed">Removed<a class="headerlink" href="#removed" title="Permanent link">&para;</a></h3>
-<ul>
-<li>The <code>zstd</code> extra. PEP 784 put zstd in the stdlib as of 3.14, this package's
-  floor, so <code>zstandard</code> was already unused</li>
-<li>The unused <code>unit</code> and <code>integration</code> pytest markers, and the vestigial
-  <code>UV_NO_SOURCES</code> from the workflows: there is no <code>[tool.uv.sources]</code> table</li>
-<li>Merged the <code>kombu-asyncio</code> package into this repository; <code>kombu</code> now ships as
-  a top-level package of <code>celery-asyncio</code> instead of a separate install</li>
-<li>Requirements no longer list <code>kombu-asyncio</code> as a dependency</li>
-<li>Raised the minimum <code>asgiref</code> version to 3.8.0</li>
-</ul>
-<h2 id="v600a5">v6.0.0a5<a class="headerlink" href="#v600a5" title="Permanent link">&para;</a></h2>
-<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
-<ul>
-<li>Receiving an AMQP message with a TTL raised <code>AttributeError</code> (kombu-asyncio 6.0.0a5)</li>
-</ul>
-<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
-<ul>
-<li>Every re-raise now names its cause, so a traceback points at the original error
-  instead of stopping at the exception celery raised in its place</li>
-</ul>
-<h2 id="v600a4">v6.0.0a4<a class="headerlink" href="#v600a4" title="Permanent link">&para;</a></h2>
-<p>Ported every applicable upstream fix from the sweep recorded in <code>UPSTREAM-PLAN.md</code>,
-and fixed the fork-only defects the sweep turned up along the way.</p>
-<h3 id="added_1">Added<a class="headerlink" href="#added_1" title="Permanent link">&para;</a></h3>
-<ul>
-<li><code>AsyncResult.exists()</code> and its async twin</li>
-<li><code>time_limit</code> and <code>soft_time_limit</code> on <code>task.request</code></li>
-<li>Separate <code>acks_on_failure</code> and <code>acks_on_timeout</code> task options</li>
-<li><code>additional_connection_errors</code> transport option for the Valkey/Redis backend</li>
-<li>Warning when routing is declared as a task attribute</li>
-</ul>
-<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
-<ul>
-<li>Publishing opened a broker connection per task</li>
-<li>Chord counter double-counted on redelivery</li>
-<li>A failing step in a chain never reached the chord body</li>
-<li>Chains of chords were nested instead of flat; empty groups broke <code>as_tuple</code></li>
-<li>Eager chains kept running past <code>Ignore</code> and <code>Reject</code>; <code>EagerResult</code> had no <code>aget()</code></li>
-<li>Crontabs matched against the wrong timezone, and DST gaps were skipped</li>
-<li>Beat kept a broker connection it never used, and lost entries that asked to wait</li>
-<li><code>send_task</code> by name ignored the task's own options</li>
-<li>PEP 649 lazy annotations broke task registration</li>
-<li>Revoked tasks were not marked <code>REVOKED</code> in the backend</li>
-<li>Cold-shutdown terminations were reported as task failures</li>
-<li>Reconnects lost in-flight bookkeeping, and broken connections were reused</li>
-<li>The event dispatcher dropped and leaked buffered events</li>
-<li><code>autoretry_for</code> was ignored on async tasks</li>
-<li>Passwords in failover URLs were logged in the clear</li>
-<li><code>redis_backend_use_ssl</code> was ignored on <code>redis://</code>, and sentinel ACL credentials were dropped</li>
-<li>Routing-only queues were added to the consumer set</li>
-<li>Control and event queues are now exclusive by default</li>
-<li>Django connections were opened only to be closed again</li>
-</ul>
-<h3 id="fixed-production-readiness-audit">Fixed (production readiness audit)<a class="headerlink" href="#fixed-production-readiness-audit" title="Permanent link">&para;</a></h3>
-<ul>
-<li><code>LoopWorker.start()</code> returned before its event loop was running</li>
-<li><code>LoopWorker.stop()</code> left the loop unclosed, leaking its self-pipe on every pool restart</li>
-<li>The hard-timeout timer for sync tasks was never cancelled, parking a thread per task</li>
-<li><code>CancelledError</code> was swallowed in the async task path instead of propagating</li>
-<li>The timer scheduled on the wall clock, so a clock step shifted or stampeded pending entries</li>
-<li>A deep backlog could starve the <code>max_tasks_per_child</code> and <code>max_memory_per_child</code> checks</li>
-<li><code>celery-asyncio[hiredis]</code> and <code>[libvalkey]</code> installed nothing</li>
-<li>A local <code>uv build</code> swept vendored virtualenvs into the sdist</li>
-</ul>
-<h2 id="v600a3">v6.0.0a3<a class="headerlink" href="#v600a3" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Dual Valkey/Redis support; <code>redis</code> backend module renamed to <code>valkey_redis</code></li>
-<li>API reference (mkdocstrings) and migration guide</li>
-<li>Flower packaged as a <code>[flower]</code> extra</li>
-<li>Soft time limits for sync tasks in the thread pool</li>
-<li>Redis PUBSUB replaced with polling in the result backend</li>
-<li>Django 6.0 Tasks backend removed in favour of
-  <a href="https://github.com/oliverhaas/django-tasks-celery">django-tasks-celery</a></li>
-<li>Memcached backend, Python 2 compat shims, and dead code removed</li>
-</ul>
-<h2 id="v600a2">v6.0.0a2<a class="headerlink" href="#v600a2" title="Permanent link">&para;</a></h2>
-<p>Initial alpha of celery-asyncio.</p>
-<h3 id="what-works">What works<a class="headerlink" href="#what-works" title="Permanent link">&para;</a></h3>
-<ul>
-<li>Async worker with hybrid asyncio + thread pool</li>
-<li><code>async def</code> and regular <code>def</code> tasks in the same worker</li>
-<li>Valkey/Redis transport (with sorted-set priority queues, Lua scripts, fanout)</li>
-<li>AMQP transport (via aio-pika, RabbitMQ)</li>
-<li>Full CLI (<code>celery worker</code>, <code>celery inspect</code>, <code>celery control</code>, <code>celery result</code>)</li>
-<li>Task events and Celery Flower monitoring</li>
-<li>Worker restart (max tasks, max memory, stuck threads)</li>
-<li>Task timeouts (soft and hard, async and sync)</li>
-<li>Django 6.0 Tasks support via <a href="https://github.com/oliverhaas/django-tasks-celery">django-tasks-celery</a></li>
-<li>Delayed/scheduled tasks (countdown, eta)</li>
-<li>Task priority</li>
-<li>Task retries</li>
-</ul>
-<h3 id="whats-not-yet-tested">What's not yet tested<a class="headerlink" href="#whats-not-yet-tested" title="Permanent link">&para;</a></h3>
-<ul>
-<li>Multi-worker deployments</li>
-<li>Rate limiting and autoscaling</li>
-</ul>
-<h3 id="breaking-changes-from-upstream-celery">Breaking changes from upstream Celery<a class="headerlink" href="#breaking-changes-from-upstream-celery" title="Permanent link">&para;</a></h3>
-<ul>
-<li>Requires Python 3.14+</li>
-<li>Requires kombu-asyncio (not upstream kombu)</li>
-<li>Removed eventlet, gevent, and prefork pool backends</li>
-<li>Removed billiard dependency</li>
-<li>Default pool is <code>asyncio</code> (not <code>prefork</code>)</li>
-<li>Bootsteps are async (<code>async def start/stop</code>)</li>
-</ul>
+<h1 id="simple-interface">Simple Interface<a class="headerlink" href="#simple-interface" title="Permanent link">&para;</a></h1>
+<p>A minimal queue-like API over a <a href="../kombu-connection/"><code>Connection</code></a>, for cases
+that need nothing more than put and get.</p>
+<h2 id="simplequeue">SimpleQueue<a class="headerlink" href="#simplequeue" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="kombu.simple.SimpleQueue" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">SimpleQueue</span>
+
+
+<a href="#kombu.simple.SimpleQueue" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Simple API for persistent queues - Pure asyncio implementation.</p>
+<p>Provides a simplified interface for point-to-point messaging
+using put/get operations similar to Python's Queue.</p>
+<p>Example:
+    async with connection.SimpleQueue('my_queue') as queue:
+        await queue.put({'hello': 'world'})
+        message = await queue.get(timeout=5)
+        await message.ack()</p>
+<p>Arguments:
+    connection: The connection to use.
+    name: Queue name (also used as exchange and routing key).
+    no_ack: Don't require message acknowledgment.
+    queue_opts: Options passed to Queue declaration.
+    exchange_opts: Options passed to Exchange declaration.
+    serializer: Default serializer for messages.
+    compression: Default compression for messages.
+    accept: List of accepted content types for consuming.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="kombu.simple.SimpleQueue.put" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">put</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#kombu.simple.SimpleQueue.put" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">put</span><span class="p">(</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">message</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">serializer</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">headers</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">compression</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">routing_key</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Put a message on the queue.</p>
+<p>Args:
+    message: Message body (will be serialized).
+    serializer: Serializer to use.
+    headers: Optional message headers.
+    compression: Compression method.
+    routing_key: Override routing key.
+    **kwargs: Additional message properties.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="kombu.simple.SimpleQueue.get" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#kombu.simple.SimpleQueue.get" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get</span><span class="p">(</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">block</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">timeout</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Message</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get a message from the queue.</p>
+<p>Args:
+    block: If True, block until a message is available.
+    timeout: Maximum time to wait in seconds.</p>
+<p>Returns:
+    The message object.</p>
+<p>Raises:
+    Empty: If no message is available and block is False or timeout expired.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="kombu.simple.SimpleQueue.get_nowait" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_nowait</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#kombu.simple.SimpleQueue.get_nowait" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">get_nowait</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Message</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get a message without blocking.</p>
+<p>Returns:
+    The message object.</p>
+<p>Raises:
+    Empty: If no message is available.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="kombu.simple.SimpleQueue.clear" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">clear</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#kombu.simple.SimpleQueue.clear" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">clear</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Purge all messages from the queue.</p>
+<p>Returns:
+    Number of messages purged.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="kombu.simple.SimpleQueue.qsize" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">qsize</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#kombu.simple.SimpleQueue.qsize" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">qsize</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Get the approximate number of messages in the queue.</p>
+<p>Raises:
+    NotImplementedError: This method is not supported across all
+        transports. Use transport-specific APIs for queue size.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="kombu.simple.SimpleQueue.close" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">close</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#kombu.simple.SimpleQueue.close" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">close</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Close the simple queue.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="kombu.simple.SimpleQueue.__aenter__" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">__aenter__</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#kombu.simple.SimpleQueue.__aenter__" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">__aenter__</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">SimpleQueue</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Async context manager entry.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="kombu.simple.SimpleQueue.__aexit__" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">__aexit__</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#kombu.simple.SimpleQueue.__aexit__" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">__aexit__</span><span class="p">(</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">exc_type</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="ne">BaseException</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">exc_val</span><span class="p">:</span> <span class="ne">BaseException</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">exc_tb</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Async context manager exit.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="simplebuffer">SimpleBuffer<a class="headerlink" href="#simplebuffer" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="kombu.simple.SimpleBuffer" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">SimpleBuffer</span>
+
+
+<a href="#kombu.simple.SimpleBuffer" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="SimpleQueue (kombu.simple.SimpleQueue)" href="#kombu.simple.SimpleQueue">SimpleQueue</a></code></p>
+
+
+
+        <p>Simple API for ephemeral queues - Pure asyncio implementation.</p>
+<p>Like SimpleQueue but with transient, auto-delete settings.
+Suitable for temporary communication channels.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="broadcast">Broadcast<a class="headerlink" href="#broadcast" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="kombu.common.Broadcast" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">Broadcast</span>
+
+
+<a href="#kombu.common.Broadcast" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="Queue (kombu.entity.Queue)" href="../kombu-entities/#kombu.entity.Queue">Queue</a></code></p>
+
+
+
+        <p>Broadcast queue.</p>
+<p>Convenience class used to define broadcast queues.</p>
+<p>Every queue instance will have a unique name,
+and both the queue and exchange is configured with auto deletion.</p>
+<p>Arguments:
+    name: This is used as the name of the exchange.
+    queue: By default a unique id is used for the queue
+        name for every consumer.  You can specify a custom
+        queue name here.
+    unique: Always create a unique queue
+        even if a queue name is supplied.
+    **kwargs: See Queue for additional keyword arguments.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="maybe_declare">maybe_declare<a class="headerlink" href="#maybe_declare" title="Permanent link">&para;</a></h2>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="kombu.common.maybe_declare" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">maybe_declare</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#kombu.common.maybe_declare" class="headerlink" title="Permanent link">&para;</a></h2>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">maybe_declare</span><span class="p">(</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">entity</span><span class="p">:</span> <span class="n">Exchange</span> <span class="o">|</span> <span class="n">Queue</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="n">Channel</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>Declare entity (exchange or queue) if not already declared.</p>
+<p>Args:
+    entity: Exchange or Queue to declare.
+    channel: Channel to use for declaration.</p>
+<p>Returns:
+    True if entity was declared, False if already declared.</p>
+
+
+    </div>
+
+</div>
 
 
 

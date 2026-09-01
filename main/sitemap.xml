@@ -29,6 +29,22 @@
          <lastmod>2026-09-01</lastmod>
     </url>
     <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/reference/kombu-connection/</loc>
+         <lastmod>2026-09-01</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/reference/kombu-entities/</loc>
+         <lastmod>2026-09-01</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/reference/kombu-messaging/</loc>
+         <lastmod>2026-09-01</lastmod>
+    </url>
+    <url>
+         <loc>https://oliverhaas.github.io/celery-asyncio/main/reference/kombu-simple/</loc>
+         <lastmod>2026-09-01</lastmod>
+    </url>
+    <url>
          <loc>https://oliverhaas.github.io/celery-asyncio/main/reference/result/</loc>
          <lastmod>2026-09-01</lastmod>
     </url>
