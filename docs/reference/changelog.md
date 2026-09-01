@@ -27,6 +27,11 @@
 - Raised the `amqp` extra's floor to `aio-pika>=9.5.0`, the line CI runs against
 - Restored the per-rule reasons on the ruff `ignore` list, lost in the merge
 
+### Added
+
+- A Broker API (kombu) section in the docs nav: Connection, producers and
+  consumers, exchanges and queues, and the simple interface
+
 ### Removed
 
 - The `zstd` extra. PEP 784 put zstd in the stdlib as of 3.14, this package's

@@ -85,4 +85,9 @@ nav:
       - Signals: reference/signals.md
       - Schedules: reference/schedules.md
       - States: reference/states.md
+  - Broker API (kombu):
+      - Connection: reference/kombu-connection.md
+      - Producers and Consumers: reference/kombu-messaging.md
+      - Exchanges and Queues: reference/kombu-entities.md
+      - Simple Interface: reference/kombu-simple.md
   - Changelog: reference/changelog.md

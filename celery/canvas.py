@@ -2487,9 +2487,9 @@ class _chord(Signature):
             >>> chord_sig = chord.from_dict(chord_dict)
 
         Iterates over the given tasks in the dictionary and convert them to signatures.
-        Chord header needs to be defined in d['kwargs']['header'] as a sequence
+        Chord header needs to be defined in `d['kwargs']['header']` as a sequence
         of tasks.
-        Chord body needs to be defined in d['kwargs']['body'] as a single task.
+        Chord body needs to be defined in `d['kwargs']['body']` as a single task.
 
         The tasks themselves can be dictionaries or signatures (or both).
         """
