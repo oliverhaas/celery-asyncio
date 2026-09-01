@@ -26,7 +26,7 @@ from kombu.utils.url import maybe_sanitize_url
 from kombu.utils.uuid import uuid
 
 import celery.exceptions
-from celery import current_app, group, maybe_signature, states
+from celery import chord, current_app, group, maybe_signature, states
 from celery._state import get_current_task
 from celery.app.task import Context
 from celery.exceptions import (
@@ -359,6 +359,11 @@ class Backend:
         if isinstance(callback, group):
             return self._handle_group_chord_error(group_callback=callback, backend=backend, exc=original_exc)
 
+        # Same for a callback that is itself a chord, for a different reason
+        # (see _handle_chord_chord_error).
+        if isinstance(callback, chord):
+            return self._handle_chord_chord_error(chord_callback=callback, backend=backend, exc=original_exc)
+
         # The failure has to be stored somewhere, and a callback that was never
         # frozen has no id -- fail_from_current_stack would then reach
         # get_key_for_task(None) and raise instead of recording the error
@@ -381,6 +386,24 @@ class Backend:
             return backend.fail_from_current_stack(callback_id, exc=eb_exc)
         else:
             return backend.fail_from_current_stack(callback_id, exc=original_exc)
+
+    def _handle_chord_chord_error(self, chord_callback, backend, exc=None):
+        """Handle chord errors when the callback is itself a chord.
+
+        A chord's ``task_id`` option is its *header group* id -- ``freeze``
+        assigns ``self.id = self.tasks.id`` -- so failing it stores the error
+        under a key nobody ever reads. Meanwhile the result the caller was
+        handed is the innermost body's, which would sit ``PENDING`` forever
+        because a failed outer header means this chord is never dispatched.
+        So fail the parts that do have real ids: the header, whose members
+        will never run, and the body, recursively, since it may be another
+        chord or a group in turn.
+        """
+        header = chord_callback.tasks
+        if not isinstance(header, group):
+            header = group(header, app=self.app)
+        self._handle_group_chord_error(group_callback=header, backend=backend, exc=exc)
+        return self.chord_error_from_stack(chord_callback.body, exc=exc)
 
     def _handle_group_chord_error(self, group_callback, backend, exc=None):
         """Handle chord errors when the callback is a group.

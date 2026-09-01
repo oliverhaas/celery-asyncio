@@ -701,6 +701,27 @@ class test_BaseBackend_dict:
         assert failed_id
         assert callback.options["task_id"] == failed_id
 
+    def test_chord_error_from_stack_with_a_chord_callback(self):
+        # A chord's task_id option is its header group's id -- freeze() sets
+        # `self.id = self.tasks.id` -- so failing it would record the error
+        # under a key nobody reads while the result the caller holds, the
+        # innermost body's, stayed PENDING forever.
+        b = BaseBackend(app=self.app)
+        b.fail_from_current_stack = Mock()
+        b._call_task_errbacks = Mock()
+        b._handle_group_chord_error = Mock()
+        header = [signature("test.h1", app=self.app), signature("test.h2", app=self.app)]
+        inner = chord(header, signature("test.body", app=self.app), app=self.app)
+        outer = chord([signature("test.o1", app=self.app)], inner, app=self.app)
+        held = outer.freeze()
+
+        b.chord_error_from_stack(inner, exc=ValueError("boom"))
+
+        (failed_id,) = b.fail_from_current_stack.call_args.args
+        assert failed_id == held.id
+        # The header members will never run either, so they are failed too.
+        assert b._handle_group_chord_error.call_args.kwargs["group_callback"] is inner.tasks
+
     def test_exception_to_python_when_None(self):
         b = BaseBackend(app=self.app)
         assert b.exception_to_python(None) is None
