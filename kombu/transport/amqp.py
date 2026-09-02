@@ -180,7 +180,7 @@ def _expiration_to_millis(expiration: float | timedelta | datetime) -> int:
 
     Incoming messages carry a float in seconds (aio-pika decodes the header for
     us), but the same attribute holds a timedelta or an absolute datetime on
-    messages we built ourselves, so all four forms have to be handled.
+    messages we built ourselves, so every form has to be handled.
     """
     if isinstance(expiration, timedelta):
         return int(expiration.total_seconds() * 1000)
