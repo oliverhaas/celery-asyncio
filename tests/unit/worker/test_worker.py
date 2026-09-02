@@ -362,6 +362,37 @@ class test_WorkController(ConsumerCase):
             mock_sleep.assert_not_called()
 
 
+class test_WorkController_pool_sizing:
+    """The pool sizes come from the command line, else the configuration."""
+
+    SIZES = [
+        ("loop_workers", "worker_loop_workers", 1),
+        ("loop_concurrency", "worker_loop_concurrency", 10),
+        ("sync_workers", "worker_sync_workers", 1),
+    ]
+
+    def create_worker(self, **kw):
+        worker = self.app.WorkController(concurrency=1, loglevel=0, **kw)
+        worker.blueprint.shutdown_complete.set()
+        return worker
+
+    @pytest.mark.parametrize(("attribute", "setting", "default"), SIZES)
+    def test_falls_back_to_the_shipped_default(self, attribute, setting, default):
+        assert getattr(self.create_worker(), attribute) == default
+
+    @pytest.mark.parametrize(("attribute", "setting", "default"), SIZES)
+    def test_the_setting_replaces_the_default(self, attribute, setting, default):
+        self.app.conf[setting] = 7
+
+        assert getattr(self.create_worker(), attribute) == 7
+
+    @pytest.mark.parametrize(("attribute", "setting", "default"), SIZES)
+    def test_the_command_line_wins_over_the_setting(self, attribute, setting, default):
+        self.app.conf[setting] = 7
+
+        assert getattr(self.create_worker(**{attribute: 3}), attribute) == 3
+
+
 class test_WorkerApp:
     def test_safe_say_defaults_to_stderr(self, capfd):
         safe_say("hello")
