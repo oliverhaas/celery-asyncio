@@ -49,6 +49,31 @@ class TestConnection:
         await conn.close()
         assert not conn.is_connected
 
+    async def test_closing_the_connection_finishes_the_channel_work(self):
+        """A channel does broker work as it closes: this must still reach Redis.
+
+        Unacked messages go back on the queue and auto-delete queues are
+        removed. A transport that drops its clients before draining its
+        channels turns all of it into a warning and leaves the queue behind.
+        """
+        conn = Connection(REDIS_URL)
+        await conn.connect()
+        channel = await conn.default_channel()
+        queue = Queue("test_close_autodelete", durable=False, auto_delete=True)
+        await channel.declare_queue(queue)
+        queue_key = channel._queue_key("test_close_autodelete")
+        await channel.client.zadd(queue_key, {"leftover": 1})
+        assert await channel.client.exists(queue_key) == 1
+
+        probe = Connection(REDIS_URL)
+        await probe.connect()
+        probe_channel = await probe.default_channel()
+        try:
+            await conn.close()
+            assert await probe_channel.client.exists(queue_key) == 0
+        finally:
+            await probe.close()
+
     async def test_channel(self, connection):
         """Test creating a channel."""
         channel = await connection.channel()

@@ -1217,6 +1217,28 @@ class TestTransportLifecycle:
         assert t._subclient is None
         assert t._connected is False
 
+    async def test_a_channel_still_has_its_client_while_it_closes(self):
+        """Closing a channel is broker work: requeue, restore, auto-delete.
+
+        Detaching the clients before the channels drain leaves every one of
+        those calls against None, so unacked messages wait out the visibility
+        timeout instead of going back on the queue.
+        """
+        t = _make_transport()
+        t._client.aclose = AsyncMock()
+        t._subclient.aclose = AsyncMock()
+        channel = await t.create_channel()
+        channel.auto_delete_queues.add("q1")
+        client = t._client
+        seen = []
+        channel.queue_delete = AsyncMock(side_effect=lambda q: seen.append(channel.client))
+
+        await t.close()
+
+        assert seen == [client]
+        assert t._client is None
+        client.aclose.assert_awaited_once()
+
     async def test_a_closed_channel_is_dropped_from_the_transport(self):
         t = _make_transport()
         first = await t.create_channel()

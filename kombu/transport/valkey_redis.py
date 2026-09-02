@@ -2310,8 +2310,8 @@ class Transport(BaseTransport):
     async def close(self) -> None:
         async with self._lock:
             channels, self._channels = self._channels, []
-            clients = [c for c in (self._subclient, self._client) if c is not None]
-            self._client = self._subclient = None
+            # Closed to new work, but the clients stay up for the drain: a
+            # channel requeues, restores prefetch and deletes queues as it goes.
             self._connected = False
             try:
                 for channel in channels:
@@ -2319,6 +2319,8 @@ class Transport(BaseTransport):
             finally:
                 # Draining a channel can be cancelled or can fail on a broker
                 # that has gone away. Either way the sockets go.
+                clients = [c for c in (self._subclient, self._client) if c is not None]
+                self._client = self._subclient = None
                 await self._aclose_clients(clients)
 
     @staticmethod
