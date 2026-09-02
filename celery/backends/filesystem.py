@@ -4,7 +4,7 @@
 
 import locale
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 
 from kombu.utils.encoding import ensure_bytes
 
@@ -99,7 +99,10 @@ class FilesystemBackend(KeyValueStoreBackend):
         """Delete expired meta-data."""
         if not self.expires:
             return
-        epoch = datetime(1970, 1, 1, tzinfo=self.app.timezone)
+        # The epoch has to be spelled in UTC: with the app on any other
+        # timezone the subtraction shifts the cutoff by its UTC offset and
+        # deletes results that are still fresh.
+        epoch = datetime(1970, 1, 1, tzinfo=UTC)
         now_ts = (self.app.now() - epoch).total_seconds()
         cutoff_ts = now_ts - self.expires
         for filename in os.listdir(self.path):

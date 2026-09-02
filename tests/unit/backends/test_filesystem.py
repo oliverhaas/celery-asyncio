@@ -115,3 +115,19 @@ class test_FilesystemBackend:
         filenames = set(os.listdir(tb.path))
         assert not any(tb.get_key_for_task(tid) in filenames for tid in yesterday_task_ids)
         assert all(tb.get_key_for_task(tid) in filenames for tid in today_task_ids)
+
+    @pytest.mark.skipif(
+        sys.platform == "win32", reason="Test can fail on Windows/FAT due to low granularity of st_mtime"
+    )
+    @pytest.mark.parametrize("timezone", ["Europe/Berlin", "Pacific/Kiritimati", "UTC"])
+    def test_cleanup_keeps_fresh_results_in_any_timezone(self, timezone):
+        self.app.conf.timezone = timezone
+        self.app.conf.enable_utc = False
+        tb = FilesystemBackend(app=self.app, url=self.url)
+        task_id = uuid()
+        tb.mark_as_done(task_id, 42)
+
+        with patch.object(tb, "expires", 3600):
+            tb.cleanup()
+
+        assert tb.get_key_for_task(task_id) in set(os.listdir(tb.path))
