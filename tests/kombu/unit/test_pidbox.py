@@ -1,6 +1,7 @@
 """Tests for kombu.pidbox - Mailbox and Node."""
 
 import asyncio
+import threading
 import time
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -204,3 +205,17 @@ async def test_collect_consumes_on_the_channel_it_was_given():
 
     assert responses == []
     assert consumed == [mailbox.reply_queue.name]
+
+
+def test_oid_stays_the_same_on_another_thread():
+    # The oid is the routing key replies are sent to, and it mixes in the
+    # calling thread, so a mailbox read from two threads used to hand out two
+    # different reply queues and the collecting thread waited on the empty one.
+    mailbox = Mailbox("testns")
+    seen = []
+    thread = threading.Thread(target=lambda: seen.append(mailbox.oid))
+    thread.start()
+    thread.join()
+
+    assert seen == [mailbox.oid]
+    assert mailbox.get_reply_queue().routing_key == mailbox.oid

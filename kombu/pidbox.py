@@ -494,6 +494,12 @@ class Mailbox:
     def _get_reply_exchange(self, namespace):
         return Exchange(self.reply_exchange_fmt % namespace, type="direct", durable=False, delivery_mode="transient")
 
-    @property
+    @cached_property
     def oid(self):
+        """This mailbox's identity, and the routing key of its reply queue.
+
+        Cached: the identity mixes in the calling thread, so recomputing it
+        would hand a caller on another thread a different reply queue from the
+        one the replies are addressed to.
+        """
         return oid_from(self)
