@@ -1,4 +1,5 @@
 import gc
+import weakref
 
 from celery.utils.dispatch import Signal
 
@@ -175,3 +176,88 @@ class test_Signal:
         finally:
             a_signal.disconnect(succeeds_eventually, sender=self)
         self._testIsClean(a_signal)
+
+
+class Handler:
+    def __init__(self, name):
+        self.name = name
+
+    def on_signal(self, **kwargs):
+        return self.name
+
+
+class test_bound_method_receivers:
+    def test_two_instances_both_receive(self):
+        # bound methods of two instances share a __func__, so keying on the
+        # function alone silently dropped the second connect().
+        signal = Signal(name="two-instances")
+        first, second = Handler("first"), Handler("second")
+        signal.connect(first.on_signal, weak=False)
+        signal.connect(second.on_signal, weak=False)
+        assert len(signal.receivers) == 2
+        assert sorted(response for _, response in signal.send(sender=None)) == ["first", "second"]
+
+    def test_the_same_bound_method_connects_once(self):
+        signal = Signal(name="same-instance")
+        handler = Handler("only")
+        signal.connect(handler.on_signal, weak=False)
+        signal.connect(handler.on_signal, weak=False)
+        assert len(signal.receivers) == 1
+
+    def test_disconnect_only_removes_the_given_instance(self):
+        signal = Signal(name="disconnect-one")
+        first, second = Handler("first"), Handler("second")
+        signal.connect(first.on_signal, weak=False)
+        signal.connect(second.on_signal, weak=False)
+        assert signal.disconnect(first.on_signal)
+        assert [response for _, response in signal.send(sender=None)] == ["second"]
+
+
+class test_reconnect_does_not_leak_finalizers:
+    def test_reconnecting_registers_one_finalizer(self):
+        signal = Signal(name="reconnect")
+
+        def receiver(**kwargs):
+            return "ok"
+
+        before = len(weakref.finalize._registry)
+        for _ in range(5):
+            signal.connect(receiver)
+        assert len(weakref.finalize._registry) - before == 1
+        assert len(signal.receivers) == 1
+
+
+class test_caching_senders:
+    def test_none_sender(self):
+        signal = Signal(name="cached-none", use_caching=True)
+        signal.connect(receiver_1_arg, weak=False)
+        assert signal.send(sender=None, val="x") == [(receiver_1_arg, "x")]
+        # second send comes out of the cache
+        assert signal.send(sender=None, val="x") == [(receiver_1_arg, "x")]
+
+    def test_string_sender(self):
+        signal = Signal(name="cached-str", use_caching=True)
+        signal.connect(receiver_1_arg, sender="worker@host", weak=False)
+        assert signal.send(sender="worker@host", val="x") == [(receiver_1_arg, "x")]
+        assert signal.send(sender="worker@host", val="x") == [(receiver_1_arg, "x")]
+        assert signal.send(sender="other@host", val="x") == []
+
+    def test_string_sender_cache_is_invalidated_by_connect(self):
+        signal = Signal(name="cached-invalidate", use_caching=True)
+        assert signal.send(sender="worker@host", val="x") == []
+        signal.connect(receiver_1_arg, sender="worker@host", weak=False)
+        assert signal.send(sender="worker@host", val="x") == [(receiver_1_arg, "x")]
+
+    def test_weakrefable_sender_is_not_kept_alive(self):
+        signal = Signal(name="cached-weak", use_caching=True)
+        signal.connect(receiver_1_arg, weak=False)
+
+        class Sender:
+            pass
+
+        sender = Sender()
+        ref = weakref.ref(sender)
+        signal.send(sender=sender, val="x")
+        del sender
+        garbage_collect()
+        assert ref() is None

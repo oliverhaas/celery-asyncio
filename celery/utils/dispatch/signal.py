@@ -28,7 +28,9 @@ def _make_id(target):  # pragma: no cover
         # see Issue #2475
         return target
     if hasattr(target, "__func__"):
-        return id(target.__func__)
+        # bound methods of two instances share a function, so the instance
+        # has to be part of the key or the second connect() is dropped.
+        return (id(target.__self__), id(target.__func__))
     return id(target)
 
 
@@ -68,6 +70,37 @@ NONE_ID = _make_id(None)
 
 NO_RECEIVERS = object()
 
+
+class _SenderReceiversCache:
+    """Resolved receivers, keyed by sender.
+
+    Senders that can be weak referenced are held weakly so the cache never
+    keeps a sender alive.  ``None`` and the hostname strings celery sends
+    with cannot be, and are held in a plain dictionary keyed the way
+    receivers are.
+    """
+
+    def __init__(self):
+        self.weak = weakref.WeakKeyDictionary()
+        self.strong = {}
+
+    def get(self, sender, default=None):
+        try:
+            return self.weak.get(sender, default)
+        except TypeError:
+            return self.strong.get(_make_id(sender), default)
+
+    def __setitem__(self, sender, receivers):
+        try:
+            self.weak[sender] = receivers
+        except TypeError:
+            self.strong[_make_id(sender)] = receivers
+
+    def clear(self):
+        self.weak.clear()
+        self.strong.clear()
+
+
 RECEIVER_RETRY_ERROR = """\
 Could not process signal receiver %(receiver)s. Retrying %(when)s...\
 """
@@ -93,12 +126,11 @@ class Signal:  # pragma: no cover
         self.lock = threading.Lock()
         self.use_caching = use_caching
         self.name = name
-        # For convenience we create empty caches even if they are not used.
-        # A note about caching: if use_caching is defined, then for each
-        # distinct sender we cache the receivers that sender has in
-        # 'sender_receivers_cache'.  The cache is cleaned when .connect() or
-        # .disconnect() is called and populated on .send().
-        self.sender_receivers_cache = weakref.WeakKeyDictionary() if use_caching else {}
+        # With use_caching the receivers of each distinct sender are cached
+        # in 'sender_receivers_cache', populated on .send() and cleared by
+        # .connect() and .disconnect().  The cache exists either way so
+        # .send() does not have to branch on it.
+        self.sender_receivers_cache = _SenderReceiversCache()
         self._dead_receivers = False
 
     def _connect_proxy(self, fun, sender, weak, dispatch_uid):
@@ -202,10 +234,10 @@ class Signal:  # pragma: no cover
 
         lookup_key = _make_lookup_key(receiver, sender, dispatch_uid)
 
+        receiver_object = None
         if weak:
             ref, receiver_object = _boundmethod_safe_weakref(receiver)
             receiver = ref(receiver)
-            weakref.finalize(receiver_object, self._remove_receiver)
 
         with self.lock:
             self._clear_dead_receivers()
@@ -213,6 +245,10 @@ class Signal:  # pragma: no cover
                 if r_key == lookup_key:
                     break
             else:
+                if receiver_object is not None:
+                    # only for a receiver we keep, or reconnecting the same
+                    # one leaks a finalizer per call.
+                    weakref.finalize(receiver_object, self._remove_receiver)
                 self.receivers.append((lookup_key, receiver))
             self.sender_receivers_cache.clear()
 
