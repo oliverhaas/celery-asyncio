@@ -763,10 +763,6 @@ class AMQP:
     def router(self, value):
         return value
 
-    # Note: producer_pool is not used in celery-asyncio.
-    # Async operations create producers directly from the shared async connection.
-    # The sync API wraps async methods with async_to_sync.
-
     @cached_property
     def default_exchange(self):
         return Exchange(self.app.conf.task_default_exchange, self.app.conf.task_default_exchange_type)

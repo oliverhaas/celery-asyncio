@@ -18,7 +18,7 @@ from kombu import Connection, Exchange, Queue
 pydantic = pytest.importorskip("pydantic")
 from pydantic import BaseModel, ValidationInfo, model_validator
 
-from celery import Celery, Task, _state, current_app, shared_task
+from celery import Celery, Task, _state, current_app, group, shared_task
 from celery import app as _app
 from celery.app import defaults
 from celery.app.amqp import AMQP
@@ -1588,6 +1588,28 @@ class test_broker_connection_reuse:
             app.send_task("t.reuse.producer", producer=given)
 
         assert published == [given]
+
+    def test_a_group_publishes_with_the_producer_it_is_given(self):
+        app = self._app("t.reuse.group")
+        given = app.amqp.Producer(app.connection_for_write())
+        published = []
+
+        with patch.object(app.amqp, "asend_task_message") as send:
+            send.side_effect = lambda producer, *a, **kw: published.append(producer)
+            group([app.signature("t.reuse.group")] * 2).apply_async(producer=given)
+
+        assert published == [given, given]
+
+    async def test_an_async_group_publishes_with_the_producer_it_is_given(self):
+        app = self._app("t.reuse.agroup")
+        given = app.amqp.Producer(app.connection_for_write())
+        published = []
+
+        with patch.object(app.amqp, "asend_task_message") as send:
+            send.side_effect = lambda producer, *a, **kw: published.append(producer)
+            await group([app.signature("t.reuse.agroup")] * 2).aapply_async(producer=given)
+
+        assert published == [given, given]
 
     def test_close_hands_the_connection_back(self):
         app = self._app("t.reuse.close")

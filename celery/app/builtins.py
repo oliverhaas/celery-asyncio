@@ -170,8 +170,8 @@ def add_group_task(app):
         result = result_from_tuple(result, app)
         # any partial args are added to all tasks in the group
         taskit = (maybe_signature(task, app=app).clone(partial_args) for i, task in enumerate(tasks))
-        with app.producer_or_acquire() as producer:
-            [stask.apply_async(group_id=group_id, producer=producer, add_to_parent=False) for stask in taskit]
+        for stask in taskit:
+            stask.apply_async(group_id=group_id, add_to_parent=False)
         parent = app.current_worker_task
         if add_to_parent and parent:
             parent.add_trail(result)

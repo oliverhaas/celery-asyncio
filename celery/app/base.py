@@ -14,7 +14,7 @@ import typing
 import warnings
 import weakref
 from collections import UserDict, defaultdict, deque
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from operator import attrgetter
 from urllib.parse import urlparse
@@ -1346,18 +1346,6 @@ class Celery:
 
     broker_connection = connection
 
-    @contextmanager
-    def producer_or_acquire(self, producer=None):
-        """No-op context manager for backward compatibility.
-
-        In celery-asyncio, producer pools are not used. All producer
-        operations go through the async path which creates producers
-        directly. This yields None so callers that pass the producer
-        to individual apply_async() calls work correctly (each
-        signature handles its own sending).
-        """
-        yield None
-
     def prepare_config(self, c):
         """Prepare configuration before it is merged with the defaults."""
         return find_deprecated_settings(c)
@@ -1816,16 +1804,6 @@ class Celery:
         """
         self.finalize(auto=True)
         return self._tasks
-
-    @property
-    def producer_pool(self):
-        """Legacy producer pool (not used in celery-asyncio).
-
-        Raises NotImplementedError as celery-asyncio uses async producers directly.
-        """
-        raise NotImplementedError(
-            "producer_pool is not available in celery-asyncio. Use async methods like asend_task() instead."
-        )
 
     def uses_utc_timezone(self):
         """Check if the application uses the UTC timezone."""

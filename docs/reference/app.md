@@ -15,7 +15,6 @@ The `Celery` class is the main entry point for creating a celery-asyncio applica
         - config_from_envvar
         - autodiscover_tasks
         - connection_for_write
-        - producer_pool
         - control
         - events
         - select_queues

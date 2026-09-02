@@ -854,11 +854,9 @@ class Signature(dict):
         app = type.app
         tid = self.options.get("task_id") or uuid()
 
-        with app.producer_or_acquire(None) as producer:
-            props = type.backend.on_task_call(producer, tid)
-            connection = getattr(producer, "connection", None)
-            app.control.election(tid, "task", self.clone(task_id=tid, **props), connection=connection)
-            return type.AsyncResult(tid)
+        props = type.backend.on_task_call(None, tid)
+        app.control.election(tid, "task", self.clone(task_id=tid, **props))
+        return type.AsyncResult(tid)
 
     def reprcall(self, *args, **kwargs):
         """Return a string representation of the signature.
@@ -2180,42 +2178,41 @@ class group(Signature):
             generator: A generator for the AsyncResult of the tasks in the group.
         """
         app = app or self.app
-        with app.producer_or_acquire(producer) as producer:
-            # Walk `tasks` one step ahead of the publishing loop. `tasks` may be
-            # a generator whose header tasks are meant to be published as it is
-            # consumed rather than after (#3021), so the size cannot be counted
-            # up front -- but it has to be written before the last header task
-            # is published, or a worker that completes the whole header first
-            # would find no chord_size in `on_chord_part_return`, skip the
-            # completion check, and leave the chord stalled with no later event
-            # to retrigger it.
-            chord_size = 0
-            tasks_shifted, tasks = itertools.tee(tasks)
-            next(tasks_shifted, None)
-            next_task = next(tasks_shifted, None)
+        # Walk `tasks` one step ahead of the publishing loop. `tasks` may be
+        # a generator whose header tasks are meant to be published as it is
+        # consumed rather than after (#3021), so the size cannot be counted
+        # up front -- but it has to be written before the last header task
+        # is published, or a worker that completes the whole header first
+        # would find no chord_size in `on_chord_part_return`, skip the
+        # completion check, and leave the chord stalled with no later event
+        # to retrigger it.
+        chord_size = 0
+        tasks_shifted, tasks = itertools.tee(tasks)
+        next(tasks_shifted, None)
+        next_task = next(tasks_shifted, None)
 
-            for sig, res, group_id in tasks:
-                # Every task is expected to belong to the same group; if one did
-                # not, the chord counts would be wrong in ways with no good
-                # recovery, so this trusts the caller.
-                chord_obj = chord if chord is not None else sig.options.get("chord")
-                chord_size += _chord._descend(sig)
-                if chord_obj is not None and next_task is None:
-                    app.backend.set_chord_size(group_id, chord_size)
-                sig.apply_async(
-                    producer=producer, add_to_parent=False, chord=chord_obj, args=args, kwargs=kwargs, **options
-                )
-                # adding callback to result, such that it will gradually
-                # fulfill the barrier.
-                #
-                # Using barrier.add would use result.then, but we need
-                # to add the weak argument here to only create a weak
-                # reference to the object.
-                if p and not p.cancelled and not p.ready:
-                    p.size += 1
-                    res.then(p, weak=True)
-                yield res  # <-- r.parent, etc set in the frozen result.
-                next_task = next(tasks_shifted, None)
+        for sig, res, group_id in tasks:
+            # Every task is expected to belong to the same group; if one did
+            # not, the chord counts would be wrong in ways with no good
+            # recovery, so this trusts the caller.
+            chord_obj = chord if chord is not None else sig.options.get("chord")
+            chord_size += _chord._descend(sig)
+            if chord_obj is not None and next_task is None:
+                app.backend.set_chord_size(group_id, chord_size)
+            sig.apply_async(
+                producer=producer, add_to_parent=False, chord=chord_obj, args=args, kwargs=kwargs, **options
+            )
+            # adding callback to result, such that it will gradually
+            # fulfill the barrier.
+            #
+            # Using barrier.add would use result.then, but we need
+            # to add the weak argument here to only create a weak
+            # reference to the object.
+            if p and not p.cancelled and not p.ready:
+                p.size += 1
+                res.then(p, weak=True)
+            yield res  # <-- r.parent, etc set in the frozen result.
+            next_task = next(tasks_shifted, None)
 
     async def _aapply_tasks(
         self,
@@ -2237,9 +2234,9 @@ class group(Signature):
         app = app or self.app
         results = []
 
-        # In native async mode, aapply_async handles its own connection/producer
-        # via app.asend_task -> app._asend_task_message. The one-step lookahead
-        # is the same as in _apply_tasks -- see the comment there.
+        # Without a producer, aapply_async gets its own from
+        # app._asend_task_message. The one-step lookahead is the same as in
+        # _apply_tasks, see the comment there.
         chord_size = 0
         tasks_shifted, tasks = itertools.tee(tasks)
         next(tasks_shifted, None)
@@ -2250,7 +2247,9 @@ class group(Signature):
             chord_size += _chord._descend(sig)
             if chord_obj is not None and next_task is None:
                 await app.backend.aset_chord_size(group_id, chord_size)
-            await sig.aapply_async(add_to_parent=False, chord=chord_obj, args=args, kwargs=kwargs, **options)
+            await sig.aapply_async(
+                producer=producer, add_to_parent=False, chord=chord_obj, args=args, kwargs=kwargs, **options
+            )
 
             if p and not p.cancelled and not p.ready:
                 p.size += 1

@@ -4,7 +4,6 @@ import pytest
 
 from celery import chord, group
 from celery.app import builtins
-from celery.contrib.testing.mocks import ContextMock
 from celery.utils.functional import pass1
 
 
@@ -91,8 +90,6 @@ class test_group(BuiltinsCase):
     def setup_method(self):
         self.maybe_signature = self.patching("celery.canvas.maybe_signature")
         self.maybe_signature.side_effect = pass1
-        self.app.producer_or_acquire = Mock()
-        self.app.producer_or_acquire.attach_mock(ContextMock(serializer="json"), "return_value")
         self.app.conf.task_always_eager = True
         self.task = builtins.add_group_task(self.app)
         super().setup_method()
@@ -116,7 +113,6 @@ class test_group(BuiltinsCase):
         self.task(g.tasks, result, result.id, (2,)).results
         g.tasks[0].clone().apply_async.assert_called_with(
             group_id=result.id,
-            producer=self.app.producer_or_acquire(),
             add_to_parent=False,
         )
         current_worker_task.add_trail.assert_called_with(result)

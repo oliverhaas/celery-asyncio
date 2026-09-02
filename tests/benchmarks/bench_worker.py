@@ -68,8 +68,8 @@ def it(_, n):
 def bench_apply(n=DEFAULT_ITS):
     time_start = time.monotonic()
     task = it._get_current_object()
-    with app.producer_or_acquire() as producer:
-        [task.apply_async((i, n), producer=producer) for i in range(n)]
+    for i in range(n):
+        task.apply_async((i, n))
     print(f"-- apply {n} tasks: {time.monotonic() - time_start}s")
 
 
