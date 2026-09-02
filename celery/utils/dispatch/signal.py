@@ -126,10 +126,7 @@ class Signal:  # pragma: no cover
         self.lock = threading.Lock()
         self.use_caching = use_caching
         self.name = name
-        # With use_caching the receivers of each distinct sender are cached
-        # in 'sender_receivers_cache', populated on .send() and cleared by
-        # .connect() and .disconnect().  The cache exists either way so
-        # .send() does not have to branch on it.
+        # Per-sender receiver cache, filled by send() and cleared by connect() and disconnect().
         self.sender_receivers_cache = _SenderReceiversCache()
         self._dead_receivers = False
 
@@ -373,10 +370,7 @@ class Signal:  # pragma: no cover
 
     def _remove_receiver(self, receiver=None):
         """Remove dead receivers from connections."""
-        # Only flag that self.receivers holds dead weakrefs; connect,
-        # disconnect and _live_receivers clean them up while holding
-        # self.lock.  Cleaning up here would deadlock: garbage collection
-        # calls this, so it can run while we already hold the lock.
+        # Only flag dead weakrefs: this runs from garbage collection, possibly under self.lock.
         self._dead_receivers = True
 
     def __repr__(self):
