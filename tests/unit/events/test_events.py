@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import socket
 import time
 from unittest.mock import Mock, call
 
@@ -380,21 +379,6 @@ class test_EventReceiver:
         r._receive(message, object())
         assert got_event[0]
 
-    @pytest.mark.skip(reason="EventReceiver uses sync ConsumerMixin; needs async refactor")
-    def test_itercapture(self):
-        connection = self.app.connection_for_write()
-        try:
-            r = self.app.events.Receiver(connection, node_id="celery.tests")
-            it = r.itercapture(timeout=0.0001, wakeup=False)
-
-            with pytest.raises(socket.timeout):
-                next(it)
-
-            with pytest.raises(socket.timeout):
-                r.capture(timeout=0.00001)
-        finally:
-            connection.close()
-
     def test_event_from_message_localize_disabled(self):
         r = self.app.events.Receiver(Mock(), node_id="celery.tests")
         r.adjust_clock = Mock()
@@ -432,37 +416,6 @@ class test_EventReceiver:
         efm.side_effect = on_efm
         r._receive([1, 2, 3], Mock())
         r.process.assert_has_calls([call(1), call(2), call(3)])
-
-    @pytest.mark.skip(reason="EventReceiver uses sync ConsumerMixin; needs async refactor")
-    def test_itercapture_limit(self):
-        connection = self.app.connection_for_write()
-        channel = connection.channel()
-        try:
-            events_received = [0]
-
-            def handler(event):
-                events_received[0] += 1
-
-            producer = self.app.events.Dispatcher(
-                connection,
-                enabled=True,
-                channel=channel,
-            )
-            r = self.app.events.Receiver(
-                connection,
-                handlers={"*": handler},
-                node_id="celery.tests",
-            )
-            evs = ["ev1", "ev2", "ev3", "ev4", "ev5"]
-            for ev in evs:
-                producer.send(ev)
-            it = r.itercapture(limit=4, wakeup=True)
-            next(it)  # skip consumer (see itercapture)
-            list(it)
-            assert events_received[0] == 4
-        finally:
-            channel.close()
-            connection.close()
 
     def test_event_queue_is_exclusive_by_default(self):
         # RabbitMQ 4.3.0 refuses transient non-exclusive queues.

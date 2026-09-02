@@ -109,9 +109,6 @@ class EventReceiver(ConsumerMixin):
         if wakeup:
             await self.awakeup_workers(connection=connection, channel=channel)
 
-    def itercapture(self, limit=None, timeout=None, wakeup=True):
-        return self.consume(limit=limit, timeout=timeout, wakeup=wakeup)
-
     def capture(self, limit=None, timeout=None, wakeup=True):
         """Open up a consumer capturing events.
 
@@ -127,11 +124,8 @@ class EventReceiver(ConsumerMixin):
         async for _ in self.consume(limit=limit, timeout=timeout, wakeup=wakeup):
             pass
 
-    def wakeup_workers(self, channel=None):
-        self.app.control.broadcast("heartbeat", connection=self.connection, channel=channel)
-
     async def awakeup_workers(self, connection=None, channel=None):
-        """Async variant of wakeup_workers using abroadcast."""
+        """Ask every worker to send a heartbeat, so the receiver sees them at once."""
         conn = connection or self.connection
         await self.app.control.abroadcast("heartbeat", connection=conn, channel=channel)
 

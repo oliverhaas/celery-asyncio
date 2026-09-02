@@ -170,15 +170,9 @@ def handle_preload_options(f):
 class CeleryOption(click.Option):
     """Customized option for Celery."""
 
-    def get_default(self, ctx, *args, **kwargs):
-        if self.default_value_from_context:
-            self.default = ctx.obj[self.default_value_from_context]
-        return super().get_default(ctx, *args, **kwargs)
-
     def __init__(self, *args, **kwargs):
         """Initialize a Celery option."""
         self.help_group = kwargs.pop("help_group", None)
-        self.default_value_from_context = kwargs.pop("default_value_from_context", None)
         super().__init__(*args, **kwargs)
 
 

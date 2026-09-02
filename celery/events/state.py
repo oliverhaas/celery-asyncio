@@ -730,8 +730,6 @@ class State:
                     yield uuid, task
                     seen.add(uuid)
 
-    tasks_by_timestamp = tasks_by_time
-
     def _tasks_by_type(self, name, limit=None, reverse=True):
         """Get all tasks by type.
 

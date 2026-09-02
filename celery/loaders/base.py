@@ -83,9 +83,6 @@ class BaseLoader:
     def on_worker_shutdown(self):
         """Called when the worker (:program:`celery worker`) shuts down."""
 
-    def on_worker_process_init(self):
-        """Called when a child process starts."""
-
     def import_task_module(self, module):
         self.task_modules.add(module)
         return self.import_from_cwd(module)
@@ -118,9 +115,6 @@ class BaseLoader:
 
     def shutdown_worker(self):
         self.on_worker_shutdown()
-
-    def init_worker_process(self):
-        self.on_worker_process_init()
 
     def config_from_object(self, obj, silent=False):
         if isinstance(obj, str):

@@ -51,12 +51,6 @@ class test_LoaderBase:
     def test_import_task_module(self):
         assert sys == self.loader.import_task_module("sys")
 
-    def test_init_worker_process(self):
-        self.loader.on_worker_process_init()
-        m = self.loader.on_worker_process_init = Mock()
-        self.loader.init_worker_process()
-        m.assert_called_with()
-
     def test_config_from_object_module(self):
         self.loader.import_from_cwd = Mock(
             return_value={
