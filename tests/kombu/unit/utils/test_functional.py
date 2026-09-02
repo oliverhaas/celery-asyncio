@@ -280,8 +280,17 @@ def test_fxrange__no_repeatlast():
 
 
 def test_reprkwargs():
-    assert reprkwargs({"foo": "bar", 1: 2, "k": "v"})
+    assert reprkwargs({"foo": "bar", 1: 2, "k": "v"}) == "foo='bar', 1=2, k='v'"
 
 
-def test_reprcall():
-    assert reprcall("add", (2, 2), {"copy": True})
+@pytest.mark.parametrize(
+    "args,kwargs,expected",
+    [
+        ((2, 2), {"copy": True}, "add(2, 2, copy=True)"),
+        ((2, 2), None, "add(2, 2)"),
+        ((), {"copy": True}, "add(copy=True)"),
+        ((), None, "add()"),
+    ],
+)
+def test_reprcall(args, kwargs, expected):
+    assert reprcall("add", args, kwargs) == expected
