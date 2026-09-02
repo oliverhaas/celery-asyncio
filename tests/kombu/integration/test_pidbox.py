@@ -1,8 +1,4 @@
-"""Integration tests for kombu.pidbox against a live broker.
-
-AMQP only: on Redis a fanout message published while no consumer is blocked
-on the stream is not delivered, so the mailbox never reaches the node.
-"""
+"""Integration tests for kombu.pidbox against live brokers."""
 
 import os
 import uuid
@@ -12,14 +8,17 @@ import pytest
 from kombu import Connection
 from kombu.pidbox import Mailbox
 
-pytestmark = [pytest.mark.asyncio(loop_scope="function"), pytest.mark.amqp]
+pytestmark = pytest.mark.asyncio(loop_scope="function")
 
 AMQP_URL = os.environ.get("KOMBU_TEST_AMQP_URL", "amqp://guest:guest@localhost:5672//")
+REDIS_URL = os.environ.get("KOMBU_TEST_REDIS_URL", "redis://localhost:6379/15")
+
+URLS = {"amqp": AMQP_URL, "redis": REDIS_URL}
 
 
-@pytest.fixture
-async def connection():
-    conn = Connection(AMQP_URL)
+@pytest.fixture(params=sorted(URLS), ids=sorted(URLS))
+async def connection(request):
+    conn = Connection(URLS[request.param])
     await conn.connect()
     yield conn
     await conn.close()
