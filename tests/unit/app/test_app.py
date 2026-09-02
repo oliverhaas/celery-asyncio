@@ -13,7 +13,7 @@ from unittest.mock import DEFAULT, Mock, call, patch
 from zoneinfo import ZoneInfo
 
 import pytest
-from kombu import Connection
+from kombu import Connection, Exchange, Queue
 
 pydantic = pytest.importorskip("pydantic")
 from pydantic import BaseModel, ValidationInfo, model_validator
@@ -1328,6 +1328,47 @@ class test_App:
             self.app.send_task("foo", (1, 2), expires="2023-03-16T17:21:20.663973")
         except TypeError as e:
             pytest.fail(f"raise unexcepted error {e}")
+
+
+class test_countdown_on_a_quorum_queue:
+    """countdown and eta with a quorum queue reached a stub that raised.
+
+    Native delayed delivery routes the message through a chain of RabbitMQ
+    delay exchanges, which this fork does not build. What is left is the eta
+    header, which the worker holds the message on until.
+    """
+
+    def _app(self):
+        app = self.Celery(set_as_current=False, broker="amqp://guest@localhost//")
+        app.conf.task_queues = [
+            Queue(
+                "q",
+                Exchange("topic-ex", type="topic"),
+                routing_key="q",
+                queue_arguments={"x-queue-type": "quorum"},
+            ),
+        ]
+
+        @app.task(name="t.quorum", shared=False)
+        def t():
+            pass
+
+        return app
+
+    @pytest.mark.parametrize(
+        "options",
+        [{"countdown": 30}, {"eta": datetime(2030, 1, 1, tzinfo=UTC)}],
+        ids=["countdown", "eta"],
+    )
+    def test_it_publishes_to_the_queue_with_an_eta(self, options):
+        app = self._app()
+
+        with patch.object(app, "_send_task_message") as send:
+            app.send_task("t.quorum", queue="q", **options)
+
+        message = send.call_args.args[2]
+        assert message.headers["eta"]
+        assert send.call_args.kwargs["queue"].name == "q"
 
 
 class test_send_task_exec_options:

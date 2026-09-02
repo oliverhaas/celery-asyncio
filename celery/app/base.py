@@ -20,25 +20,8 @@ from operator import attrgetter
 
 from click.exceptions import Exit
 from dateutil.parser import isoparse
-from kombu import Exchange
 from kombu.clocks import LamportClock
 from kombu.common import oid_from
-
-
-# Note: RabbitMQ-style native delayed delivery (quorum queue exchange routing)
-# is not available in kombu. Redis native delayed delivery uses a
-# different mechanism (sorted set scores) handled by the transport directly.
-def calculate_routing_key(countdown, routing_key):
-    """Stub for RabbitMQ native delayed delivery routing key calculation.
-
-    This is a RabbitMQ/quorum-queue specific feature not available in kombu.
-    Redis native delayed delivery uses sorted set scores instead.
-    """
-    raise NotImplementedError(
-        "RabbitMQ native_delayed_delivery (quorum queues) is not available "
-        "in kombu. Redis native delayed delivery is handled by the "
-        "transport via properties.eta."
-    )
 
 
 import types as _types
@@ -106,17 +89,6 @@ def _annotation_issubclass(annotation, cls):
 async def _start_generator(generator):
     """Run `generator` up to its first yield, registering it with the loop."""
     await anext(generator)
-
-
-def _detect_quorum_queues(app, driver_type: str) -> tuple[bool, str]:
-    """Detect if any queues are quorum queues (AMQP only)."""
-    if driver_type == "amqp":
-        queues = app.amqp.queues
-        for qname in queues:
-            qarguments = queues[qname].queue_arguments or {}
-            if qarguments.get("x-queue-type") == "quorum":
-                return True, qname
-    return False, ""
 
 
 # Load all builtin tasks
@@ -1021,42 +993,6 @@ class Celery:
 
         ignore_result = options.pop("ignore_result", False)
         options = router.route(options, route_name or name, args, kwargs, task_type)
-
-        # Get driver type from the connection this will publish on (which may
-        # not be connected yet).
-        conn = connection or self.async_connection
-        driver_type = conn.transport.driver_type if conn.transport else conn._scheme
-
-        if (eta or countdown) and _detect_quorum_queues(self, driver_type)[0]:
-            queue = options.get("queue")
-            exchange_type = queue.exchange.type if queue else options["exchange_type"]
-            routing_key = queue.routing_key if queue else options["routing_key"]
-            exchange_name = queue.exchange.name if queue else options["exchange"]
-
-            if exchange_type != "direct":
-                if eta:
-                    if isinstance(eta, str):
-                        eta = isoparse(eta)
-                    countdown = (maybe_make_aware(eta) - self.now()).total_seconds()
-
-                if countdown:
-                    if countdown > 0:
-                        routing_key = calculate_routing_key(int(countdown), routing_key)
-                        exchange = Exchange(
-                            "celery_delayed_27",
-                            type="topic",
-                        )
-                        options.pop("queue", None)
-                        options["routing_key"] = routing_key
-                        options["exchange"] = exchange
-
-            else:
-                logger.warning(
-                    "Direct exchanges are not supported with native delayed delivery.\n"
-                    f"{exchange_name} is a direct exchange but should be a topic exchange or "
-                    "a fanout exchange in order for native delayed delivery to work properly.\n"
-                    "If quorum queues are used, this task may block the worker process until the ETA arrives."
-                )
 
         if expires is not None:
             if isinstance(expires, datetime):

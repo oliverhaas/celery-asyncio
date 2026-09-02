@@ -16,7 +16,6 @@ from kombu import Connection as KombuConnection
 from kombu import Queue
 
 from celery import bootsteps
-from celery.app.base import _detect_quorum_queues as detect_quorum_queues
 from celery.contrib.testing.mocks import ContextMock
 from celery.exceptions import RestartFreqExceeded, WorkerShutdown, WorkerTerminate
 from celery.utils.collections import LimitedSet
@@ -746,29 +745,6 @@ class test_Tasks:
 
         consumer.close.assert_awaited_once_with()
         assert c.task_consumer is None
-
-    def test_detect_quorum_queues_positive(self):
-        c = self.c
-        self.c.connection.transport.driver_type = "amqp"
-        c.app.amqp.queues = {"celery": Mock(queue_arguments={"x-queue-type": "quorum"})}
-        result, name = detect_quorum_queues(c.app, c.connection.transport.driver_type)
-        assert result
-        assert name == "celery"
-
-    def test_detect_quorum_queues_negative(self):
-        c = self.c
-        self.c.connection.transport.driver_type = "amqp"
-        c.app.amqp.queues = {"celery": Mock(queue_arguments=None)}
-        result, name = detect_quorum_queues(c.app, c.connection.transport.driver_type)
-        assert not result
-        assert name == ""
-
-    def test_detect_quorum_queues_not_rabbitmq(self):
-        c = self.c
-        self.c.connection.transport.driver_type = "redis"
-        result, name = detect_quorum_queues(c.app, c.connection.transport.driver_type)
-        assert not result
-        assert name == ""
 
     async def test_start_creates_consumer_and_qos(self):
         """Test that Tasks.start creates task consumer and QoS."""
