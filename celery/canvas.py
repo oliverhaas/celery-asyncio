@@ -1916,7 +1916,7 @@ class group(Signature):
     def apply_async(
         self, args=None, kwargs=None, add_to_parent=True, producer=None, link=None, link_error=None, **options
     ):
-        args, app, options, group_id, tasks, add_to_parent = self._prepare_apply_async(
+        args, app, prep_options, group_id, tasks, add_to_parent = self._prepare_apply_async(
             args=args,
             kwargs=kwargs,
             add_to_parent=add_to_parent,
@@ -1926,16 +1926,20 @@ class group(Signature):
             **options,
         )
 
+        # apply() prepares the options itself, so it has to see the caller's
+        # originals. _prepare_apply_async() has already turned task_id into
+        # group_id, and handing that on would leave apply() to invent a new
+        # group id and drop the one the caller asked for.
         if tasks is None:
             if app.conf.task_always_eager:
-                return self.apply(args, kwargs, **options) if options else self.apply(args, kwargs)
+                return self.apply(args, kwargs, **options)
             return self.freeze()
 
         if app.conf.task_always_eager:
             return self.apply(args, kwargs, **options)
 
         p = barrier()
-        results = list(self._apply_tasks(tasks, producer, app, p, args=args, kwargs=kwargs, **options))
+        results = list(self._apply_tasks(tasks, producer, app, p, args=args, kwargs=kwargs, **prep_options))
         result = self.app.GroupResult(group_id, results, ready_barrier=p)
         p.finalize()
 
@@ -1997,7 +2001,7 @@ class group(Signature):
 
         if tasks is None:
             if app.conf.task_always_eager:
-                return await self.aapply(args, kwargs, **options) if options else await self.aapply(args, kwargs)
+                return await self.aapply(args, kwargs, **options)
             return self.freeze()
 
         if app.conf.task_always_eager:

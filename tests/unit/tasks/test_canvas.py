@@ -1119,6 +1119,20 @@ class test_group(CanvasCase):
         g2 = group(self.add.s(8, 8), g1, self.add.s(16, 16), app=self.app)
         g2.apply_async()
 
+    def test_eager_apply_async_keeps_the_requested_group_id(self):
+        self.app.conf.task_always_eager = True
+        g = group(self.add.s(2, 2), self.add.s(4, 4), app=self.app)
+
+        assert g.apply_async(task_id="wanted-id").id == "wanted-id"
+
+    async def test_eager_aapply_async_keeps_the_requested_group_id(self):
+        self.app.conf.task_always_eager = True
+        g = group(self.add.s(2, 2), self.add.s(4, 4), app=self.app)
+
+        result = await g.aapply_async(task_id="wanted-id")
+
+        assert result.id == "wanted-id"
+
     def test_group_in_group_keeps_the_declared_order(self):
         g1 = group(self.add.s(2, 2), self.add.s(4, 4), app=self.app)
         g2 = group(self.add.s(8, 8), g1, self.add.s(16, 16), app=self.app)
