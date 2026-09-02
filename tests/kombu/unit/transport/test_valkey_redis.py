@@ -19,6 +19,7 @@ from kombu.exceptions import InconsistencyError
 from kombu.transport import valkey_redis
 from kombu.transport.valkey_redis import (
     BINDING_SEP,
+    DEFAULT_BLOCK_TIMEOUT,
     DEFAULT_DELIVERY_LIMIT,
     DEFAULT_REQUEUE_CHECK_INTERVAL,
     DEFAULT_VISIBILITY_TIMEOUT,
@@ -270,11 +271,22 @@ class TestChannelInit:
         assert _make_channel()._requeue_check_interval == DEFAULT_REQUEUE_CHECK_INTERVAL
         assert _make_channel(requeue_check_interval=5)._requeue_check_interval == 5
 
-    @pytest.mark.parametrize("bad", [0, -1])
-    def test_a_non_positive_requeue_check_interval_falls_back(self, bad):
-        # Zero would turn the sweep into a busy loop and a negative value would
-        # put every visibility deadline in the past.
-        assert _make_channel(requeue_check_interval=bad)._requeue_check_interval == DEFAULT_REQUEUE_CHECK_INTERVAL
+    @pytest.mark.parametrize("option", ["requeue_check_interval", "block_timeout", "visibility_timeout"])
+    @pytest.mark.parametrize("bad", [0, -1, -0.5])
+    def test_a_non_positive_duration_is_refused(self, option, bad):
+        # Zero turns a wait into a busy loop and a negative value puts every
+        # deadline in the past, so neither is quietly accepted.
+        with pytest.raises(ValueError, match=f"{option} must be greater than 0"):
+            _make_channel(**{option: bad})
+
+    @pytest.mark.parametrize("option", ["requeue_check_interval", "block_timeout", "visibility_timeout"])
+    def test_a_duration_that_is_not_a_number_is_refused(self, option):
+        with pytest.raises(TypeError, match=f"{option} must be a number"):
+            _make_channel(**{option: "10"})
+
+    def test_block_timeout_defaults_and_is_configurable(self):
+        assert _make_channel()._block_timeout == DEFAULT_BLOCK_TIMEOUT
+        assert _make_channel(block_timeout=0.5)._block_timeout == 0.5
 
     def test_fanout_prefix_default(self):
         ch = _make_channel()
@@ -1145,6 +1157,28 @@ class TestTransportLifecycle:
         assert t._client is None
         assert t._subclient is None
         assert t._connected is False
+
+    async def test_a_closed_channel_is_dropped_from_the_transport(self):
+        t = _make_transport()
+        first = await t.create_channel()
+        second = await t.create_channel()
+        assert t._channels == [first, second]
+
+        await first.close()
+
+        # Celery opens a channel per unit of work on some paths, so a
+        # transport that only ever appends grows for the life of the process.
+        assert t._channels == [second]
+
+    async def test_closing_a_channel_twice_leaves_the_others_alone(self):
+        t = _make_transport()
+        first = await t.create_channel()
+        second = await t.create_channel()
+
+        await first.close()
+        await first.close()
+
+        assert t._channels == [second]
 
     async def test_a_client_that_will_not_close_does_not_hide_the_other(self, caplog):
         t = _make_transport()

@@ -267,27 +267,19 @@ def _parse_db_from_url(url: str) -> str:
     return path or "0"
 
 
-def _resolve_requeue_check_interval(opts: dict) -> float:
-    """Return the sweep cadence, in seconds.
+def _duration_option(opts: dict, name: str, default: float) -> float:
+    """Read a duration transport option, in seconds.
 
-    This is both how often timed-out and delayed messages are restored and the
-    grace margin added to every visibility deadline, so nothing becomes
-    eligible for restore before the sweep that would pick it up has run. It is
-    configurable because a low ``visibility_timeout`` otherwise looks ignored:
-    the real wait is bounded by the sweep, not by the timeout (upstream kombu
-    9ee8595b).
+    Zero and negative durations have no meaning for any of them and would turn
+    a wait into a busy loop or put a deadline in the past, so they are refused
+    at channel creation rather than misbehaving later.
     """
-    interval = opts.get("requeue_check_interval", DEFAULT_REQUEUE_CHECK_INTERVAL)
-    if interval <= 0:
-        # Zero turns the sweep into a busy loop and a negative value puts every
-        # visibility deadline in the past.
-        logger.warning(
-            "requeue_check_interval must be positive, got %r; using %s seconds instead.",
-            interval,
-            DEFAULT_REQUEUE_CHECK_INTERVAL,
-        )
-        return DEFAULT_REQUEUE_CHECK_INTERVAL
-    return interval
+    value = opts.get(name, default)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):  # fmt: skip
+        raise TypeError(f"{name} must be a number of seconds, got {value!r}")
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than 0 seconds, got {value!r}")
+    return float(value)
 
 
 # ---------------------------------------------------------------------------
@@ -352,11 +344,22 @@ class Channel:
         # Config from transport options
         opts = transport._options
         self._global_keyprefix: str = opts.get("global_keyprefix", "")
-        self._visibility_timeout: float = opts.get(
+        self._visibility_timeout: float = _duration_option(
+            opts,
             "visibility_timeout",
             DEFAULT_VISIBILITY_TIMEOUT,
         )
-        self._requeue_check_interval: float = _resolve_requeue_check_interval(opts)
+        # Both how often timed-out and delayed messages are restored and the
+        # grace margin added to every visibility deadline, so nothing becomes
+        # eligible for restore before the sweep that would pick it up has run.
+        # It is configurable because a low visibility_timeout otherwise looks
+        # ignored: the real wait is bounded by the sweep, not by the timeout
+        # (upstream kombu 9ee8595b).
+        self._requeue_check_interval: float = _duration_option(
+            opts,
+            "requeue_check_interval",
+            DEFAULT_REQUEUE_CHECK_INTERVAL,
+        )
         self._message_ttl: int = opts.get("message_ttl", DEFAULT_MESSAGE_TTL)
         self._queue_expires: int | None = opts.get("queue_expires", DEFAULT_QUEUE_EXPIRES)
         self._stream_maxlen: int = opts.get("stream_maxlen", DEFAULT_STREAM_MAXLEN)
@@ -378,8 +381,9 @@ class Channel:
         self._consume_fast_mode: bool = True
 
         # Server-side block duration for BZMPOP/XREAD inside a single consumer
-        # iteration.
-        self._block_timeout: float = opts.get("block_timeout", DEFAULT_BLOCK_TIMEOUT)
+        # iteration, and the ceiling on how long one drain_events wait blocks
+        # in Redis. Zero would spin.
+        self._block_timeout: float = _duration_option(opts, "block_timeout", DEFAULT_BLOCK_TIMEOUT)
 
         # Long-lived consumer iteration tasks; created lazily by drain_events.
         # Each task runs a single FAST→SLOW (or XREAD) cycle bounded by
@@ -2054,6 +2058,11 @@ class Channel:
             return
         self._closed = True
         self._closing = True
+        # Deregister first: celery opens a channel per unit of work on some
+        # paths, and the transport would otherwise hold every one of them
+        # until it is closed itself. Doing it here rather than at the end also
+        # covers a close that is cancelled while draining.
+        self._transport.forget_channel(self)
 
         # Let consumer iterations finish naturally — bounded by
         # `block_timeout`. They are never cancelled in the hot path, so any
@@ -2294,6 +2303,11 @@ class Transport(BaseTransport):
                 # already on its way out, or while the rest of the shutdown
                 # still has to happen.
                 logger.warning("Could not close a Redis client.", exc_info=True)
+
+    def forget_channel(self, channel: _Channel) -> None:
+        """Drop a channel that has closed itself."""
+        if channel in self._channels:
+            self._channels.remove(channel)
 
     async def create_channel(self) -> _Channel:  # type: ignore[override]  # ty: ignore[invalid-method-override]
         await self.connect()
