@@ -793,6 +793,11 @@ class Channel:
         and leaves it alone afterwards, with either value of the global flag,
         so the consumers already running are registered again here. Without
         that a prefetch set after consuming started would change nothing.
+
+        A consumer that does not acknowledge is left where it is. Prefetch
+        means nothing to it, and cancelling it would take an auto-delete queue
+        with it: the worker's mailbox is one, and it would be gone for as long
+        as the swap takes, dropping the control messages sent meanwhile.
         """
         await self._ensure_open()
         await self._aio_channel.set_qos(prefetch_count=prefetch_count)
@@ -801,6 +806,8 @@ class Channel:
 
         self._prefetch_count = prefetch_count
         for tag, (queue_name, _callback, no_ack) in list(self._consumers.items()):
+            if no_ack:
+                continue
             aio_queue = self._declared_queues.get(queue_name)
             if aio_queue is not None:
                 await aio_queue.cancel(tag)

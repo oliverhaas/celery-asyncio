@@ -1254,6 +1254,19 @@ class TestChannelAckReject:
         assert aio_q.consume.await_args.kwargs["consumer_tag"] == "tag1"
         assert channel._prefetch_count == 3
 
+    async def test_basic_qos_leaves_a_no_ack_consumer_registered(self, channel, aio_channel):
+        """Cancelling one would delete the auto-delete queue under it."""
+        aio_q = _make_aio_queue("mailbox")
+        channel._declared_queues["mailbox"] = aio_q
+        await channel.basic_consume("mailbox", MagicMock(), consumer_tag="tag1", no_ack=True)
+        aio_q.consume.reset_mock()
+
+        await channel.basic_qos(prefetch_count=3)
+
+        aio_q.cancel.assert_not_awaited()
+        aio_q.consume.assert_not_awaited()
+        assert channel._prefetch_count == 3
+
     async def test_basic_qos_leaves_consumers_alone_when_nothing_changes(self, channel, aio_channel):
         aio_q = _make_aio_queue("q1")
         channel._declared_queues["q1"] = aio_q

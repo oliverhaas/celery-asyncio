@@ -368,6 +368,13 @@ of the code and settings nothing calls any more.
 
 #### AMQP transport
 
+- Every worker against RabbitMQ died at startup with `NOT_FOUND - no queue
+  '<node>.celery.pidbox'`, and the tasks already sent were never run. Setting a
+  prefetch count registers the running consumers again, because RabbitMQ fixes
+  a consumer's credit when it is registered; that cancelled the mailbox
+  consumer, and its queue is auto-delete, so the broker took the queue away
+  between the cancel and the consume that followed. A consumer that does not
+  acknowledge is now left alone, prefetch having no meaning for one
 - The transport reported a healthy connection after the broker had closed it.
   aio-pika only resolves its "closed" future for a close this side asked for, so
   a broker restart or a server-side close left `connect()` returning at once,
