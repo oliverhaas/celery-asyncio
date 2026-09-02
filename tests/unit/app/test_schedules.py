@@ -1,5 +1,4 @@
 import builtins
-import time
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pickle import dumps, loads
@@ -887,19 +886,16 @@ class test_crontab_is_due:
             assert due
             assert remaining == 60.0
 
-    @pytest.mark.skip("TODO: unstable test")
     def test_monthly_moy_execution_is_not_due(self):
         with patch_crontab_nowfun(self.monthly_moy, datetime(2013, 6, 28, 14, 30)):
             due, remaining = self.monthly_moy.is_due(
                 datetime(2013, 6, 28, 22, 14),
             )
             assert not due
-            attempt = (
-                time.mktime(datetime(2014, 2, 26, 22, 0).timetuple())
-                - time.mktime(datetime(2013, 6, 28, 14, 30).timetuple())
-                - 60 * 60
-            )
-            assert remaining == attempt
+            # the next run is 2014-02-26 22:00, and the app timezone is UTC,
+            # so the difference carries no daylight saving offset.
+            expected = datetime(2014, 2, 26, 22, 0) - datetime(2013, 6, 28, 14, 30)
+            assert remaining == expected.total_seconds()
 
     def test_monthly_moy_execution_is_due2(self):
         with patch_crontab_nowfun(self.monthly_moy, datetime(2014, 2, 26, 22, 0)):
