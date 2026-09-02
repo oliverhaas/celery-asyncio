@@ -123,12 +123,31 @@ def celery(ctx, app, broker, result_backend, loader, config, workdir, no_color, 
 
     ctx.obj = CLIContext(app=app, no_color=no_color, workdir=workdir, quiet=quiet)
 
-    # User options
-    worker.params.extend(ctx.obj.app.user_options.get("worker", []))
-    beat.params.extend(ctx.obj.app.user_options.get("beat", []))
+    add_user_options(ctx, ctx.obj.app)
 
-    for command in celery.commands.values():
-        command.params.extend(ctx.obj.app.user_options.get("preload", []))
+
+def add_user_options(ctx, app):
+    """Give the commands the options `app` declares, for this invocation only.
+
+    The commands are module-level singletons, so extending their parameter
+    lists in place left one app's options on them for good: a later invocation
+    with a different app accepted an option that app knows nothing about and
+    then handed the command a keyword argument it has no parameter for.
+    """
+    additions = {command: list(app.user_options.get("preload", [])) for command in celery.commands.values()}
+    for command, group in ((worker, "worker"), (beat, "beat")):
+        additions.setdefault(command, []).extend(app.user_options.get(group, []))
+
+    originals = {command: command.params for command in additions}
+
+    def restore():
+        for command, params in originals.items():
+            command.params = params
+
+    ctx.call_on_close(restore)
+    for command, options in additions.items():
+        if options:
+            command.params = [*command.params, *options]
 
 
 @celery.command(cls=CeleryCommand)
