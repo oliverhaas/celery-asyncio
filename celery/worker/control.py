@@ -9,6 +9,7 @@ from collections import UserDict, defaultdict, namedtuple
 from typing import Any
 
 from kombu.utils.encoding import safe_repr
+from kombu.utils.eventloop import current_loop
 
 TERM_SIGNAME = "SIGTERM"
 
@@ -21,6 +22,7 @@ from celery.utils.serialization import jsonify, strtobool
 from celery.utils.time import rate
 
 from . import state as worker_state
+from .background import spawn
 from .request import Request
 
 __all__ = ("Panel",)
@@ -233,12 +235,6 @@ def revoke_by_stamped_headers(state, headers, terminate=False, signal=None, **kw
     return ok(f"headers {terminated_scheme_to_stamps_mapping} revoked")
 
 
-#: Strong references to the tasks _schedule() hands to the loop. Without
-#: these the loop only holds a weak reference and a task can be collected
-#: mid-flight, which here would mean silently not marking anything revoked.
-_pending_control_tasks: set[asyncio.Task] = set()
-
-
 def _schedule(coro):
     """Run a coroutine from a synchronous control command handler.
 
@@ -247,15 +243,10 @@ def _schedule(coro):
     awaited: blocking would stall every other message the loop is serving.
     Outside a loop (tests, direct calls) it is simply run to completion.
     """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
+    if current_loop() is None:
         asyncio.run(coro)
-        return
-
-    task = loop.create_task(coro)
-    _pending_control_tasks.add(task)
-    task.add_done_callback(_pending_control_tasks.discard)
+    else:
+        spawn(coro)
 
 
 async def _amark_revoked(backend, task_ids):

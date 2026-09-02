@@ -36,6 +36,7 @@ from celery.utils.objects import Bunch
 from celery.utils.text import truncate
 from celery.utils.time import humanize_seconds, rate
 from celery.worker import loops, state
+from celery.worker.background import spawn, spawn_threadsafe
 from celery.worker.state import (
     active_requests,
     maybe_shutdown,
@@ -463,8 +464,7 @@ class Consumer:
             dump_body(message, message.body),
             exc_info=1,
         )
-        loop = asyncio.get_event_loop()
-        loop.create_task(message.ack())
+        spawn(message.ack())
 
     def on_close(self):
         # Clear internal queues to get rid of old messages.
@@ -587,8 +587,7 @@ class Consumer:
 
     def on_unknown_message(self, body, message):
         warn(UNKNOWN_FORMAT, self._message_report(body, message))
-        loop = asyncio.get_event_loop()
-        loop.create_task(message.reject_log_error(logger, self.connection_errors))
+        spawn(message.reject_log_error(logger, self.connection_errors))
         signals.task_rejected.send(sender=self, message=message, exc=None)
 
     def on_unknown_task(self, body, message, exc):
@@ -608,8 +607,7 @@ class Consumer:
             reply_to=message.properties.get("reply_to"),
             errbacks=None,
         )
-        loop = asyncio.get_event_loop()
-        loop.create_task(message.reject_log_error(logger, self.connection_errors))
+        spawn(message.reject_log_error(logger, self.connection_errors))
         self.app.backend.mark_as_failure(
             id_,
             NotRegistered(name),
@@ -631,8 +629,7 @@ class Consumer:
 
     def on_invalid_task(self, body, message, exc):
         error(INVALID_TASK_ERROR, exc, dump_body(message, body), exc_info=True)
-        loop = asyncio.get_event_loop()
-        loop.create_task(message.reject_log_error(logger, self.connection_errors))
+        spawn(message.reject_log_error(logger, self.connection_errors))
         signals.task_rejected.send(sender=self, message=message, exc=exc)
 
     def update_strategies(self):
@@ -685,12 +682,10 @@ class Consumer:
                     # sync Request code (possibly in a thread pool).
                     # Use call_soon_threadsafe to schedule on the event loop.
                     def _ack(*args, _msg=message, **kwargs):
-                        loop.call_soon_threadsafe(loop.create_task, _msg.ack_log_error(logger, self.connection_errors))
+                        spawn_threadsafe(_msg.ack_log_error(logger, self.connection_errors), loop)
 
                     def _reject(_logger=None, _errors=None, requeue=False, _msg=message, **kwargs):
-                        loop.call_soon_threadsafe(
-                            loop.create_task, _msg.reject_log_error(logger, self.connection_errors, requeue=requeue)
-                        )
+                        spawn_threadsafe(_msg.reject_log_error(logger, self.connection_errors, requeue=requeue), loop)
 
                     strategy(
                         message,

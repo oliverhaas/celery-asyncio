@@ -1,3 +1,4 @@
+import asyncio
 import errno
 import socket
 from uuid import uuid4
@@ -19,6 +20,7 @@ from celery.app.base import _detect_quorum_queues as detect_quorum_queues
 from celery.contrib.testing.mocks import ContextMock
 from celery.exceptions import RestartFreqExceeded, WorkerShutdown, WorkerTerminate
 from celery.utils.collections import LimitedSet
+from celery.worker import background
 from celery.worker.consumer.connection import Connection
 from celery.worker.consumer.consumer import CANCEL_TASKS_BY_DEFAULT, CLOSE, TERMINATE, Consumer
 from celery.worker.consumer.gossip import Gossip
@@ -1201,3 +1203,72 @@ class test_Consumer_TaskQueues(ConsumerTestCase):
 
             assert not c.task_consumer.consuming_from(self.extra)
             assert self.extra not in c.app.amqp.queues.consume_from
+
+
+class FakeMessage:
+    """Stand-in for a kombu message the consumer cannot turn into a task."""
+
+    def __init__(self, headers=None, body=b"{}"):
+        self.headers = headers
+        self.body = body
+        self.content_type = "application/json"
+        self.content_encoding = "utf-8"
+        self.delivery_info = {"exchange": "", "routing_key": "celery"}
+        self.properties = {}
+        self.acked = 0
+        self.rejected = 0
+
+    async def ack(self):
+        self.acked += 1
+
+    async def reject_log_error(self, logger, errors, requeue=False):
+        self.rejected += 1
+
+
+class test_Consumer_undeliverable_messages(ConsumerTestCase):
+    """A message the consumer refuses has to be handed back to the broker.
+
+    The reject and the ack are coroutines started from synchronous callbacks,
+    and the loop keeps only a weak reference to what it is running, so one
+    that nothing holds on to can be collected before the broker hears of it.
+    """
+
+    async def settle(self):
+        await asyncio.gather(*tuple(background._running))
+
+    async def test_rejects_a_message_in_an_unknown_format(self):
+        message = FakeMessage()
+
+        self.get_consumer().on_unknown_message({}, message)
+        await self.settle()
+
+        assert message.rejected == 1
+
+    async def test_rejects_a_task_this_worker_does_not_have(self):
+        c = self.get_consumer()
+        message = FakeMessage(headers={"id": "abc", "task": "tests.nonexistent"})
+
+        with patch.object(type(c.app), "backend", Mock(name="backend")) as backend:
+            c.on_unknown_task(None, message, KeyError("tests.nonexistent"))
+            await self.settle()
+
+            backend.mark_as_failure.assert_called_once()
+        assert message.rejected == 1
+
+    async def test_rejects_a_task_with_invalid_arguments(self):
+        message = FakeMessage()
+
+        self.get_consumer().on_invalid_task({}, message, ValueError("bad args"))
+        await self.settle()
+
+        assert message.rejected == 1
+
+    async def test_acks_a_message_it_cannot_decode(self):
+        # Nothing can be done with it, and leaving it unacked has the broker
+        # redeliver a message that will fail to decode again.
+        message = FakeMessage()
+
+        self.get_consumer().on_decode_error(message, ValueError("not json"))
+        await self.settle()
+
+        assert message.acked == 1

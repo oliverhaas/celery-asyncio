@@ -15,7 +15,7 @@ from celery.utils.collections import AttributeDict
 from celery.utils.functional import maybe_list
 from celery.utils.scheduling import Timer
 from celery.worker import WorkController as _WC
-from celery.worker import consumer, control
+from celery.worker import background, consumer, control
 from celery.worker import state as worker_state
 from celery.worker.pidbox import Pidbox
 from celery.worker.request import Request
@@ -463,7 +463,7 @@ class test_ControlPanel:
 
         m = {"method": "revoke", "destination": hostname, "arguments": {"task_id": tid}}
         await self.panel.handle_message(m, None)
-        await asyncio.gather(*tuple(control._pending_control_tasks))
+        await asyncio.gather(*tuple(background._running))
 
         self.app.backend.amark_as_revoked.assert_awaited_once_with(tid, reason="revoked", store_result=True)
 
@@ -473,7 +473,7 @@ class test_ControlPanel:
 
         m = {"method": "revoke", "destination": hostname, "arguments": {"task_id": tid}}
         await self.panel.handle_message(m, None)
-        await asyncio.gather(*tuple(control._pending_control_tasks))
+        await asyncio.gather(*tuple(background._running))
 
         # The local flag is what stops the worker running it, and that must
         # not depend on the backend being up.
