@@ -255,9 +255,7 @@ def pydantic_wrapper(
         return returned_value
 
     if inspect.iscoroutinefunction(task_fun):
-        # A sync wrapper around an async body would hand `arun` a plain
-        # function returning a coroutine, and the un-awaited coroutine would be
-        # stored as the task result.
+        # A sync wrapper would store the un-awaited coroutine as the result.
         @functools.wraps(task_fun)
         async def wrapper(*task_args, **task_kwargs):
             bound_args = validate(task_args, task_kwargs)
@@ -1085,9 +1083,7 @@ class Celery:
             context = nullcontext(producer)
         else:
             if connection is None:
-                # This loop's shared connection, not a new one. `connect()` on
-                # an already-connected connection is a no-op, so the first
-                # send opens it and later ones reuse it.
+                # This loop's shared connection, opened by the first send.
                 connection = await self.ensure_async_connection()
             else:
                 await connection.connect()
@@ -1340,9 +1336,7 @@ class Celery:
         if heartbeat is None:
             heartbeat = conf.broker_heartbeat
         if heartbeat and urlparse(url).scheme in ("amqp", "amqps"):
-            # A protocol-level heartbeat, which only AMQP has. The Redis
-            # transport hands every option it does not recognise to its
-            # client, which would reject this one.
+            # AMQP only. Redis passes unknown options to its client.
             options.setdefault("heartbeat", heartbeat)
         return self.amqp.Connection(hostname=url, transport_options=options)
 
@@ -1658,9 +1652,7 @@ class Celery:
                 if connection is None:
                     connection = self._async_connections[loop] = self.connection_for_write()
                     if loop is current_loop():
-                        # The background loop outlives every caller and is
-                        # closed by its runner at exit, so only a loop the
-                        # caller brought needs handing back.
+                        # The background loop is closed by its own runner.
                         self._close_with_loop(loop, connection)
         return connection
 

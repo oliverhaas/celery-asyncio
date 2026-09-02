@@ -2178,23 +2178,15 @@ class group(Signature):
             generator: A generator for the AsyncResult of the tasks in the group.
         """
         app = app or self.app
-        # Walk `tasks` one step ahead of the publishing loop. `tasks` may be
-        # a generator whose header tasks are meant to be published as it is
-        # consumed rather than after (#3021), so the size cannot be counted
-        # up front -- but it has to be written before the last header task
-        # is published, or a worker that completes the whole header first
-        # would find no chord_size in `on_chord_part_return`, skip the
-        # completion check, and leave the chord stalled with no later event
-        # to retrigger it.
+        # `tasks` may be a generator published as it is consumed (#3021), so
+        # look ahead one to write the size with the last header task.
         chord_size = 0
         tasks_shifted, tasks = itertools.tee(tasks)
         next(tasks_shifted, None)
         next_task = next(tasks_shifted, None)
 
         for sig, res, group_id in tasks:
-            # Every task is expected to belong to the same group; if one did
-            # not, the chord counts would be wrong in ways with no good
-            # recovery, so this trusts the caller.
+            # The caller is trusted to pass one group's tasks.
             chord_obj = chord if chord is not None else sig.options.get("chord")
             chord_size += _chord._descend(sig)
             if chord_obj is not None and next_task is None:
@@ -2202,12 +2194,8 @@ class group(Signature):
             sig.apply_async(
                 producer=producer, add_to_parent=False, chord=chord_obj, args=args, kwargs=kwargs, **options
             )
-            # adding callback to result, such that it will gradually
-            # fulfill the barrier.
-            #
-            # Using barrier.add would use result.then, but we need
-            # to add the weak argument here to only create a weak
-            # reference to the object.
+            # barrier.add would call res.then without weak, which keeps the
+            # barrier alive for as long as the result is.
             if p and not p.cancelled and not p.ready:
                 p.size += 1
                 res.then(p, weak=True)
@@ -2234,9 +2222,7 @@ class group(Signature):
         app = app or self.app
         results = []
 
-        # Without a producer, aapply_async gets its own from
-        # app._asend_task_message. The one-step lookahead is the same as in
-        # _apply_tasks, see the comment there.
+        # Lookahead as in _apply_tasks, see the comment there.
         chord_size = 0
         tasks_shifted, tasks = itertools.tee(tasks)
         next(tasks_shifted, None)

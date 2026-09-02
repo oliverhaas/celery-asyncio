@@ -131,9 +131,8 @@ def alive_threads():
 def task_join_will_not_block(monkeypatch):
     from celery import _state, result
 
-    # tests/unit/tasks/test_canvas.py puts the real predicate back for the
-    # duration of one test and reads it off _state, so it has to be reachable
-    # from there. monkeypatch deletes the attribute again at teardown.
+    # test_canvas puts the real predicate back for one test and reads it off
+    # _state, so it has to be reachable from there.
     monkeypatch.setattr(_state, "orig_task_join_will_block", _state.task_join_will_block, raising=False)
     monkeypatch.setattr(_state, "task_join_will_block", lambda: False)
     monkeypatch.setattr(result, "task_join_will_block", lambda: False)

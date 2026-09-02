@@ -32,14 +32,11 @@ class Events:
 
     @contextmanager
     def default_dispatcher(self, hostname=None, enabled=True, buffer_while_offline=False):
-        # The app's connection for the loop this runs on, rather than one of
-        # our own: the app closes it, so leaving this block has nothing to
-        # close, which off a loop it could only do by blocking on the shared
-        # loop and from a task body could only raise.
+        # The app's connection, not one of our own, so that leaving this
+        # block has nothing to close off a loop.
         conn = self.app.async_connection
         with self.Dispatcher(conn, hostname, enabled, channel=None, buffer_while_offline=buffer_while_offline) as d:
-            # A dispatcher publishes on the loop it captured when it was built.
-            # Built off a loop it captured none, and dropped every event it was
-            # handed; the connection above belongs to the loop named here.
+            # Built off a loop, a dispatcher captures none and drops its
+            # events. This is the loop the connection above belongs to.
             d._event_loop = current_loop() or default_loop_runner().loop
             yield d

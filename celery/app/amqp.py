@@ -645,10 +645,8 @@ class AMQP:
                 routing_key = routing_key or queue.routing_key or default_rkey
 
             if declare is None and queue is not None and not isinstance(queue, Broadcast):
-                # The queue the message is routed to, declared as part of
-                # sending it. Without this a task published before the worker
-                # has ever run went to a queue that does not exist yet, and the
-                # broker dropped it.
+                # Declare the target queue, or the broker drops a task sent
+                # before the worker has ever run.
                 declare = [queue]
 
             if declare:

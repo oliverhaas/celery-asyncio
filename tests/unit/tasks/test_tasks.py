@@ -1828,9 +1828,8 @@ class test_async_task_body(TasksCase):
         assert [(h["task"], h["retries"]) for h in published] == [(retrying.name, 1)]
 
     async def test_async_body_autoretry_publishes_the_retry_on_this_loop(self):
-        # The autoretry wrapper published through the sync `retry`, which hands
-        # the publish to the background loop and blocks this one until it is
-        # through. `aretry` publishes on the loop the body already runs on.
+        # The sync `retry` blocks this loop on the background one. `aretry`
+        # publishes on the loop the body already runs on.
         @self.app.task(bind=True, shared=False, autoretry_for=(ZeroDivisionError,), max_retries=3)
         async def dividing(self_, x, y):
             return x / y

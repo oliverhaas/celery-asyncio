@@ -524,9 +524,8 @@ class Task:
 
     def __call__(self, *args, **kwargs):
         if inspect.iscoroutinefunction(self.run):
-            # Calling a coroutine function runs none of the body, so pushing
-            # around the call left the body with a popped request: no id, no
-            # args, and `called_directly` still true.
+            # The body runs after this returns, so the request has to stay
+            # pushed for longer than the call.
             return self._acall(args, kwargs)
         _task_stack.push(self)
         self.push_request(args=args, kwargs=kwargs)
@@ -1362,9 +1361,8 @@ class Task:
             retry_policy = self.app.conf.task_publish_retry_policy
         with self.app.events.default_dispatcher(hostname=req.hostname) as d:
             sent = d.send(type_, uuid=req.id, retry=retry, retry_policy=retry_policy, **fields)
-            # The dispatcher hands back what it scheduled the publish as, so
-            # returning from here means the event is on the broker. A disabled
-            # or buffering dispatcher schedules nothing and returns None.
+            # A disabled or buffering dispatcher schedules nothing and
+            # returns None instead of an awaitable.
             return await sent if inspect.isawaitable(sent) else sent
 
     def replace(self, sig):

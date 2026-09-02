@@ -331,9 +331,8 @@ def filter_hidden_settings(conf):
             if HIDDEN_SETTINGS.search(key):
                 return mask
             elif "broker_url" in key.lower() or "backend" in key.lower():
-                # Building a Connection here to reach as_uri() only made the
-                # censoring raise on a URL no transport can serve, and as_uri()
-                # sanitizes with this same function anyway.
+                # Not through Connection.as_uri(), which raises on a URL no
+                # transport serves and calls this function anyway.
                 return maybe_sanitize_url(value, mask=mask)
 
         return value

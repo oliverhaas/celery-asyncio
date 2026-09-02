@@ -77,10 +77,7 @@ async def test_listen_on_a_transport_without_exclusive_queues_passes_errors_thro
 
 
 async def test_collect_stops_at_the_timeout_even_while_events_keep_arriving():
-    # Draining keeps reporting deliveries for as long as messages keep
-    # arriving, and on a channel shared with a busy consumer they do. With no
-    # reply limit nothing else ends the collection loop, so the caller blocked
-    # forever on a set of replies that was already complete.
+    # With no reply limit, a busy channel kept the loop draining forever.
     mailbox = Mailbox("testns")
     mailbox.connection = Mock()
     channel = Mock()
@@ -208,9 +205,8 @@ async def test_collect_consumes_on_the_channel_it_was_given():
 
 
 async def test_a_reply_arrives_on_a_caller_supplied_channel():
-    # The replies are delivered on the channel the caller handed in, while
-    # `Connection.drain_events` drains the connection's default channel, so
-    # collecting through it waited on a channel no reply ever arrives on.
+    # Collecting through the connection drained its default channel, where
+    # no reply arrives.
     async with Connection("memory://") as conn:
         channel = await conn.channel()
         mailbox = Mailbox("testns", type="fanout", accept=["json"])(conn)

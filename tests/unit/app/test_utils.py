@@ -46,9 +46,8 @@ class test_filter_hidden_settings:
         assert censored["broker_url"] == "amqp://user:********@host:5672//"
 
     def test_masks_a_url_of_a_transport_it_does_not_know(self):
-        # Censoring used to go through kombu.Connection, which refuses a
-        # scheme it has no transport for, so `celery report` raised for the
-        # very configuration someone would be reporting.
+        # Censoring through kombu.Connection made `celery report` raise on
+        # the very configuration someone would be reporting.
         censored = filter_hidden_settings({"broker_url": "nosuchtransport://user:s3cret@host"})
 
         assert censored["broker_url"] == "nosuchtransport://user:********@host/"

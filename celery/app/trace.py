@@ -729,11 +729,8 @@ def build_tracer(
 
                     R = retval = fun(*args, **kwargs)
                     if asyncio.iscoroutine(retval):
-                        # A coroutine body under the sync tracer. Asked for from
-                        # a loop there is nowhere here to run it, so it goes to
-                        # a thread of its own, carrying a copy of this context:
-                        # a thread starts with an empty one, and the body would
-                        # read a blank `self.request` out of it.
+                        # A running loop leaves nowhere to run the body, so
+                        # it goes to a thread that carries this context.
                         if current_loop() is None:
                             R = retval = asyncio.run(retval)
                         else:

@@ -24,12 +24,10 @@ from tests.integration.tasks import get_redis_connection
 
 logger = logging.getLogger(__name__)
 
-# Each xdist worker takes a Redis database of its own, so parallel workers do not
-# share broker queues, fanout channels or the keys the test tasks push to.
-# Without this, `inspect` sees every worker's embedded worker and the queue
-# assertions read each other's messages. The suite deletes what it finds, so it
-# stays in the top six of the sixteen databases Redis ships and leaves the low
-# ones, database 0 above all, to whatever else is on the machine.
+# A database per xdist worker, so parallel workers do not share broker queues,
+# fanout channels or the keys the test tasks push to. The suite deletes what it
+# finds, so it keeps to the top six of Redis's sixteen and leaves the low ones,
+# database 0 above all, to whatever else is on the machine.
 FIRST_REDIS_DATABASE = 10
 REDIS_DATABASES = 16 - FIRST_REDIS_DATABASE
 

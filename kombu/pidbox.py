@@ -467,16 +467,14 @@ class Mailbox:
 
         async def drain():
             for _i in (limit and range(limit)) or count():
-                # The replies arrive on `channel`, which the caller may have
-                # opened itself. `Connection.drain_events` drains the default
-                # channel, so going through it here would wait on a channel no
-                # reply is delivered on.
+                # Drain `channel`, not the connection: the connection would
+                # drain its default channel, where no reply arrives.
                 if not await channel.drain_events(timeout=timeout):
                     break
 
         async with consumer:
-            # `timeout` is the window replies are collected in, not a budget per
-            # event: drain_events keeps returning while messages arrive, so the deadline is kept here.
+            # `timeout` bounds the whole collection, not one drain_events
+            # call, so the deadline is kept here.
             if timeout:
                 try:
                     await asyncio.wait_for(drain(), timeout)

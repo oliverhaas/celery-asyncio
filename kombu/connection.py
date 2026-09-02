@@ -297,10 +297,8 @@ class Connection:
         retries = 0
         interval = interval_start
 
-        # A broker that is not there is worth retrying; a TypeError from a
-        # transport option that does not exist is not, and used to retry
-        # forever behind one warning per attempt. OSError joins the transport's
-        # own tuple to cover the socket and DNS failures underneath it.
+        # Only broker failures, so that a bad argument does not retry forever.
+        # OSError covers the socket and DNS errors under the transport's tuple.
         recoverable: tuple[type[BaseException], ...] = (*self.connection_errors, OSError)
 
         while True:
