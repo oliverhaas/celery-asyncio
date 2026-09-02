@@ -1,5 +1,6 @@
 import inspect
 import itertools
+import logging
 import random
 import ssl
 import time
@@ -19,7 +20,13 @@ except ImportError:
 from celery import signature, states, uuid
 from celery.canvas import Signature
 from celery.contrib.testing.mocks import ContextMock
-from celery.exceptions import BackendStoreError, ChordError, ImproperlyConfigured, TimeoutError
+from celery.exceptions import (
+    BackendStoreError,
+    ChordError,
+    ImproperlyConfigured,
+    TaskRevokedError,
+    TimeoutError,
+)
 from celery.result import AsyncResult, GroupResult
 from celery.utils.collections import AttributeDict
 from tests.unit import conftest
@@ -1345,6 +1352,74 @@ class test_RedisBackend_async_client:
 
         assert isinstance(pool, b._aiolib.SentinelConnectionPool)
         assert pool.service_name == "mymaster"
+
+
+class test_RedisBackend_astore_result:
+    """Which stored state a later async write is allowed to replace."""
+
+    def setup_method(self):
+        from celery.backends.valkey_redis import RedisBackend
+
+        class _RedisBackend(RedisBackend):
+            redis = redis
+
+            def _create_async_client(self_inner, **params):
+                return _AsyncRedis(self_inner.client)
+
+        self.Backend = _RedisBackend
+        self.b = _RedisBackend(app=self.app)
+
+    def _stub_script(self, return_value):
+        script = AsyncMock(return_value=return_value)
+        self.b.__dict__["_astore_result_script"] = script
+        return script
+
+    async def test_success_is_the_only_state_the_lua_guards(self):
+        script = self._stub_script(None)
+
+        await self.b._astore_result(uuid(), 1, states.FAILURE)
+
+        assert script.await_args.kwargs["args"][2] == states.SUCCESS
+
+    async def test_write_dropped_by_the_lua_is_logged(self, caplog):
+        self._stub_script(b"SUCCESS")
+        task_id = uuid()
+
+        with caplog.at_level(logging.ERROR, logger="celery.backends.valkey_redis"):
+            await self.b._astore_result(task_id, 1, states.FAILURE)
+
+        assert "Dropped duplicate result write for task %s" % task_id in caplog.text
+
+    async def test_stored_success_survives_a_later_state(self):
+        # A non-JSON serializer runs the base GET+SET path rather than the
+        # Lua one, under the same rule.
+        b = self.Backend(app=self.app, serializer="pickle")
+        task_id = uuid()
+
+        await b.astore_result(task_id, "done", states.SUCCESS)
+        await b.astore_result(task_id, "late", states.STARTED)
+
+        assert (await b.aget_task_meta(task_id, cache=False))["result"] == "done"
+
+    async def test_stored_failure_is_replaced_by_a_later_state(self):
+        b = self.Backend(app=self.app, serializer="pickle")
+        task_id = uuid()
+
+        await b.astore_result(task_id, KeyError("boom"), states.FAILURE)
+        await b.astore_result(task_id, "done", states.SUCCESS)
+
+        meta = await b.aget_task_meta(task_id, cache=False)
+        assert meta["status"] == states.SUCCESS
+        assert meta["result"] == "done"
+
+    async def test_stored_revoked_is_replaced_by_a_later_state(self):
+        b = self.Backend(app=self.app, serializer="pickle")
+        task_id = uuid()
+
+        await b.astore_result(task_id, TaskRevokedError("gone"), states.REVOKED)
+        await b.astore_result(task_id, KeyError("boom"), states.FAILURE)
+
+        assert (await b.aget_task_meta(task_id, cache=False))["status"] == states.FAILURE
 
 
 class test_RedisBackend_await_for:

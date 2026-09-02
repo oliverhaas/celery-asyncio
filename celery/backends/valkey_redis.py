@@ -168,10 +168,11 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     #: 512 MB - https://redis.io/topics/data-types
     _MAX_STR_VALUE_SIZE = 536870912
 
-    #: Atomic check-then-SET for ``_astore_result``: if the existing meta
-    #: is in a terminal state (SUCCESS / FAILURE / REVOKED — mirrors
-    #: ``celery.states.READY_STATES``), skip the write and return the
-    #: existing state. Otherwise SET (with optional TTL) and return nil.
+    #: Atomic check-then-SET for ``_astore_result``: if the stored meta
+    #: already holds the sticky state passed as ``ARGV[3]``, skip the write
+    #: and return that state. Otherwise SET (with optional TTL) and return
+    #: nil. Which state is sticky is decided in Python, so this path and the
+    #: sync ``_store_result`` cannot drift apart.
     #:
     #: One round-trip instead of two. Only used when
     #: ``self.serializer == "json"`` so the status check can be done in
@@ -180,11 +181,8 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 local existing = redis.call('GET', KEYS[1])
 if existing then
     local ok, decoded = pcall(cjson.decode, existing)
-    if ok and type(decoded) == 'table' then
-        local status = decoded.status
-        if status == 'SUCCESS' or status == 'FAILURE' or status == 'REVOKED' then
-            return status
-        end
+    if ok and type(decoded) == 'table' and decoded.status == ARGV[3] then
+        return decoded.status
     end
 end
 local expires = tonumber(ARGV[2])
@@ -821,11 +819,10 @@ return false
         """Atomic check-then-SET via Lua when serializer is JSON.
 
         One Redis round-trip instead of the two used by the
-        :class:`BaseKeyValueStoreBackend` default (GET + decode + SET). The
-        Lua script also widens the dedup rule: any state in
-        :data:`celery.states.READY_STATES` (SUCCESS / FAILURE / REVOKED)
-        is sticky, since once a task has reached a terminal state any
-        downstream consumer may already have acted on the result.
+        :class:`BaseKeyValueStoreBackend` default (GET + decode + SET),
+        under the same rule: a stored SUCCESS is never overwritten, any
+        other stored state is. A revoked task that goes on to fail, or a
+        retry that finally succeeds, has to be able to record its outcome.
 
         For non-JSON serializers we can't peek at the status field inside
         Lua, so fall back to the base implementation.
@@ -839,19 +836,17 @@ return false
         expires = int(self.expires) if self.expires else 0
         existing = await self._astore_result_script(
             keys=[self.get_key_for_task(task_id)],
-            args=[encoded, expires],
+            args=[encoded, expires, states.SUCCESS],
         )
         if existing is not None:
-            # Lua returned the existing terminal state — the write was
-            # dropped. Most commonly a redelivered task (lost ack, broker
-            # restart, network partition) re-executing while the prior
-            # outcome was already recorded.
-            if isinstance(existing, bytes):
-                existing = existing.decode()
+            # Lua found a stored SUCCESS and dropped the write. Most
+            # commonly a redelivered task (lost ack, broker restart, network
+            # partition) re-executing while the prior outcome was already
+            # recorded.
             logger.error(
-                "Dropped duplicate result write for task %s: existing terminal state %s, attempted state %s",
+                "Dropped duplicate result write for task %s: stored state %s, attempted state %s",
                 bytes_to_str(task_id),
-                existing,
+                bytes_to_str(existing),
                 state,
             )
         return result
