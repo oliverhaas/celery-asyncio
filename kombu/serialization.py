@@ -126,6 +126,20 @@ class SerializerRegistry:
         except KeyError:
             raise SerializerNotInstalled(f"No encoder/decoder installed for {name}") from None
 
+    def prepare_accept_content(self, content_types):
+        """Replace serializer aliases in ``content_types`` with content types.
+
+        Raises
+        ------
+            SerializerNotInstalled: If a name has no registered serializer.
+        """
+        if content_types is None:
+            return content_types
+        try:
+            return {n if "/" in n else self.name_to_type[n] for n in content_types}
+        except KeyError as exc:
+            raise SerializerNotInstalled(f"No encoder/decoder installed for {exc.args[0]}") from None
+
     def _set_default_serializer(self, name):
         """Set the default serialization method used by this library.
 
@@ -227,7 +241,9 @@ class SerializerRegistry:
             content_encoding (str): The content-encoding of the data.
                 (e.g., `utf-8`, `binary`, or `us-ascii`).
 
-            accept (Set): List of content-types to accept.
+            accept (Set): List of content-types to accept.  Serializer
+                names (``"json"``) are accepted alongside the content types
+                they are registered under (``"application/json"``).
 
         Raises
         ------
@@ -239,6 +255,7 @@ class SerializerRegistry:
         """
         content_type = bytes_to_str(content_type) if content_type else "application/data"
         if accept is not None:
+            accept = self.prepare_accept_content(accept)
             if content_type not in _trusted_content and content_type not in accept:
                 raise self._for_untrusted_content(content_type, "untrusted")
         elif content_type in self._disabled_content_types and not force:
@@ -267,6 +284,7 @@ dumps = registry.dumps
 loads = registry.loads
 register = registry.register
 unregister = registry.unregister
+prepare_accept_content = registry.prepare_accept_content
 
 
 def raw_encode(data):
@@ -438,20 +456,3 @@ disable_insecure_serializers()
 # Load entrypoints from installed extensions
 for ep, args in entrypoints("kombu.serializers"):  # pragma: no cover
     register(ep.name, *args)
-
-
-def prepare_accept_content(content_types, name_to_type=None):
-    """Replace aliases of content_types with full names from registry.
-
-    Raises
-    ------
-        SerializerNotInstalled: If the serialization method
-            requested is not available.
-    """
-    name_to_type = registry.name_to_type if not name_to_type else name_to_type
-    if content_types is not None:
-        try:
-            return {n if "/" in n else name_to_type[n] for n in content_types}
-        except KeyError as e:
-            raise SerializerNotInstalled(f"No encoder/decoder installed for {e.args[0]}") from None
-    return content_types

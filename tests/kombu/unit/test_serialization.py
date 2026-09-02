@@ -282,6 +282,20 @@ class test_Serialization:
             b"foo",
         )
 
+    def test_loads__accept_by_serializer_name(self):
+        content_type, content_encoding, data = dumps(py_data, serializer="json")
+        assert loads(data, content_type, content_encoding, accept=["json"]) == py_data
+        assert loads(data, content_type, content_encoding, accept=["application/json"]) == py_data
+
+    def test_loads__accept_by_serializer_name_still_refuses_other_types(self):
+        content_type, content_encoding, data = dumps(py_data, serializer="json")
+        with pytest.raises(ContentDisallowed):
+            loads(data, content_type, content_encoding, accept=["pickle"])
+
+    def test_loads__accept_with_unknown_serializer_name(self):
+        with pytest.raises(SerializerNotInstalled, match="nosuchserializer"):
+            loads("{}", "application/json", "utf-8", accept=["nosuchserializer"])
+
     def test_prepare_accept_content(self):
         assert {"application/json"} == prepare_accept_content(["json"])
         assert {"application/json"} == prepare_accept_content(["application/json"])
