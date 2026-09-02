@@ -290,34 +290,33 @@ class test_EventDispatcher:
             d.disable()
             on_disable.assert_called_with()
 
-    @pytest.mark.skip(reason="EventDispatcher uses sync producer; needs async refactor")
-    def test_enabled_disable(self):
+    async def test_enabled_disable(self):
         connection = self.app.connection_for_write()
-        channel = connection.channel()
+        channel = await connection.channel()
         try:
             dispatcher = self.app.events.Dispatcher(connection, enabled=True)
-            dispatcher2 = self.app.events.Dispatcher(connection, enabled=True, channel=channel)
-            assert dispatcher.enabled
-            assert dispatcher.producer.channel
-            assert dispatcher.producer.serializer == self.app.conf.event_serializer
+            on_channel = self.app.events.Dispatcher(connection, enabled=True, channel=channel)
 
-            created_channel = dispatcher.producer.channel
+            assert dispatcher.enabled
+            assert dispatcher.producer.serializer == self.app.conf.event_serializer
+            # The channel a caller hands over is the one the producer
+            # publishes on. It used to arrive where the connection belongs, so
+            # the producer asked a channel for a channel of its own instead.
+            assert on_channel.producer._channel is channel
+
             dispatcher.disable()
-            dispatcher.disable()  # Disable with no active producer
-            dispatcher2.disable()
+            dispatcher.disable()  # disabling twice is a no-op
+            on_channel.disable()
             assert not dispatcher.enabled
             assert dispatcher.producer is None
-            # does not close manually provided channel
-            assert not dispatcher2.channel.closed
+            # The dispatcher gives up its producer, not the caller's channel.
+            assert on_channel.channel is channel
 
             dispatcher.enable()
             assert dispatcher.enabled
             assert dispatcher.producer
-
         finally:
-            channel.close()
-            connection.close()
-        assert created_channel.closed
+            await connection.close()
 
 
 class test_EventReceiver:
@@ -463,7 +462,6 @@ def test_State(app):
     assert dict(state.workers) == {}
 
 
-@pytest.mark.skip(reason="default_dispatcher uses producer_pool; needs async refactor")
 def test_default_dispatcher(app):
     with app.events.default_dispatcher() as d:
         assert d

@@ -126,8 +126,15 @@ class EventDispatcher:
         self.close()
 
     def enable(self):
+        # The channel goes in the channel argument. Passing it first put it
+        # where the connection belongs, and the producer then asked a channel
+        # for a channel of its own the first time it published.
         self.producer = Producer(
-            self.channel or self.connection, exchange=self.exchange, serializer=self.serializer, auto_declare=False
+            self.connection,
+            channel=self.channel,
+            exchange=self.exchange,
+            serializer=self.serializer,
+            auto_declare=False,
         )
         self.enabled = True
         for callback in self.on_enabled:
