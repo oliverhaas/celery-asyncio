@@ -3,28 +3,10 @@
 """Python Compatibility Utilities."""
 
 import numbers
-from functools import wraps
 from importlib import metadata as importlib_metadata
 from io import UnsupportedOperation
 
 FILENO_ERRORS = (AttributeError, ValueError, UnsupportedOperation)
-
-
-def coro(gen):
-    """Decorator to mark generator as co-routine."""
-
-    @wraps(gen)
-    def wind_up(*args, **kwargs):
-        it = gen(*args, **kwargs)
-        next(it)
-        return it
-
-    return wind_up
-
-
-def detect_environment():
-    """Detect the current environment. Always 'default' in asyncio mode."""
-    return "default"
 
 
 def entrypoints(namespace):
@@ -46,8 +28,4 @@ def maybe_fileno(f):
     try:
         return fileno(f)
     except FILENO_ERRORS:
-        pass
-
-
-# No-op in asyncio mode (no forking)
-register_after_fork = None
+        return None
