@@ -910,9 +910,6 @@ class Transport(BaseTransport):
 
     exchange_types = {"direct", "fanout", "topic", "headers"}
 
-    #: RabbitMQ 3.3+ changed basic.qos semantics
-    qos_semantics_matches_spec = False
-
     connection_errors = tuple(
         set(
             BaseTransport.connection_errors + (ConnectionRefusedError, TimeoutError) + _amqp_connection_errors,
