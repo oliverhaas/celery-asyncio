@@ -63,14 +63,24 @@ def purge(ctx, force, queues, exclude_queues, **kwargs):
             async with app.connection_for_write() as conn:
                 channel = await conn.default_channel()
                 total = 0
-                for queue in names:
+                failed = []
+                for queue in sorted(names):
                     try:
                         total += await channel.queue_purge(queue) or 0
-                    except conn.channel_errors:
-                        pass
-                return total
+                    except conn.channel_errors as exc:
+                        # A queue the broker does not have is a channel error,
+                        # and the broker closes the channel it raised on. The
+                        # queues after it went to a dead channel and failed the
+                        # same way, so a single missing queue silently purged
+                        # nothing at all.
+                        failed.append((queue, exc))
+                        channel = await conn.channel()
+                return total, failed
 
-        messages = asyncio.run(_purge_all())
+        messages, failed = asyncio.run(_purge_all())
+
+        for queue, exc in failed:
+            ctx.obj.error(f"Cannot purge {queue}: {exc}", fg="red")
 
         if messages:
             messages_headline = text.pluralize(messages, "message")
