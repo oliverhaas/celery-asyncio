@@ -47,16 +47,6 @@ class TaskRegistry(dict):
         except KeyError:
             raise self.NotRegistered(name) from None
 
-    # -- these methods are irrelevant now and will be removed in 4.0
-    def regular(self):
-        return self.filter_types("regular")
-
-    def periodic(self):
-        return self.filter_types("periodic")
-
-    def filter_types(self, type):
-        return {name: task for name, task in self.items() if getattr(task, "type", "regular") == type}
-
 
 def _unpickle_task(name):
     return get_current_app().tasks[name]

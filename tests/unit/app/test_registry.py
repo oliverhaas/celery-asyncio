@@ -25,11 +25,7 @@ class test_TaskRegistry:
         self.mytask = self.app.task(name="A", shared=False)(returns)
         self.missing_name_task = self.app.task(name=None, shared=False)(returns)
         self.missing_name_task.name = None  # name is overridden with path
-        self.myperiodic = self.app.task(
-            name="B",
-            shared=False,
-            type="periodic",
-        )(returns)
+        self.othertask = self.app.task(name="B", shared=False)(returns)
 
     def test_NotRegistered_str(self):
         assert repr(self.app.tasks.NotRegistered("tasks.add"))
@@ -46,31 +42,27 @@ class test_TaskRegistry:
         assert isinstance(r, dict)
 
         self.assert_register_unregister_cls(r, self.mytask)
-        self.assert_register_unregister_cls(r, self.myperiodic)
+        self.assert_register_unregister_cls(r, self.othertask)
 
         with pytest.raises(InvalidTaskError):
             r.register(self.missing_name_task)
 
-        r.register(self.myperiodic)
-        r.unregister(self.myperiodic.name)
-        assert self.myperiodic not in r
-        r.register(self.myperiodic)
+        r.register(self.othertask)
+        r.unregister(self.othertask.name)
+        assert self.othertask not in r
+        r.register(self.othertask)
 
         tasks = dict(r)
         assert tasks.get(self.mytask.name) is self.mytask
-        assert tasks.get(self.myperiodic.name) is self.myperiodic
+        assert tasks.get(self.othertask.name) is self.othertask
 
         assert r[self.mytask.name] is self.mytask
-        assert r[self.myperiodic.name] is self.myperiodic
+        assert r[self.othertask.name] is self.othertask
 
         r.unregister(self.mytask)
         assert self.mytask.name not in r
-        r.unregister(self.myperiodic)
-        assert self.myperiodic.name not in r
+        r.unregister(self.othertask)
+        assert self.othertask.name not in r
 
         assert self.mytask.run()
-        assert self.myperiodic.run()
-
-    def test_compat(self):
-        assert self.app.tasks.regular()
-        assert self.app.tasks.periodic()
+        assert self.othertask.run()
