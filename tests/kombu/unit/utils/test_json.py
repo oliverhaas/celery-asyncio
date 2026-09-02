@@ -126,8 +126,6 @@ class test_dumps_loads:
         with pytest.raises(ValueError) as excinfo:
             loads('{"__type__": "no_such_type", "__value__": 1}')
 
-        # The message used to carry the builtin `type` rather than the
-        # marker of the type that could not be decoded.
         assert excinfo.value.args[1] == "no_such_type"
 
     def test_loads_memoryview(self):

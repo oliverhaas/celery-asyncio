@@ -458,11 +458,7 @@ class Channel(BaseChannel):
         except OSError as e:
             raise ChannelError(f"Cannot write message to {filepath}: {e}") from e
 
-    # In-flight message files
-    #
-    # A message is claimed by moving its file into the inflight directory,
-    # which both stops another consumer taking it and keeps it restorable
-    # until it is acknowledged.
+    # Moving a file into the inflight directory claims it and keeps it restorable until ack.
 
     @staticmethod
     def _move(filepath: Path, folder: Path) -> Path | None:

@@ -109,7 +109,6 @@ class test_bindings:
         channel = await make_channel(options)
         await channel.declare_exchange(Exchange("fan", type="fanout"))
         await channel.queue_bind("mine", "fan")
-        # A binding another worker wrote while this one was not looking.
         control_file = control_folder / "fan.exchange"
         control_file.write_text(json_dumps([*json_loads(control_file.read_text()), ["", "theirs"]]))
 

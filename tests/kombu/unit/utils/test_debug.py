@@ -16,8 +16,6 @@ def test_setup_logging_adds_handlers_sets_level():
 
 
 def test_setup_logging_without_a_level_keeps_the_logger_level():
-    # setLevel(None) raises TypeError, so the documented `loglevel=None`
-    # crashed instead of leaving the level alone.
     logger = logging.getLogger("kombu.test.nolevel")
     logger.setLevel(logging.WARNING)
     try:
