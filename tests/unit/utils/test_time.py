@@ -5,7 +5,6 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from celery.utils.iso8601 import parse_iso8601
 from celery.utils.time import (
     LocalTimezone,
     _is_imaginary,
@@ -55,20 +54,29 @@ class test_LocalTimezone:
 class test_iso8601:
     def test_parse_with_timezone(self):
         d = datetime.now(UTC).replace(tzinfo=ZoneInfo("UTC"))
-        assert parse_iso8601(d.isoformat()) == d
+        assert maybe_iso8601(d.isoformat()) == d
         # 2013-06-07T20:12:51.775877+00:00
         iso = d.isoformat()
         iso1 = iso.replace("+00:00", "-01:00")
-        d1 = parse_iso8601(iso1)
+        d1 = maybe_iso8601(iso1)
         d1_offset_in_minutes = d1.utcoffset().total_seconds() / 60
         assert d1_offset_in_minutes == -60
         iso2 = iso.replace("+00:00", "+01:00")
-        d2 = parse_iso8601(iso2)
+        d2 = maybe_iso8601(iso2)
         d2_offset_in_minutes = d2.utcoffset().total_seconds() / 60
         assert d2_offset_in_minutes == +60
         iso3 = iso.replace("+00:00", "Z")
-        d3 = parse_iso8601(iso3)
-        assert d3.tzinfo == UTC
+        d3 = maybe_iso8601(iso3)
+        assert d3.utcoffset() == timedelta(0)
+
+    def test_parse_fractional_seconds(self):
+        assert maybe_iso8601("2023-10-26T10:30:00.5Z").microsecond == 500000
+        assert maybe_iso8601("2023-10-26T10:30:00.123Z").microsecond == 123000
+        assert maybe_iso8601("2023-10-26T10:30:00.123456Z").microsecond == 123456
+
+    def test_parse_rejects_a_string_that_is_not_a_date(self):
+        with pytest.raises(ValueError):
+            maybe_iso8601("not-a-date")
 
 
 @pytest.mark.parametrize(
