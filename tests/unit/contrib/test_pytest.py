@@ -8,10 +8,8 @@ except BaseException as e:
     Failed = type(e)
 
 
-@pytest.mark.skip(reason="celery pytest plugin marker registration needs updating")
 def test_pytest_celery_marker_registration(testdir):
     """Verify that using the 'celery' marker does not result in a warning"""
-    testdir.plugins.append("celery")
     testdir.makepyfile(
         """
         import pytest
@@ -21,6 +19,8 @@ def test_pytest_celery_marker_registration(testdir):
         """
     )
 
-    result = testdir.runpytest("-q")
+    # The plugin is named by module path: this distribution declares no
+    # pytest11 entry point, so there is no short name for pytest to resolve.
+    result = testdir.runpytest("-q", "-p", "celery.contrib.pytest")
     with pytest.raises((ValueError, Failed)):
         result.stdout.fnmatch_lines_random("*PytestUnknownMarkWarning: Unknown pytest.mark.celery*")
