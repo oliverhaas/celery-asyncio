@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Callable
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Any, TypeVar
+from typing import Any
 
 textual_types: tuple[type, ...] = ()
 
@@ -84,8 +84,6 @@ def loads(s, _loads=json.loads, decode_bytes=True, object_hook=object_hook):
 
 type DecoderT = Callable[[Any], Any]
 type EncoderT = Callable[[Any], Any]
-T = TypeVar("T")
-EncodedT = TypeVar("EncodedT")
 
 
 def register_type[T, EncodedT](

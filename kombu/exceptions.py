@@ -3,7 +3,6 @@
 """Exceptions."""
 
 from types import TracebackType
-from typing import TypeVar
 
 __all__ = (
     "ChannelError",
@@ -26,8 +25,6 @@ __all__ = (
     "VersionMismatch",
     "reraise",
 )
-
-BaseExceptionType = TypeVar("BaseExceptionType", bound=BaseException)
 
 
 def reraise[BaseExceptionType: BaseException](
