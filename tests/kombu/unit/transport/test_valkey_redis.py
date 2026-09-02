@@ -1842,8 +1842,9 @@ class TestXreadWait:
         ch.active_fanout_queues.add("fq1")
 
         ch._transport._subclient.xread = AsyncMock(side_effect=ConnectionError("lost"))
-        result = await ch._xread_wait(1.0)
-        assert result is False
+        # A broker that has gone away is not an empty stream.
+        with pytest.raises(ConnectionError):
+            await ch._xread_wait(1.0)
 
     async def test_xread_wait_missing_payload_skips(self):
         ch = _make_channel()
@@ -2043,14 +2044,15 @@ class TestDrainEventsFull:
         result = await ch.drain_events(timeout=0.1)
         assert result is False
 
-    async def test_drain_handles_task_exception(self):
+    async def test_drain_reports_a_failed_iteration_to_its_caller(self):
         ch = _make_channel()
         ch._consumers["tag1"] = ("q1", MagicMock(), True)
         ch._consume_regular = AsyncMock(side_effect=RuntimeError("boom"))
 
-        # Should not propagate, just return False
-        result = await ch.drain_events(timeout=0.1)
-        assert result is False
+        # The consumer has to see the failure to reconnect; returning False
+        # would look like an idle queue for as long as the broker stays down.
+        with pytest.raises(RuntimeError, match="boom"):
+            await ch.drain_events(timeout=0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -2271,7 +2273,7 @@ class TestPersistentConsumerTasks:
 
         ch._consume_regular = deliver_then_finish
         ch._consume_iter_task = asyncio.create_task(
-            ch._safe_consume_iter(["q1"], 0.05),
+            ch._consume_regular(["q1"], 0.05),
         )
 
         await ch.close()
@@ -2343,7 +2345,7 @@ class TestPersistentConsumerTasks:
 
         ch._consume_regular = hung_iteration
         ch._consume_iter_task = asyncio.create_task(
-            ch._safe_consume_iter(["q1"], 0.05),
+            ch._consume_regular(["q1"], 0.05),
         )
 
         with caplog.at_level("WARNING", logger="kombu.transport.valkey_redis"):
@@ -2372,18 +2374,54 @@ class TestPersistentConsumerTasks:
         assert not drain.cancelled()
         assert ch._consume_iter_task is None
 
-    async def test_a_failed_iteration_is_reported(self, caplog):
+    async def test_a_failed_iteration_reaches_the_caller(self):
         ch = _make_channel()
         ch._consumers["tag1"] = ("q1", MagicMock(), True)
 
         async def broken_iteration(*args, **kwargs):
             raise RedisConnectionError("connection lost")
 
-        ch._safe_consume_iter = broken_iteration
+        ch._consume_regular = broken_iteration
+        with pytest.raises(RedisConnectionError, match="connection lost"):
+            await ch.drain_events(timeout=1.0)
+
+    async def test_a_failure_left_by_an_earlier_call_is_not_dropped(self):
+        ch = _make_channel(block_timeout=1.0)
+        ch._consumers["tag1"] = ("q1", MagicMock(), True)
+
+        async def fail_slowly(*args, **kwargs):
+            await asyncio.sleep(0.05)
+            raise RedisConnectionError("connection lost")
+
+        ch._consume_regular = fail_slowly
+
+        # Times out first, leaving the iteration running.
+        assert await ch.drain_events(timeout=0.01) is False
+        await asyncio.sleep(0.1)
+
+        with pytest.raises(RedisConnectionError, match="connection lost"):
+            await ch.drain_events(timeout=0.01)
+
+    async def test_both_iterations_failing_reports_the_second_one(self, caplog):
+        ch = _make_channel(block_timeout=0.05)
+        ch._consumers["tag1"] = ("q1", MagicMock(), True)
+        ch._exchanges["fan"] = {"type": "fanout"}
+        ch._fanout_queues["fq1"] = ("fan", "*")
+        ch.active_fanout_queues.add("fq1")
+        ch._consumers["tag2"] = ("fq1", MagicMock(), True)
+
+        async def fail(*args, **kwargs):
+            raise RedisConnectionError("connection lost")
+
+        ch._consume_regular = fail
+        ch._xread_wait = fail
+
         with caplog.at_level("WARNING", logger="kombu.transport.valkey_redis"):
-            assert await ch.drain_events(timeout=1.0) is False
+            with pytest.raises(RedisConnectionError):
+                await ch.drain_events(timeout=1.0)
+
+        # Only one can be raised, so the other still has to be visible.
         assert [rec.message for rec in caplog.records] == ["Consumer iteration failed."]
-        assert caplog.records[0].exc_info[1].args == ("connection lost",)
 
 
 class TestPeriodicTasks:
@@ -2625,8 +2663,8 @@ class TestSlowConsumeErrors:
     async def test_slow_consume_bzmpop_error(self):
         ch = _make_channel()
         ch.client.bzmpop = AsyncMock(side_effect=ConnectionError("lost"))
-        result = await ch._slow_consume(["q1"], timeout=1.0)
-        assert result is False
+        with pytest.raises(ConnectionError):
+            await ch._slow_consume(["q1"], timeout=1.0)
 
     async def test_slow_consume_empty_result(self):
         ch = _make_channel()
@@ -3098,8 +3136,8 @@ class TestFastConsumeErrors:
         ch = _make_channel()
         consume_script = AsyncMock(side_effect=RuntimeError("script error"))
         ch._consume_script = consume_script
-        result = await ch._fast_consume(["q1"])
-        assert result is False
+        with pytest.raises(RuntimeError, match="script error"):
+            await ch._fast_consume(["q1"])
 
     async def test_fast_consume_passes_correct_args(self):
         ch = _make_channel(global_keyprefix="p:")

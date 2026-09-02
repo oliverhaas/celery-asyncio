@@ -1062,6 +1062,9 @@ class Channel:
         cancel mid-script or post-BZMPOP strands the message that was about to
         be delivered; a call that runs out of time leaves its iteration
         pending and the next call waits on the same one.
+
+        A broker failure is raised, not reported as an idle queue, so the
+        consumer can reconnect.
         """
         if timeout is not None and timeout <= 0:
             return await self._poll_ready()
@@ -1083,6 +1086,13 @@ class Channel:
             remaining = None if deadline is None else deadline - loop.time()
             if remaining is not None and remaining <= 0:
                 return False
+
+            # An earlier call may have run out of time and left its iteration
+            # running. Collect it before starting anything, so its result is
+            # not dropped on the floor along with any failure it carries.
+            finished = {t for t in (self._consume_iter_task, self._xread_iter_task) if t is not None and t.done()}
+            if finished and self._collect_iterations(finished).delivered:
+                return True
 
             self._ensure_consumer_tasks(remaining)
             tasks = [t for t in (self._consume_iter_task, self._xread_iter_task) if t is not None]
@@ -1138,9 +1148,12 @@ class Channel:
 
         A task that ends cancelled was cancelled by ``close()``, not by this
         caller, so its ``CancelledError`` stays here: re-raising it would
-        cancel a caller that nobody asked to cancel.
+        cancel a caller that nobody asked to cancel. A broker failure does
+        travel out, so the consumer can reconnect rather than sit on a dead
+        socket reporting an empty queue.
         """
         delivered = exhausted = False
+        failure: BaseException | None = None
         for task in done:
             if task is self._consume_iter_task:
                 self._consume_iter_task = None
@@ -1149,12 +1162,19 @@ class Channel:
             if task.cancelled():
                 continue
             error = task.exception()
-            if error is not None:
-                logger.warning("Consumer iteration failed.", exc_info=error)
-            elif task.result():
-                delivered = True
+            if error is None:
+                if task.result():
+                    delivered = True
+                else:
+                    exhausted = True
+            elif failure is None:
+                failure = error
             else:
-                exhausted = True
+                # Both iterations failed in the same wait. Only one can be
+                # raised, so the other is reported here.
+                logger.warning("Consumer iteration failed.", exc_info=error)
+        if failure is not None:
+            raise failure
         return IterationOutcome(delivered=delivered, exhausted=exhausted)
 
     def _regular_queues(self) -> list[str]:
@@ -1176,13 +1196,13 @@ class Channel:
         regular_queues = self._regular_queues()
         if regular_queues and (self._consume_iter_task is None or self._consume_iter_task.done()):
             self._consume_iter_task = asyncio.create_task(
-                self._safe_consume_iter(regular_queues, block),
+                self._consume_regular(regular_queues, block),
             )
             self._consume_iter_started_at = loop.time()
             self._consume_iter_stall_warned = False
         if self.active_fanout_queues and (self._xread_iter_task is None or self._xread_iter_task.done()):
             self._xread_iter_task = asyncio.create_task(
-                self._safe_xread_iter(block),
+                self._xread_wait(block),
             )
             self._xread_iter_started_at = loop.time()
             self._xread_iter_stall_warned = False
@@ -1210,23 +1230,6 @@ class Channel:
                     threshold,
                 )
                 setattr(self, warned_attr, True)
-
-    async def _safe_consume_iter(self, queues: list[str], block: float) -> bool:
-        try:
-            return await self._consume_regular(queues, block)
-        except Exception:
-            logger.warning("Consume iteration failed.", exc_info=True)
-            # Back off so drain_events doesn't tight-loop on a persistent fault.
-            await asyncio.sleep(min(block, IDLE_POLL_INTERVAL))
-            return False
-
-    async def _safe_xread_iter(self, block: float) -> bool:
-        try:
-            return await self._xread_wait(block)
-        except Exception:
-            logger.warning("Fanout read failed.", exc_info=True)
-            await asyncio.sleep(min(block, IDLE_POLL_INTERVAL))
-            return False
 
     async def _consume_regular(self, queues: list[str], timeout: float) -> bool:
         """Consume from regular queues using FAST/SLOW mode.
@@ -1272,23 +1275,19 @@ class Channel:
         queue_keys = [self._queue_key(q) for q in queues]
         new_queue_at = time() + self._visibility_timeout + self._requeue_check_interval
 
-        try:
-            script = await self._get_consume_script()
-            result = await script(
-                keys=queue_keys,
-                args=[
-                    self._global_keyprefix,
-                    MESSAGE_KEY_PREFIX,
-                    str(new_queue_at),
-                    MESSAGES_INDEX_PREFIX,
-                    str(batch),
-                    *queues,
-                    *("1" if q in self._no_ack_queues else "0" for q in queues),
-                ],
-            )
-        except Exception as exc:
-            logger.debug("FAST consume error: %s", exc)
-            return False
+        script = await self._get_consume_script()
+        result = await script(
+            keys=queue_keys,
+            args=[
+                self._global_keyprefix,
+                MESSAGE_KEY_PREFIX,
+                str(new_queue_at),
+                MESSAGES_INDEX_PREFIX,
+                str(batch),
+                *queues,
+                *("1" if q in self._no_ack_queues else "0" for q in queues),
+            ],
+        )
 
         if not result:
             return False
@@ -1367,27 +1366,26 @@ class Channel:
         try:
             await self.client.zadd(queue_key, {delivery_tag: score})
         except Exception:
-            # If even the restore fails, the visibility-timeout restore will
-            # eventually re-enqueue. Don't mask the original cancellation.
-            logger.debug("Restore-to-queue failed for tag %s", delivery_tag, exc_info=True)
+            # Reported rather than raised so the original cancellation is not
+            # masked. The message stays in messages_index and the visibility
+            # sweep re-enqueues it, so it is delayed rather than lost.
+            logger.warning(
+                "Could not restore message %s to queue %r.",
+                delivery_tag,
+                queue,
+                exc_info=True,
+            )
 
     async def _slow_consume(self, queues: list[str], timeout: float) -> bool:
         """SLOW mode: blocking BZMPOP with pipeline index refresh + HMGET."""
         queue_keys = [self._queue_key(q) for q in queues]
 
-        try:
-            result = await self.client.bzmpop(
-                timeout,
-                len(queue_keys),
-                queue_keys,
-                min=True,
-            )
-        except Exception as exc:
-            logger.debug("BZMPOP error: %s", exc)
-            # Defensive: prevent drain_events from tight-looping on connection
-            # errors. Successful BZMPOP timeouts already wait `timeout` seconds.
-            await asyncio.sleep(min(timeout, 0.1))
-            return False
+        result = await self.client.bzmpop(
+            timeout,
+            len(queue_keys),
+            queue_keys,
+            min=True,
+        )
 
         if not result:
             return False
@@ -1507,19 +1505,12 @@ class Channel:
         if not streams:
             return False
 
-        try:
-            # block=None is a non-blocking read; block=0 would block forever.
-            result = await self.subclient.xread(
-                streams,
-                count=1,
-                block=int(timeout * 1000) if timeout > 0 else None,
-            )
-        except Exception as exc:
-            logger.debug("XREAD error: %s", exc)
-            # Defensive: prevent drain_events from tight-looping on connection
-            # errors. Successful XREAD timeouts already wait `block` ms.
-            await asyncio.sleep(min(timeout, 0.1))
-            return False
+        # block=None is a non-blocking read; block=0 would block forever.
+        result = await self.subclient.xread(
+            streams,
+            count=1,
+            block=int(timeout * 1000) if timeout > 0 else None,
+        )
 
         if not result:
             return False
@@ -2097,24 +2088,16 @@ class Channel:
                     CLOSE_DRAIN_HEADROOM,
                 )
                 for task in consumer_tasks:
-                    if not task.done():
-                        task.cancel()
-                for task in consumer_tasks:
-                    try:
-                        await task
-                    except (asyncio.CancelledError, Exception):  # fmt: skip
-                        pass
+                    task.cancel()
+                await asyncio.gather(*consumer_tasks, return_exceptions=True)
         self._consume_iter_task = None
         self._xread_iter_task = None
 
         # Cancel periodic tasks
-        for periodic_task in (self._enqueue_task, self._heartbeat_task, self._expires_task):
-            if periodic_task and not periodic_task.done():
-                periodic_task.cancel()
-                try:
-                    await periodic_task
-                except (asyncio.CancelledError, Exception):  # fmt: skip
-                    pass
+        periodic_tasks = [t for t in (self._enqueue_task, self._heartbeat_task, self._expires_task) if t is not None]
+        for periodic_task in periodic_tasks:
+            periodic_task.cancel()
+        await asyncio.gather(*periodic_tasks, return_exceptions=True)
 
         await self._restore_prefetch_buffer()
 
@@ -2135,12 +2118,13 @@ class Channel:
         self._delivered.clear()
         self._fanout_tags.clear()
 
-        # Delete auto-delete queues
         for queue in list(self.auto_delete_queues):
             try:
                 await self.queue_delete(queue)
             except Exception:
-                pass
+                # The rest of the close still has to happen, so this is
+                # reported rather than raised. The queue keeps its own expiry.
+                logger.warning("Could not delete auto-delete queue %r.", queue, exc_info=True)
 
         self._consumers.clear()
 
