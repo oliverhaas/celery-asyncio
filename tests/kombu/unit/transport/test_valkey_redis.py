@@ -53,6 +53,7 @@ def _make_transport(**opts) -> Transport:
     transport._channels = []
     transport._connected = True
     transport._db = "0"
+    transport._lock = asyncio.Lock()
     return transport
 
 
@@ -1065,6 +1066,98 @@ class TestTransport:
         version = t.driver_version()
         # Should return something (either version string or "N/A")
         assert isinstance(version, str)
+
+
+# ---------------------------------------------------------------------------
+# Transport connect / close lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestTransportLifecycle:
+    @staticmethod
+    def _transport_with_clients(pings):
+        """Build an unconnected transport whose from_url hands out `pings`."""
+        t = Transport(url="redis://localhost:6379")
+        clients = []
+        for ping in pings:
+            client = AsyncMock()
+            client.ping = AsyncMock(side_effect=ping)
+            client.aclose = AsyncMock()
+            clients.append(client)
+        t._aiolib = MagicMock()
+        t._aiolib.from_url = MagicMock(side_effect=list(clients))
+        return t, clients
+
+    async def test_a_failed_second_ping_leaves_no_client_connected(self):
+        t, clients = self._transport_with_clients([None, RedisConnectionError("nope")])
+
+        with pytest.raises(RedisConnectionError):
+            await t.connect()
+
+        # Both pools were built, so both have to be closed.
+        clients[0].aclose.assert_awaited_once()
+        clients[1].aclose.assert_awaited_once()
+        assert t._client is None
+        assert t._subclient is None
+        assert t._connected is False
+
+    async def test_a_failed_connect_can_be_retried(self):
+        t, clients = self._transport_with_clients([None, RedisConnectionError("nope")])
+        with pytest.raises(RedisConnectionError):
+            await t.connect()
+
+        retry = [AsyncMock(), AsyncMock()]
+        for client in retry:
+            client.ping = AsyncMock()
+        t._aiolib.from_url = MagicMock(side_effect=retry)
+
+        await t.connect()
+        assert t._connected is True
+        assert t._client is retry[0]
+        assert t._subclient is retry[1]
+
+    async def test_racing_connects_build_one_pair_of_clients(self):
+        async def slow_ping():
+            await asyncio.sleep(0.01)
+
+        t, clients = self._transport_with_clients([slow_ping, slow_ping, None, None])
+
+        await asyncio.gather(t.connect(), t.connect(), t.connect())
+
+        assert t._aiolib.from_url.call_count == 2
+        assert t._client is clients[0]
+        assert t._subclient is clients[1]
+
+    async def test_a_cancelled_channel_drain_still_closes_the_sockets(self):
+        t = _make_transport()
+        t._client.aclose = AsyncMock()
+        t._subclient.aclose = AsyncMock()
+        client, subclient = t._client, t._subclient
+        channel = MagicMock()
+        channel.close = AsyncMock(side_effect=asyncio.CancelledError)
+        t._channels = [channel]
+
+        with pytest.raises(asyncio.CancelledError):
+            await t.close()
+
+        client.aclose.assert_awaited_once()
+        subclient.aclose.assert_awaited_once()
+        assert t._client is None
+        assert t._subclient is None
+        assert t._connected is False
+
+    async def test_a_client_that_will_not_close_does_not_hide_the_other(self, caplog):
+        t = _make_transport()
+        t._subclient.aclose = AsyncMock(side_effect=RedisConnectionError("gone"))
+        t._client.aclose = AsyncMock()
+        client = t._client
+
+        with caplog.at_level(logging.WARNING, logger="kombu.transport.valkey_redis"):
+            await t.close()
+
+        client.aclose.assert_awaited_once()
+        assert any(r.levelno == logging.WARNING for r in caplog.records)
+        assert t._connected is False
 
 
 # ---------------------------------------------------------------------------

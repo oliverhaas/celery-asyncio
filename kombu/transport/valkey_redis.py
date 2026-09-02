@@ -2182,6 +2182,10 @@ class Transport(BaseTransport):
         self._channels: list[Channel] = []
         self._connected = False
         self._db = _parse_db_from_url(url)
+        #: Serialises connect against close and against a second connect, so
+        #: two callers racing for the first channel cannot each build a pair
+        #: of clients and leave one pair connected with nothing referencing it.
+        self._lock = asyncio.Lock()
 
     #: Options this transport consumes itself. Anything else in
     #: ``transport_options`` is a client keyword argument and is forwarded to
@@ -2240,49 +2244,62 @@ class Transport(BaseTransport):
         return {"credential_provider": credential_provider}
 
     async def connect(self) -> None:
-        if self._connected:
-            return
+        async with self._lock:
+            if self._connected:
+                return
 
-        client_kw = self._client_kwargs()
-        cred_kw = self._process_credential_provider()
-        client_kw.update(cred_kw)
+            client_kw = self._client_kwargs()
+            client_kw.update(self._process_credential_provider())
 
-        self._client = self._aiolib.from_url(
-            self._url,
-            decode_responses=False,
-            **client_kw,
-        )
-        self._subclient = self._aiolib.from_url(
-            self._url,
-            decode_responses=False,
-            **client_kw,
-        )
+            # Built into locals and published only once both answer. Each one
+            # owns a connection pool that nothing else can reach until then, so
+            # a failure has to close them here or the sockets stay open for the
+            # life of the process.
+            clients: list[Any] = []
+            try:
+                for _ in range(2):
+                    clients.append(
+                        self._aiolib.from_url(self._url, decode_responses=False, **client_kw),
+                    )
+                    await clients[-1].ping()
+            except BaseException:
+                await self._aclose_clients(clients)
+                raise
 
-        await self._client.ping()  # type: ignore[attr-defined]
-        await self._subclient.ping()  # type: ignore[attr-defined]
-        self._connected = True
-        logger.debug("Connected via %s at %s (dual clients)", self._lib.__name__, self._url)
+            self._client, self._subclient = clients
+            self._connected = True
+            logger.debug("Connected via %s at %s (dual clients)", self._lib.__name__, self._url)
 
     async def close(self) -> None:
-        for channel in self._channels:
-            await channel.close()
-        self._channels.clear()
+        async with self._lock:
+            channels, self._channels = self._channels, []
+            clients = [c for c in (self._subclient, self._client) if c is not None]
+            self._client = self._subclient = None
+            self._connected = False
+            try:
+                for channel in channels:
+                    await channel.close()
+            finally:
+                # Draining a channel can be cancelled or can fail on a broker
+                # that has gone away. Either way the sockets go.
+                await self._aclose_clients(clients)
 
-        if self._subclient:
-            await self._subclient.aclose()
-            self._subclient = None
-
-        if self._client:
-            await self._client.aclose()
-            self._client = None
-
-        self._connected = False
+    @staticmethod
+    async def _aclose_clients(clients: list[Any]) -> None:
+        for client in clients:
+            try:
+                await client.aclose()
+            except Exception:
+                # Reported rather than raised: this runs while another error is
+                # already on its way out, or while the rest of the shutdown
+                # still has to happen.
+                logger.warning("Could not close a Redis client.", exc_info=True)
 
     async def create_channel(self) -> _Channel:  # type: ignore[override]  # ty: ignore[invalid-method-override]
-        if not self._connected:
-            await self.connect()
+        await self.connect()
         channel = Channel(self)
-        self._channels.append(channel)
+        async with self._lock:
+            self._channels.append(channel)
         return channel
 
     @property
