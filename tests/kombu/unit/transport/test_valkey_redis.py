@@ -1807,6 +1807,34 @@ class TestBasicConsume:
         await ch.basic_cancel(tag)
         assert "fq1" not in ch.active_fanout_queues
 
+    async def test_basic_cancel_keeps_fanout_alive_for_a_second_consumer(self):
+        """Two consumers, one queue: cancelling one must not stop the other.
+
+        The fanout queue is what the XREAD loop reads, so dropping it would
+        silence a consumer that never cancelled.
+        """
+        ch = _make_channel()
+        ch._start_periodic_tasks = MagicMock()
+        ch._exchanges["fanout_ex"] = {"type": "fanout"}
+        ch._fanout_queues["fq1"] = ("fanout_ex", "*")
+
+        first = await ch.basic_consume("fq1", MagicMock())
+        await ch.basic_consume("fq1", MagicMock())
+
+        await ch.basic_cancel(first)
+        assert "fq1" in ch.active_fanout_queues
+
+    async def test_basic_cancel_keeps_the_buffer_for_a_second_consumer(self):
+        ch = _make_channel()
+        ch._start_periodic_tasks = MagicMock()
+        ch._restore_prefetch_buffer = AsyncMock()
+
+        first = await ch.basic_consume("q1", MagicMock())
+        await ch.basic_consume("q1", MagicMock())
+
+        await ch.basic_cancel(first)
+        ch._restore_prefetch_buffer.assert_not_awaited()
+
     async def test_basic_cancel_nonexistent_tag(self):
         ch = _make_channel()
         # Should not raise
@@ -3629,3 +3657,23 @@ class TestPrefetchBatching:
 
         ch._restore_to_queue.assert_awaited_once_with("q1", "t1")
         assert list(ch._prefetch_buffer) == [("q2", "t2", "{}", 1)]
+
+    @pytest.mark.asyncio
+    async def test_a_message_claimed_during_the_restore_survives(self):
+        """A consume iteration can finish while a restore is awaiting.
+
+        What it buffers has already been popped from the queue ZSET, so
+        dropping it on the final assignment would lose the message outright
+        for a no_ack queue.
+        """
+        ch = self._channel()
+        ch._prefetch_buffer.extend([("q1", "t1", "{}", 1)])
+
+        async def restore(_queue, _tag, score=None):
+            ch._prefetch_buffer.append(("q2", "t9", "{}", 1))
+
+        ch._restore_to_queue = AsyncMock(side_effect=restore)
+
+        await ch._restore_prefetch_buffer("q1")
+
+        assert list(ch._prefetch_buffer) == [("q2", "t9", "{}", 1)]

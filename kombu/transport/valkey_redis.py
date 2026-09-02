@@ -1046,11 +1046,11 @@ class Channel:
         if entry:
             queue, _, _ = entry
             # Recomputed rather than discarded: another consumer may still be
-            # reading the same queue with no_ack set.
+            # reading the same queue, with no_ack set or without.
             if not any(q == queue and na for q, _cb, na in self._consumers.values()):
                 self._no_ack_queues.discard(queue)
-            self.active_fanout_queues.discard(queue)
             if not any(q == queue for q, _cb, _na in self._consumers.values()):
+                self.active_fanout_queues.discard(queue)
                 await self._restore_prefetch_buffer(queue)
         if self.no_ack_consumers is not None:
             self.no_ack_consumers.discard(consumer_tag)
@@ -1752,7 +1752,12 @@ class Channel:
                 )
 
     async def _restore_prefetch_buffer(self, queue: str | None = None) -> None:
-        """Put back messages claimed for this channel but never handed out."""
+        """Put back messages claimed for this channel but never handed out.
+
+        The loop re-reads the buffer on every pass, so a consume iteration
+        that finishes during one of the restores has its claim picked up here
+        too instead of being dropped by the final assignment.
+        """
         keep: deque[tuple[str, str, str, int]] = deque()
         while self._prefetch_buffer:
             claimed = self._prefetch_buffer.popleft()
