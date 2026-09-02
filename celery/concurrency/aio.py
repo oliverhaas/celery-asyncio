@@ -226,6 +226,29 @@ class LoopWorker:
                 )
 
 
+class _TaskExited(Exception):
+    """Carries a SystemExit or KeyboardInterrupt out of the task that raised it.
+
+    asyncio re-raises both out of the task step and into ``run_forever()``,
+    which closes the loop and takes every other task on that loop worker with
+    it. Wrapping keeps the exception inside the task it came from.
+    """
+
+    def __init__(self, exc: BaseException) -> None:
+        super().__init__(repr(exc))
+        self.exc = exc
+
+
+def _worker_lost(exc: BaseException) -> Any:
+    """Build the WorkerLostError info a task that exits its worker reports."""
+    from celery.exceptions import ExceptionInfo, WorkerLostError, reraise
+
+    try:
+        reraise(WorkerLostError, WorkerLostError(repr(exc)), exc.__traceback__)
+    except WorkerLostError:
+        return ExceptionInfo()
+
+
 def _raise_in_thread(thread_id: int, exc: type[BaseException] | None) -> int:
     """Set or clear the asynchronous exception of a thread.
 
@@ -526,10 +549,40 @@ class TaskPool(BasePool):
             # Report, then let the cancellation carry on outwards: swallowing it
             # here leaves the task looking like it completed and stalls shutdown.
             raise
+        except _TaskExited as exited:
+            self._handle_task_exit(uuid, error_callback, exited.exc)
+        except (SystemExit, KeyboardInterrupt) as exc:
+            self._handle_task_exit(uuid, error_callback, exc)
         except Exception:
             from celery.exceptions import ExceptionInfo
 
             self._report_failure(uuid, error_callback, ExceptionInfo())
+
+    def _handle_task_exit(self, uuid: str | None, error_callback: Callable | None, exc: BaseException) -> None:
+        """Report a task that tried to exit the worker.
+
+        Upstream reports a task that takes its worker down as WorkerLostError,
+        and a shutdown request is handed to the thread that can carry it out.
+        """
+        self._request_worker_exit(exc)
+        self._report_failure(uuid, error_callback, _worker_lost(exc))
+
+    @staticmethod
+    def _request_worker_exit(exc: BaseException) -> None:
+        """Pass a task's shutdown request to the thread that can honour it."""
+        from celery.exceptions import WorkerShutdown, WorkerTerminate
+        from celery.platforms import EX_OK
+        from celery.worker import state
+
+        if not isinstance(exc, (WorkerTerminate, WorkerShutdown)):
+            return
+        # SystemExit accepts any object as its code, and the worker exits
+        # with whatever it is handed here.
+        code = exc.code if isinstance(exc.code, int) else EX_OK
+        if isinstance(exc, WorkerTerminate):
+            state.should_terminate = code
+        else:
+            state.should_stop = code
 
     def _report_failure(self, uuid: str | None, error_callback: Callable | None, exc_info: Any) -> None:
         """Report a failure the tracer did not report itself.
@@ -602,7 +655,7 @@ class TaskPool(BasePool):
         token = async_cancellation_reason.set(cancellation_reason)
         try:
             traced = asyncio.get_running_loop().create_task(
-                tracer(uuid, task_args, task_kwargs, request),
+                self._trace(tracer, uuid, task_args, task_kwargs, request),
                 name=f"celery-trace-{uuid}",
             )
             soft_handle = None
@@ -629,6 +682,20 @@ class TaskPool(BasePool):
                     soft_handle.cancel()
         finally:
             async_cancellation_reason.reset(token)
+
+    @staticmethod
+    async def _trace(
+        tracer: Callable,
+        uuid: str,
+        task_args: tuple,
+        task_kwargs: dict,
+        request: dict,
+    ) -> Any:
+        """Run the tracer with the exceptions asyncio would escalate wrapped."""
+        try:
+            return await tracer(uuid, task_args, task_kwargs, request)
+        except (SystemExit, KeyboardInterrupt) as exc:
+            raise _TaskExited(exc) from None
 
     def _apply_sync_task(
         self,
@@ -735,6 +802,11 @@ class TaskPool(BasePool):
         uuid = args[1] if len(args) > 1 else None
         try:
             return apply_target(target, args, kwargs, callback, accept_callback, error_callback=error_callback)
+        except (SystemExit, KeyboardInterrupt) as exc:
+            # apply_target re-raises the two the worker acts on. Nothing reads
+            # the future they would end up in, so they are handed on here.
+            self._handle_task_exit(uuid, error_callback, exc)
+            return None
         except Exception:
             # Nothing reads the future, so an exception that escapes the
             # tracer is only reported if it is reported from here.

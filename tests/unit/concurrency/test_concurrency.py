@@ -14,9 +14,16 @@ from celery import concurrency, signals, states
 from celery.app.trace import trace_task_ret
 from celery.concurrency.aio import ApplyResult, AsyncApplyResult, LoopWorker, SyncSoftTimeout, TaskPool
 from celery.concurrency.base import BasePool, apply_target
-from celery.exceptions import SoftTimeLimitExceeded, Terminated, WorkerShutdown, WorkerTerminate
+from celery.exceptions import (
+    SoftTimeLimitExceeded,
+    Terminated,
+    WorkerLostError,
+    WorkerShutdown,
+    WorkerTerminate,
+)
 from celery.result import AsyncResult
 from celery.utils import uuid
+from celery.worker import state as worker_state
 from celery.worker.request import Request
 
 
@@ -680,6 +687,55 @@ class test_async_task_time_limits(AioPoolCase):
         assert rec.timeouts == [(False, 0.6)]
         assert rec.results == []
         assert rec.failures == []
+
+
+class test_async_task_exits(AioPoolCase):
+    @pytest.mark.parametrize("exc_type", [SystemExit, KeyboardInterrupt])
+    def test_a_task_exiting_leaves_its_loop_worker_running(self, exc_type):
+        @self.app.task(name="aio.exiting", shared=False)
+        async def exiting():
+            raise exc_type("from the task")
+
+        @self.app.task(name="aio.after_the_exit", shared=False)
+        async def after_the_exit():
+            return "ran"
+
+        pool = self.start_pool()
+        rec = Recorder()
+        self.apply(pool, "aio.exiting", rec)
+        assert rec.done.wait(10)
+        assert isinstance(rec.failure, WorkerLostError)
+        assert pool._loop_workers[0]._thread.is_alive()
+
+        after = Recorder()
+        task_id = self.apply(pool, "aio.after_the_exit", after)
+        assert after.done.wait(10)
+        assert self.meta(task_id)["status"] == states.SUCCESS
+        assert self.meta(task_id)["result"] == "ran"
+
+    @pytest.mark.parametrize(
+        ("exc", "flag", "expected"),
+        [
+            (WorkerShutdown(3), "should_stop", 3),
+            (WorkerTerminate(2), "should_terminate", 2),
+        ],
+    )
+    def test_a_shutdown_request_reaches_the_worker(self, exc, flag, expected):
+        @self.app.task(name="aio.asks_for_shutdown", shared=False)
+        async def asks_for_shutdown():
+            raise exc
+
+        pool = self.start_pool()
+        rec = Recorder()
+        try:
+            self.apply(pool, "aio.asks_for_shutdown", rec)
+            assert rec.done.wait(10)
+            assert getattr(worker_state, flag) == expected
+            assert isinstance(rec.failure, WorkerLostError)
+            assert pool._loop_workers[0]._thread.is_alive()
+        finally:
+            worker_state.should_stop = None
+            worker_state.should_terminate = None
 
 
 class test_sync_task_time_limits(AioPoolCase):
