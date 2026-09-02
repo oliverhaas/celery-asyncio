@@ -1144,11 +1144,6 @@ class TestTransport:
         assert isinstance(version, str)
 
 
-# ---------------------------------------------------------------------------
-# Transport connect / close lifecycle
-# ---------------------------------------------------------------------------
-
-
 class TestTransportLifecycle:
     @staticmethod
     def _transport_with_clients(pings):
@@ -1254,10 +1249,6 @@ class TestTransportLifecycle:
         assert any(r.levelno == logging.WARNING for r in caplog.records)
         assert t._connected is False
 
-
-# ---------------------------------------------------------------------------
-# Documented transport options
-# ---------------------------------------------------------------------------
 
 _DOCSTRING_OPTION = re.compile(r"^\* ``(?P<name>[a-z_]+)``:", re.MULTILINE)
 
@@ -3053,11 +3044,6 @@ class TestDeliverToConsumer:
         cb.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
-# A consumer callback that raises
-# ---------------------------------------------------------------------------
-
-
 class TestFailingCallback:
     @staticmethod
     def _channel_with_a_broken_callback(no_ack: bool = False):
@@ -3354,11 +3340,6 @@ class TestTransportEdgeCases:
 
         await t.close()
         assert not t._connected
-
-
-# ---------------------------------------------------------------------------
-# Enqueue due messages: batch limit warning
-# ---------------------------------------------------------------------------
 
 
 class TestEnqueueBatchLimit:
