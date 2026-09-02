@@ -47,6 +47,13 @@ class test_SimpleQueue:
             await sq.put({"test": True})
             # After exiting context, consumer should be closed
 
+    async def test_an_option_the_queue_does_not_know_is_rejected(self):
+        # SimpleQueue ended its signature in **kwargs, so an option meant for
+        # the queue or the exchange was accepted and then dropped.
+        async with Connection("memory://") as conn:
+            with pytest.raises(TypeError, match="durable"):
+                conn.SimpleQueue("test_sq", durable=True)
+
 
 class test_SimpleBuffer:
     """Tests for SimpleBuffer class (transient messages)."""

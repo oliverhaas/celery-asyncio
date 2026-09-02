@@ -55,7 +55,6 @@ class SimpleQueue:
         compression: str | None = None,
         accept: list[str] | None = None,
         channel: Channel | None = None,
-        **kwargs: Any,
     ):
         self._connection = connection
         self._channel = channel
