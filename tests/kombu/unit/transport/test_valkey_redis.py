@@ -1505,6 +1505,19 @@ class TestLoadBindings:
         bindings = await ch._load_bindings("ex1")
         assert bindings == [("q1", "rk1")]
 
+    async def test_an_unreadable_binding_is_reported(self, caplog):
+        """A binding that cannot be parsed silently drops a queue's traffic."""
+        ch = _make_channel()
+        _stub_binding_reads(ch, live=[b"{not json", b'{"queue": "q1"}'])
+
+        with caplog.at_level(logging.WARNING, logger="kombu.transport.valkey_redis"):
+            bindings = await ch._load_bindings("ex1")
+
+        assert bindings == [("q1", "")]
+        assert len(caplog.records) == 1
+        assert "ex1" in caplog.records[0].getMessage()
+        assert "not json" in caplog.records[0].getMessage()
+
 
 # ---------------------------------------------------------------------------
 # Binding lifetime

@@ -853,7 +853,13 @@ class Channel:
                     data = json_loads(member)
                     bindings.append((data["queue"], data.get("routing_key", "")))
                 except (ValueError, KeyError):  # fmt: skip
-                    pass
+                    # Skipping it means every message that should have gone to
+                    # that queue goes nowhere, which is worth saying out loud.
+                    logger.warning(
+                        "Exchange %r: ignoring a binding that cannot be read: %r",
+                        exchange,
+                        member,
+                    )
         return bindings
 
     async def _direct_publish(
