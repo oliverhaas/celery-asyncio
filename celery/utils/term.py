@@ -19,7 +19,6 @@ COLOR_SEQ = "\033[1;%dm"
 
 IS_WINDOWS = platform.system() == "Windows"
 
-ITERM_PROFILE = os.environ.get("ITERM_PROFILE")
 TERM = os.environ.get("TERM")
 TERM_IS_SCREEN = TERM and TERM.startswith("screen")
 
@@ -146,7 +145,7 @@ class colored:
     def iyellow(self, *s: object) -> colored:
         return self.node(s, fg(40 + YELLOW))
 
-    def iblue(self, *s: colored) -> colored:
+    def iblue(self, *s: object) -> colored:
         return self.node(s, fg(40 + BLUE))
 
     def imagenta(self, *s: object) -> colored:
@@ -166,7 +165,6 @@ class colored:
 
 
 def supports_images() -> bool:
-
     try:
         return sys.stdin.isatty() and bool(os.environ.get("ITERM_PROFILE"))
     except AttributeError:
@@ -179,7 +177,7 @@ def _read_as_base64(path: str) -> str:
         return encoded.decode("ascii")
 
 
-def imgcat(path: str, inline: int = 1, preserve_aspect_ratio: int = 0, **kwargs: Any) -> str:
+def imgcat(path: str, inline: int = 1, preserve_aspect_ratio: int = 0) -> str:
     return "\n%s1337;File=inline=%d;preserveAspectRatio=%d:%s%s" % (
         _IMG_PRE,
         inline,

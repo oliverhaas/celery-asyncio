@@ -7,7 +7,7 @@ import pytest
 
 import tests.skip
 from celery.utils import term
-from celery.utils.term import _read_as_base64, colored, fg, supports_images
+from celery.utils.term import _read_as_base64, colored, fg, imgcat, supports_images
 
 
 @tests.skip.if_win32
@@ -103,3 +103,18 @@ class test_colored:
         if iterm_profile is None:
             del os.environ["ITERM_PROFILE"]
         assert supports_images() == expected
+
+
+def test_imgcat_embeds_the_file_in_an_iterm_sequence():
+    with NamedTemporaryFile(mode="wb", suffix=".png") as temp_file:
+        temp_file.write(b"not really a png")
+        temp_file.flush()
+        out = imgcat(temp_file.name, preserve_aspect_ratio=1)
+
+    encoded = b64encode(b"not really a png").decode("ascii")
+    assert out == f"\n{term._IMG_PRE}1337;File=inline=1;preserveAspectRatio=1:{encoded}{term._IMG_POST}"
+
+
+def test_imgcat_rejects_options_it_cannot_render():
+    with pytest.raises(TypeError):
+        imgcat("/dev/null", width=100)
