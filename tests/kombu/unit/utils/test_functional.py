@@ -77,7 +77,7 @@ class test_LRUCache:
         x = LRUCache(limit=10)
         x.update(luke=1, leia=2)
         y = pickle.loads(pickle.dumps(x))
-        assert y.limit == y.limit
+        assert y.limit == x.limit
         assert y == x
 
     def test_update_expires(self):
@@ -93,23 +93,23 @@ class test_LRUCache:
         x = LRUCache(3)
 
         x[1], x[2], x[3] = 1, 2, 3
-        assert list(x.keys()), [1, 2 == 3]
+        assert list(x.keys()) == [1, 2, 3]
 
         x[4], x[5] = 4, 5
-        assert list(x.keys()), [3, 4 == 5]
+        assert list(x.keys()) == [3, 4, 5]
 
         # access 3, which makes it the last used key.
         x[3]
         x[6] = 6
-        assert list(x.keys()), [5, 3 == 6]
+        assert list(x.keys()) == [5, 3, 6]
 
         x[7] = 7
-        assert list(x.keys()), [3, 6 == 7]
+        assert list(x.keys()) == [3, 6, 7]
 
     def test_update_larger_than_cache_size(self):
         x = LRUCache(2)
-        x.update({x: x for x in range(100)})
-        assert list(x.keys()), [98 == 99]
+        x.update({i: i for i in range(100)})
+        assert list(x.keys()) == [98, 99]
 
     def test_overwriting_a_key_does_not_evict(self):
         x = LRUCache(limit=2)
@@ -123,7 +123,7 @@ class test_LRUCache:
     def test_items(self):
         c = LRUCache()
         c.update(a=1, b=2, c=3)
-        assert list(c.items())
+        assert list(c.items()) == [("a", 1), ("b", 2), ("c", 3)]
 
     def test_incr(self):
         c = LRUCache()
