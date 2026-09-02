@@ -272,42 +272,42 @@ class test_App:
     def test_pending_configuration__setattr(self):
         with self.Celery(broker="foo://bar") as app:
             app.conf.task_default_delivery_mode = 44
-            app.conf.worker_autoscaler = "foo:Bar"
+            app.conf.worker_state_db = "foo.state"
             assert not app.configured
-            assert app.conf.worker_autoscaler == "foo:Bar"
+            assert app.conf.worker_state_db == "foo.state"
             assert app.conf.broker_url == "foo://bar"
-            assert app._preconf["worker_autoscaler"] == "foo:Bar"
+            assert app._preconf["worker_state_db"] == "foo.state"
 
             assert app.configured
             reapp = pickle.loads(pickle.dumps(app))
-            assert reapp._preconf["worker_autoscaler"] == "foo:Bar"
+            assert reapp._preconf["worker_state_db"] == "foo.state"
             assert not reapp.configured
-            assert reapp.conf.worker_autoscaler == "foo:Bar"
+            assert reapp.conf.worker_state_db == "foo.state"
             assert reapp.configured
             assert reapp.conf.broker_url == "foo://bar"
-            assert reapp._preconf["worker_autoscaler"] == "foo:Bar"
+            assert reapp._preconf["worker_state_db"] == "foo.state"
 
     def test_pending_configuration__update(self):
         with self.Celery(broker="foo://bar") as app:
             app.conf.update(
                 task_default_delivery_mode=44,
-                worker_autoscaler="foo:Bar",
+                worker_state_db="foo.state",
             )
             assert not app.configured
-            assert app.conf.worker_autoscaler == "foo:Bar"
+            assert app.conf.worker_state_db == "foo.state"
             assert app.conf.broker_url == "foo://bar"
-            assert app._preconf["worker_autoscaler"] == "foo:Bar"
+            assert app._preconf["worker_state_db"] == "foo.state"
 
     def test_pending_configuration__compat_settings(self):
         with self.Celery(broker="foo://bar", backend="foo") as app:
             app.conf.update(
                 CELERY_ALWAYS_EAGER=4,
                 CELERY_DEFAULT_DELIVERY_MODE=63,
-                CELERYD_AUTOSCALER="foo:Barz",
+                CELERYD_STATE_DB="foo.statez",
             )
             assert app.conf.task_always_eager == 4
             assert app.conf.task_default_delivery_mode == 63
-            assert app.conf.worker_autoscaler == "foo:Barz"
+            assert app.conf.worker_state_db == "foo.statez"
             assert app.conf.broker_url == "foo://bar"
             assert app.conf.result_backend == "foo"
 
@@ -316,7 +316,7 @@ class test_App:
             app.conf.update(
                 CELERY_ALWAYS_EAGER=4,
                 CELERY_DEFAULT_DELIVERY_MODE=63,
-                CELERYD_AUTOSCALER="foo:Barz",
+                CELERYD_STATE_DB="foo.statez",
                 worker_consumer="foo:Fooz",
             )
             with pytest.raises(ImproperlyConfigured):
@@ -329,7 +329,7 @@ class test_App:
                     Bunch(
                         CELERY_TASK_ALWAYS_EAGER=4,
                         CELERY_TASK_DEFAULT_DELIVERY_MODE=63,
-                        CELERY_WORKER_AUTOSCALER="foo:Barz",
+                        CELERY_WORKER_STATE_DB="foo.statez",
                         CELERY_RESULT_SERIALIZER="pickle",
                     )
                 ),
@@ -339,7 +339,7 @@ class test_App:
             assert app.conf.CELERY_RESULT_SERIALIZER == "pickle"
             assert app.conf.task_always_eager == 4
             assert app.conf.task_default_delivery_mode == 63
-            assert app.conf.worker_autoscaler == "foo:Barz"
+            assert app.conf.worker_state_db == "foo.statez"
             assert app.conf.broker_url == "foo://bar"
             assert app.conf.result_backend == "foo"
 
@@ -365,28 +365,27 @@ class test_App:
             )
 
             assert app.conf.worker_consumer == "foo:Fooz"
-            assert app.conf.worker_autoscaler == "foo:Xuzzy"
             assert app.conf.task_always_eager == 4
             assert app.conf.task_default_delivery_mode == 63
 
     def test_pending_configuration__setdefault(self):
         with self.Celery(broker="foo://bar") as app:
             assert not app.configured
-            app.conf.setdefault("worker_autoscaler", "foo:Bar")
+            app.conf.setdefault("worker_state_db", "foo.state")
             assert not app.configured
 
     def test_pending_configuration__iter(self):
         with self.Celery(broker="foo://bar") as app:
-            app.conf.worker_autoscaler = "foo:Bar"
+            app.conf.worker_state_db = "foo.state"
             assert not app.configured
             assert list(app.conf.keys())
             assert app.configured
-            assert "worker_autoscaler" in app.conf
+            assert "worker_state_db" in app.conf
             assert dict(app.conf)
 
     def test_pending_configuration__raises_ImproperlyConfigured(self):
         with self.Celery(set_as_current=False) as app:
-            app.conf.worker_autoscaler = "foo://bar"
+            app.conf.worker_state_db = "foo.state"
             app.conf.task_default_delivery_mode = 44
             app.conf.CELERY_ALWAYS_EAGER = 5
             with pytest.raises(ImproperlyConfigured):
@@ -968,7 +967,7 @@ class test_App:
 
         class Config:
             task_always_eager = 44
-            worker_autoscaler = "foo:Agent"
+            worker_state_db = "foo.state"
             worker_consumer = "foo:Consumer"
             beat_schedule = "/foo/schedule"
             CELERY_DEFAULT_DELIVERY_MODE = 301
@@ -982,7 +981,7 @@ class test_App:
 
         class Config:
             CELERY_ALWAYS_EAGER = 46
-            CELERYD_AUTOSCALER = "foo:Agent"
+            CELERYD_STATE_DB = "foo.state"
             CELERYD_CONSUMER = "foo:Consumer"
             CELERYBEAT_SCHEDULE = "/foo/schedule"
             task_default_delivery_mode = 301
