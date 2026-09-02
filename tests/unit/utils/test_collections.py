@@ -321,6 +321,15 @@ class test_LimitedSet:
         s4.update(s2)
         assert s2 == s4
 
+    def test_comparison_with_other_types(self):
+        s = LimitedSet(maxlen=2)
+        s.add("foo")
+        assert s != 1
+        assert not s == "foo"
+        assert s.__eq__(1) is NotImplemented
+        # a membership test compares against every element of the list
+        assert s not in [1, "foo"]
+
     def test_iterable_and_ordering(self):
         s = LimitedSet(maxlen=35, expires=None)
         clock = count(1)

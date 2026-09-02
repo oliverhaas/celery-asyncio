@@ -552,7 +552,9 @@ class LimitedSet:
         return {key: inserted for inserted, key in self._data.values()}
 
     def __eq__(self, other):
-        return self._data == other._data
+        if isinstance(other, LimitedSet):
+            return self._data == other._data
+        return NotImplemented
 
     def __repr__(self):
         return REPR_LIMITED_SET.format(
