@@ -28,8 +28,8 @@ def _cancel_all_tasks(loop: asyncio.AbstractEventLoop) -> None:
 
     The same shutdown :func:`asyncio.run` performs, which this loop never gets
     because it is stopped rather than returned from. Without it a transport's
-    long-lived background tasks -- consumer iterations, heartbeats, expiry
-    refreshes -- are still pending when the loop closes, and the interpreter
+    long-lived background tasks (consumer iterations, heartbeats, expiry
+    refreshes) are still pending when the loop closes, and the interpreter
     reports each of them as "Task was destroyed but it is pending!" on the way
     out, sometimes with a "no running event loop" traceback from whatever the
     dying coroutine tried to await next.

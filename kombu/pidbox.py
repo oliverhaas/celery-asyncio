@@ -473,9 +473,9 @@ class Mailbox:
         async with consumer:
             # `timeout` is the window replies are collected in, not a budget
             # spent per event. `drain_events` returns without raising for as
-            # long as messages keep arriving -- and on a channel shared with a
-            # busy consumer they do -- so with no `limit` there is nothing to
-            # end the loop above; the caller then blocks on a reply set that is
+            # long as messages keep arriving, which on a channel shared with a
+            # busy consumer they do, so with no `limit` there is nothing to end
+            # the loop above; the caller then blocks on a reply set that is
             # already complete. The deadline has to be kept out here.
             if timeout:
                 try:

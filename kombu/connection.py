@@ -380,7 +380,7 @@ class Connection:
         """The transport class for this connection's URL.
 
         The error tuples below are class attributes, so they can be read
-        before anything is connected -- and they have to be. A caller asking
+        before anything is connected, which they have to be. A caller asking
         which errors are recoverable is usually about to connect for the first
         time, or has just been disconnected (:meth:`close` drops
         ``_transport``); answering with a generic default in either case sends
