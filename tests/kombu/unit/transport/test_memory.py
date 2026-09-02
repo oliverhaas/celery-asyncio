@@ -273,7 +273,6 @@ class test_drain_events:
             await asyncio.wait_for(channel.drain_events(timeout=5), 0.05)
 
         await channel.publish(envelope("hi"), "", "q")
-        # Let anything the cancelled drain might have left running run.
         await asyncio.sleep(0)
         await asyncio.sleep(0)
 
@@ -346,7 +345,6 @@ class test_process_wide_state:
             channel = await make_channel()
             await channel.declare_queue(Queue("q"))
             await channel.basic_consume("q", lambda body, message: None)
-            # Block once so anything loop-bound would bind to this loop.
             await channel.drain_events(timeout=0.01)
             await channel.publish(envelope("hi"), "", "q")
 
