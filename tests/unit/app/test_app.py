@@ -355,14 +355,20 @@ class test_App:
                 assert app.conf.worker_consumer == "foo:Fooz"
 
     def test_pending_configuration__compat_settings_mixing_alt(self):
+        # An old name alongside the new one for the same setting is the one
+        # mix that is allowed, as long as the two agree.
         with self.Celery(broker="foo://bar", backend="foo") as app:
             app.conf.update(
                 task_always_eager=4,
                 task_default_delivery_mode=63,
-                worker_agent="foo:Barz",
                 CELERYD_CONSUMER="foo:Fooz",
                 worker_consumer="foo:Fooz",
             )
+
+            assert app.conf.worker_consumer == "foo:Fooz"
+            assert app.conf.worker_autoscaler == "foo:Xuzzy"
+            assert app.conf.task_always_eager == 4
+            assert app.conf.task_default_delivery_mode == 63
 
     def test_pending_configuration__setdefault(self):
         with self.Celery(broker="foo://bar") as app:

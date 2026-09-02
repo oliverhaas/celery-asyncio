@@ -1,15 +1,14 @@
 import importlib.util
+import logging
 import threading
-from contextlib import contextmanager
 from unittest.mock import patch
 
 import pytest
 
-import celery.contrib.testing.worker as contrib_embed_worker
 from celery.app import backends
 from celery.backends.cache import CacheBackend
+from celery.contrib.testing.worker import start_worker
 from celery.exceptions import ImproperlyConfigured
-from celery.utils.nodenames import anon_nodename
 
 
 class CachedBackendWithTreadTrucking(CacheBackend):
@@ -36,48 +35,6 @@ class CachedBackendWithTreadTrucking(CacheBackend):
 
         self._track_attribute_access(name)
         return super().__getattribute__(name)
-
-
-@contextmanager
-def embed_worker(app, concurrency=1, pool="threading", **kwargs):
-    """
-    Helper embedded worker for testing.
-
-    It's based on a :func:`celery.contrib.testing.worker.start_worker`,
-    but doesn't modify logging settings and additionally shutdown
-    worker pool.
-    """
-    # prepare application for worker
-    app.finalize()
-    app.set_current()
-
-    worker = contrib_embed_worker.TestWorkController(
-        app=app,
-        concurrency=concurrency,
-        hostname=anon_nodename(),
-        pool=pool,
-        # not allowed to override TestWorkController.on_consumer_ready
-        ready_callback=None,
-        without_heartbeat=kwargs.pop("without_heartbeat", True),
-        without_mingle=True,
-        without_gossip=True,
-        **kwargs,
-    )
-
-    t = threading.Thread(target=worker.start, daemon=True)
-    t.start()
-    worker.ensure_started()
-
-    yield worker
-
-    worker.stop()
-    t.join(10.0)
-    if t.is_alive():
-        raise RuntimeError(
-            "Worker thread failed to exit within the allocated timeout. "
-            "Consider raising `shutdown_timeout` if your tasks take longer "
-            "to execute."
-        )
 
 
 class test_backends:
@@ -116,7 +73,6 @@ class test_backends:
         with pytest.raises(ImproperlyConfigured):
             backends.by_name(pytest, app.loader)
 
-    @pytest.mark.skip(reason="embed_worker uses sync WorkController.start; needs async refactor")
     @pytest.mark.celery(
         result_backend=f"{CachedBackendWithTreadTrucking.__module__}."
         f"{CachedBackendWithTreadTrucking.__qualname__}"
@@ -127,14 +83,14 @@ class test_backends:
         def dummy_add_task(x, y):
             return x + y
 
-        with embed_worker(app=self.app, pool="threads"):
+        # The embedded worker sets logging up for the whole process, so it is
+        # handed the level the session already runs at.
+        with start_worker(self.app, perform_ping_check=False, loglevel=logging.getLogger().level):
             result = dummy_add_task.delay(6, 9)
             assert result.get(timeout=10) == 15
 
         call_stats = CachedBackendWithTreadTrucking.test_call_stats
-        # check that backend instance is used without same thread
+        assert call_stats, "the tracking backend was never used"
         for backend_call_stats in call_stats.values():
-            thread_ids = set()
-            for call_stat in backend_call_stats:
-                thread_ids.add(call_stat["thread_id"])
+            thread_ids = {call_stat["thread_id"] for call_stat in backend_call_stats}
             assert len(thread_ids) <= 1, "The same celery backend instance is used by multiple threads"
