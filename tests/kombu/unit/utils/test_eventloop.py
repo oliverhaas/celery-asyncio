@@ -148,3 +148,20 @@ class test_run_from_any_thread:
             assert where is not asyncio.get_running_loop()
         finally:
             runner.stop()
+
+    async def test_refuses_to_block_the_loop_it_runs_on(self):
+        # The runner's loop would be waiting on work that only it can run.
+        runner = LoopRunner(name="test-loop")
+        try:
+
+            async def work():
+                return 42
+
+            async def from_the_runners_own_loop():
+                with pytest.raises(RuntimeError, match="running on it"):
+                    runner.run_from_any_thread(work())
+                return "refused"
+
+            assert runner.run_from_any_thread(from_the_runners_own_loop()) == "refused"
+        finally:
+            runner.stop()

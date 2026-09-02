@@ -102,8 +102,8 @@ class LoopRunner:
         """Run `coro` on the background loop, blocking until it returns.
 
         Refuses to run from inside a running loop, where the caller has an
-        async form to await instead. Callers with no such choice — a sync
-        dunder invoked by third-party code — use `run_from_any_thread`.
+        async form to await instead. A caller with no such choice, a sync
+        dunder invoked by third-party code, uses `run_from_any_thread`.
         """
 
         if current_loop() is not None:
@@ -123,9 +123,19 @@ class LoopRunner:
         has a loop of its own stalls that loop but cannot deadlock. For a sync
         API reached from async code there is nothing else to do, so this is
         what `Connection.__enter__` and friends use.
+
+        The one caller it cannot serve is a coroutine already running on this
+        runner's own loop: the loop would be waiting on work only it can run.
         """
 
         loop = self.loop
+        if current_loop() is loop:
+            coro.close()
+            raise RuntimeError(
+                "Cannot block on the background loop from a coroutine running on it. "
+                "Await the async form instead, for example `async with Connection(...)` "
+                "rather than `with Connection(...)`."
+            )
         # Copied rather than inherited: the coroutine runs on another thread,
         # which has a context of its own that the caller never touched.
         context = contextvars.copy_context()
