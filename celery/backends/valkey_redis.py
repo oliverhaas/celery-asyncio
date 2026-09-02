@@ -64,7 +64,7 @@ from celery import states
 from celery.backends.base import _create_chord_error_with_cause
 from celery.canvas import maybe_signature
 from celery.exceptions import BackendStoreError, ChordError, ImproperlyConfigured
-from celery.result import GroupResult, allow_join_result
+from celery.result import GroupResult, allow_join_result, result_from_tuple
 from celery.utils.functional import _regen, dictfilter
 from celery.utils.log import get_logger
 from celery.utils.time import humanize_seconds
@@ -915,28 +915,33 @@ return false
 
     async def asave_group(self, group_id, result):
         """Async version of save_group."""
-        return await self.aset(
+        await self.aset(
             self.get_key_for_group(group_id),
-            self.encode_group(result),
+            self.encode({"result": result.as_tuple()}),
         )
+        return result
 
     async def adelete_group(self, group_id):
         """Async version of delete_group."""
+        self._cache.pop(group_id, None)
         await self.adelete(self.get_key_for_group(group_id))
 
     async def arestore_group(self, group_id, cache=True):
-        """Async version of restore_group."""
-        if cache:
-            try:
-                return self._cache[group_id]
-            except KeyError:
-                pass
-        meta = await self.aget(self.get_key_for_group(group_id))
-        if meta:
-            meta = self.decode_group(meta)
+        """Async version of restore_group.
+
+        The cache entry is the group meta dict rather than the result, so
+        that entries written here and by the sync path are interchangeable.
+        """
+        meta = self._cache.get(group_id) if cache else None
+        if meta is None:
+            raw = await self.aget(self.get_key_for_group(group_id))
+            if not raw:
+                return None
+            meta = self.decode(raw)
+            meta["result"] = result_from_tuple(meta["result"], self.app)
             if cache:
                 self._cache[group_id] = meta
-            return meta
+        return meta["result"]
 
     async def aget_many(
         self,

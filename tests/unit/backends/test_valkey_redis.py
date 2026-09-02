@@ -1295,6 +1295,73 @@ class _AsyncRedis:
         return _AsyncPipeline(self)
 
 
+class test_RedisBackend_async_groups:
+    """Group save/restore over the native async client."""
+
+    def setup_method(self):
+        from celery.backends.valkey_redis import RedisBackend
+
+        class _RedisBackend(RedisBackend):
+            redis = redis
+
+            def _create_async_client(self_inner, **params):
+                return _AsyncRedis(self_inner.client)
+
+        self.b = _RedisBackend(app=self.app)
+
+    def _group(self, gid, size=2):
+        return self.app.GroupResult(gid, [self.app.AsyncResult(uuid()) for _ in range(size)])
+
+    async def test_asave_group_then_arestore_group(self):
+        gid = uuid()
+        saved = self._group(gid, size=3)
+
+        assert await self.b.asave_group(gid, saved) is saved
+
+        restored = await self.b.arestore_group(gid, cache=False)
+        assert isinstance(restored, GroupResult)
+        assert restored.id == gid
+        assert [r.id for r in restored.results] == [r.id for r in saved.results]
+
+    async def test_arestore_group_missing_group(self):
+        assert await self.b.arestore_group(uuid()) is None
+
+    async def test_adelete_group_removes_the_group(self):
+        gid = uuid()
+        await self.b.asave_group(gid, self._group(gid))
+
+        await self.b.adelete_group(gid)
+
+        assert await self.b.arestore_group(gid) is None
+
+    async def test_arestore_group_reads_what_the_sync_path_saved(self):
+        gid = uuid()
+        saved = self._group(gid)
+        self.b.save_group(gid, saved)
+
+        restored = await self.b.arestore_group(gid, cache=False)
+
+        assert [r.id for r in restored.results] == [r.id for r in saved.results]
+
+    async def test_restore_group_reads_what_the_async_path_saved(self):
+        gid = uuid()
+        saved = self._group(gid)
+        await self.b.asave_group(gid, saved)
+
+        restored = self.b.restore_group(gid)
+
+        assert [r.id for r in restored.results] == [r.id for r in saved.results]
+
+    async def test_arestore_group_caches_the_meta_the_sync_path_expects(self):
+        gid = uuid()
+        saved = self._group(gid)
+        await self.b.asave_group(gid, saved)
+
+        await self.b.arestore_group(gid)
+        # The sync path reads the same cache and indexes it as a meta dict.
+        assert self.b.restore_group(gid).id == gid
+
+
 class test_RedisBackend_aon_chord_part_return:
     """Coverage for the async chord-part-return path."""
 
@@ -1360,6 +1427,25 @@ class test_RedisBackend_aon_chord_part_return:
         request = Mock(name="request")
         request.id = request.group = request.group_index = None
         assert await self.b.aon_chord_part_return(request, states.SUCCESS, 10) is None
+
+    async def test_saved_group_header_is_restored_and_joined(self):
+        # A header that mixes a group with a task is saved by apply_chord(),
+        # so the part-return has to read the GroupResult back before joining.
+        # The join runs in a worker thread, so the app backend has to be
+        # visible from there rather than held in the thread-local slot.
+        self.app._backend_cache = self.b
+        callback_sig = Mock(name="callback")
+        callback_sig.adelay = AsyncMock()
+        gid = "gid-async-saved"
+        self.b.set_chord_size(gid, 1)
+        await self.b.asave_group(gid, self.app.GroupResult(gid, [self.app.AsyncResult("tid0")]))
+        self.b.store_result("tid0", 7, states.SUCCESS)
+
+        with patch("celery.backends.valkey_redis.maybe_signature", return_value=callback_sig):
+            request = self._make_request("tid0", gid, 0, callback_sig)
+            await self.b.aon_chord_part_return(request, states.SUCCESS, 7)
+
+        callback_sig.adelay.assert_called_once_with([7])
 
 
 class test_SentinelBackend:
