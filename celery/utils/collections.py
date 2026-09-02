@@ -501,24 +501,15 @@ class LimitedSet:
         # time based expiring:
         if self.expires:
             while len(self._data) > self.minlen >= 0:
-                self._drop_stale_heap_head()
+                # Discard and re-add leave stale (timestamp, item) entries behind.
+                while self._heap and self._data.get(self._heap[0][1]) != self._heap[0]:
+                    heappop(self._heap)
                 if not self._heap:
                     break
                 inserted_time, _ = self._heap[0]
                 if inserted_time + self.expires > now:
                     break  # oldest item hasn't expired yet
                 self.pop()
-
-    def _drop_stale_heap_head(self):
-        """Discard heap entries left behind by a discarded or refreshed item.
-
-        Both ``discard`` and re-adding an item leave the previous
-        ``(timestamp, item)`` entry in the heap.  The head has to be a live
-        entry before its timestamp can be read as the oldest one.
-        """
-        heap, data = self._heap, self._data
-        while heap and data.get(heap[0][1]) != heap[0]:
-            heappop(heap)
 
     def pop(self, default: Any = None) -> Any:
         """Remove and return the oldest item, or :const:`None` when empty."""
