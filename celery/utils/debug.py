@@ -98,7 +98,7 @@ def mem_rss():
     """Return RSS memory usage as a humanized string."""
     p = ps()
     if p is not None:
-        return humanbytes(_process_memory_info(p).rss)
+        return humanbytes(p.memory_info().rss)
 
 
 def ps():  # pragma: no cover
@@ -107,13 +107,6 @@ def ps():  # pragma: no cover
     if _process is None and Process is not None:
         _process = Process(os.getpid())
     return _process
-
-
-def _process_memory_info(process):
-    try:
-        return process.memory_info()
-    except AttributeError:
-        return process.get_memory_info()
 
 
 def cry(out=None, sepchr="=", seplen=49):
