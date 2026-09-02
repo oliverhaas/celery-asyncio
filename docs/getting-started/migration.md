@@ -64,16 +64,30 @@ thread pool. Both can coexist in the same worker.
 Most configuration keys are the same. Key differences:
 
 ```python
-# Worker pool -- only 'asyncio' is supported
-# (prefork, eventlet, gevent are removed)
-worker_pool = 'asyncio'          # default, no need to set
+# The asyncio pool is the only one left, and it is the default
+worker_pool = 'asyncio'
 
-# Broker URL -- valkey:// scheme now supported
-broker_url = 'valkey://localhost:6379/0'  # or redis:// still works
+# valkey:// is new, redis:// still works
+broker_url = 'valkey://localhost:6379/0'
 
-# Result backend -- same
-result_backend = 'valkey://localhost:6379/1'  # or redis://
+# Same key, same meaning
+result_backend = 'valkey://localhost:6379/1'
 ```
+
+### Broker URL schemes
+
+A URL scheme names a transport directly. The aliases upstream kept for the two
+AMQP libraries are gone, so `pyamqp://` and `librabbitmq://` raise a
+`ValueError` naming the schemes that do work:
+
+| Scheme | Transport |
+|--------|-----------|
+| `amqp://`, `amqps://` | RabbitMQ, over aio-pika |
+| `redis://`, `rediss://`, `valkey://`, `valkeys://` | Valkey or Redis |
+| `filesystem://` | a directory of message files |
+| `memory://` | in-process, for tests |
+
+`pyamqp://guest@localhost//` becomes `amqp://guest@localhost//`.
 
 ### Removed settings
 
