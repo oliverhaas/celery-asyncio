@@ -38,7 +38,7 @@ class test_cached_property:
         desc = X.__dict__["foo"]
         assert X.foo is desc
 
-        assert desc.__get__(None) is desc
+        assert desc.__get__(None, X) is desc
         assert desc.__set__(None, 1) is desc
         assert desc.__delete__(None) is desc
         assert desc.setter(1)

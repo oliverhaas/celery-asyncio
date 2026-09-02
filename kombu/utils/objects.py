@@ -22,9 +22,6 @@ class cached_property(_cached_property):
         # We need it for thread-safe __set__/__delete__ (especially for 3.14t free-threading).
         self.lock = RLock()
 
-    def __get__(self, instance, owner=None):
-        return super().__get__(instance, owner)
-
     def __set__(self, instance, value):
         if instance is None:
             return self

@@ -15,11 +15,14 @@ from .encoding import safe_repr as _safe_repr
 __all__ = (
     "LRUCache",
     "dictfilter",
+    "fxrange",
     "is_list",
     "lazy",
     "maybe_evaluate",
     "maybe_list",
     "memoize",
+    "reprcall",
+    "reprkwargs",
     "retry_over_time",
 )
 
