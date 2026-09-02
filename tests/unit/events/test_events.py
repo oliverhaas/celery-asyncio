@@ -1,4 +1,7 @@
+import asyncio
+import logging
 import socket
+import time
 from unittest.mock import Mock, call
 
 import pytest
@@ -9,12 +12,14 @@ from celery.exceptions import ImproperlyConfigured
 
 
 class MockProducer:
+    """Stand-in for kombu's producer, whose `publish` is a coroutine."""
+
     raise_on_publish = False
 
     def __init__(self, *args, **kwargs):
         self.sent = []
 
-    def publish(self, msg, *args, **kwargs):
+    async def publish(self, msg, *args, **kwargs):
         if self.raise_on_publish:
             raise KeyError()
         self.sent.append(msg)
@@ -27,6 +32,12 @@ class MockProducer:
             if event["type"] == kind:
                 return event
         return False
+
+
+async def settle():
+    """Let the scheduled publish tasks and their done callbacks run."""
+    for _ in range(3):
+        await asyncio.sleep(0)
 
 
 def test_Event():
@@ -61,7 +72,7 @@ class test_EventDispatcher:
         x = self.app.events.Dispatcher(connection=conn)
         assert not x.enabled
 
-    def test_send(self):
+    async def test_send(self):
         producer = MockProducer()
         producer.connection = self.app.connection_for_write()
         connection = Mock()
@@ -70,25 +81,83 @@ class test_EventDispatcher:
         eventer.producer = producer
         eventer.enabled = True
         eventer.send("World War II", ended=True)
+        await settle()
         assert producer.has_event("World War II")
         eventer.enabled = False
         eventer.send("World War III")
+        await settle()
         assert not producer.has_event("World War III")
 
         evs = ("Event 1", "Event 2", "Event 3")
         eventer.enabled = True
         eventer.producer.raise_on_publish = True
         eventer.buffer_while_offline = False
-        with pytest.raises(KeyError):
-            eventer.send("Event X")
+        eventer.send("Event X")
+        await settle()
+        assert not producer.has_event("Event X")
+        assert not eventer._outbound_buffer
+
         eventer.buffer_while_offline = True
         for ev in evs:
             eventer.send(ev)
+        await settle()
+        assert [routing_key for _, routing_key in eventer._outbound_buffer] == list(evs)
+
         eventer.producer.raise_on_publish = False
         eventer.flush()
+        await settle()
         for ev in evs:
             assert producer.has_event(ev)
-        eventer.flush()
+        assert not eventer._outbound_buffer
+
+    async def test_send_buffers_what_the_publish_task_failed_to_deliver(self, caplog):
+        # The publish is a coroutine, so it cannot have failed by the time
+        # `send` returns: the buffering used to sit in an except around the
+        # call, where nothing ever raised, and every event lost while the
+        # broker was down was lost for good.
+        producer = MockProducer()
+        producer.raise_on_publish = True
+        eventer = self.app.events.Dispatcher(Mock(), enabled=False, buffer_while_offline=True)
+        eventer.producer = producer
+        eventer.enabled = True
+
+        with caplog.at_level(logging.WARNING, logger="celery.events.dispatcher"):
+            eventer.send("task-sent", uuid=1)
+            await settle()
+
+        assert [routing_key for _, routing_key in eventer._outbound_buffer] == ["task.sent"]
+        assert "task.sent buffered" in caplog.text
+
+    async def test_send_without_buffering_warns_about_the_dropped_event(self, caplog):
+        producer = MockProducer()
+        producer.raise_on_publish = True
+        eventer = self.app.events.Dispatcher(Mock(), enabled=False, buffer_while_offline=False)
+        eventer.producer = producer
+        eventer.enabled = True
+
+        with caplog.at_level(logging.WARNING, logger="celery.events.dispatcher"):
+            eventer.send("task-sent", uuid=1)
+            await settle()
+
+        assert not eventer._outbound_buffer
+        assert "task.sent dropped" in caplog.text
+
+    def test_send_from_a_thread_without_a_loop_reaches_the_broker(self):
+        # A dispatcher built by a client, outside any loop, has no loop of its
+        # own to publish on. It used to throw the coroutine away unexecuted,
+        # which made every client-side task-sent event a no-op.
+        producer = MockProducer()
+        eventer = self.app.events.Dispatcher(Mock(), enabled=False)
+        eventer.producer = producer
+        eventer.enabled = True
+        assert eventer._event_loop is None
+
+        eventer.send("task-sent", uuid=1)
+
+        deadline = time.monotonic() + 5
+        while not producer.sent and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert producer.has_event("task-sent")
 
     def test_send_buffer_group(self):
         buf_received = [None]
@@ -174,7 +243,7 @@ class test_EventDispatcher:
 
         assert len(eventer._outbound_buffer) == 1
 
-    def test_buffered_entries_do_not_hold_on_to_the_exception(self):
+    async def test_buffered_entries_do_not_hold_on_to_the_exception(self):
         # The exception pins its traceback and every frame below it, which for a
         # dispatcher retrying against a dead broker is the leak.
         producer = MockProducer()
@@ -184,12 +253,13 @@ class test_EventDispatcher:
         eventer.enabled = True
 
         eventer.send("task-sent", uuid=1)
+        await settle()
 
         (entry,) = eventer._outbound_buffer
         assert len(entry) == 2
         assert not any(isinstance(part, BaseException) for part in entry)
 
-    def test_publish_without_a_producer_is_a_no_op(self):
+    async def test_publish_without_a_producer_is_a_no_op(self):
         # Stale timers keep calling a closed dispatcher after a reconnect. Each
         # call used to raise AttributeError and land in the buffer.
         eventer = self.app.events.Dispatcher(Mock(), enabled=False, buffer_while_offline=True)
@@ -197,6 +267,7 @@ class test_EventDispatcher:
         eventer.producer = None
 
         eventer.send("worker-heartbeat")
+        await settle()
 
         assert not eventer._outbound_buffer
 
