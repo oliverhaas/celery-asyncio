@@ -26,6 +26,7 @@ from celery.exceptions import (
 from celery.local import class_property
 from celery.result import EagerResult, denied_join_result
 from celery.utils import abstract, deprecated
+from celery.utils.eventloop import current_loop, default_loop_runner
 from celery.utils.functional import mattrgetter, maybe_list
 from celery.utils.imports import instantiate
 from celery.utils.nodenames import gethostname
@@ -75,6 +76,22 @@ def _strflags(flags, default=""):
     if flags:
         return " ({})".format(", ".join(flags))
     return default
+
+
+def _publish_from_any_context(sig):
+    """Send `sig` to the broker whether or not a loop is running here.
+
+    An async task body runs on a loop, and the shared background loop refuses
+    to be blocked on from inside one. Handing the publish over to that loop's
+    thread and waiting there works from a sync body and an async body alike,
+    at the cost of stalling the caller's loop while the publish is in flight.
+    The ``a``-prefixed twins (:meth:`~celery.app.task.Task.aretry`,
+    :meth:`~celery.app.task.Task.areplace`,
+    :meth:`~celery.app.task.Task.aadd_to_chord`) are the forms that do not.
+    """
+    if current_loop() is None:
+        return sig.apply_async()
+    return default_loop_runner().run_from_any_thread(sig.aapply_async())
 
 
 def _reprtask(task, fmt=None, flags=None):
@@ -912,6 +929,11 @@ class Task:
             exception to notify the worker, we use `raise` in front of the
             retry to convey that the rest of the block won't be executed.
 
+        Note:
+            From an ``async def`` task body this stalls the loop the body runs
+            on while the retry is published. ``raise await self.aretry(...)``
+            does the same without stalling it.
+
         Arguments:
             args (Tuple): Positional arguments to retry with.
             kwargs (Dict): Keyword arguments to retry with.
@@ -971,7 +993,7 @@ class Task:
             return ret
 
         try:
-            S.apply_async()
+            _publish_from_any_context(S)
         except Exception as exc:
             raise Reject(exc, requeue=False) from exc
         if throw:

@@ -1,18 +1,21 @@
 import socket
 import tempfile
 import warnings
+from contextlib import contextmanager
 from datetime import datetime
 from unittest.mock import ANY, MagicMock, Mock, patch, sentinel
 
 import pytest
 from kombu.exceptions import EncodeError
 
-from celery import Task, chain, group, uuid
+from celery import Task, chain, group, states, uuid
 from celery.app.task import _DEPRECATED_ROUTING_ATTRS, _reprtask
+from celery.app.trace import build_async_tracer, build_tracer
 from celery.canvas import StampingVisitor, signature
 from celery.contrib.testing.mocks import ContextMock
 from celery.exceptions import CDeprecationWarning, Ignore, ImproperlyConfigured, Retry
 from celery.result import AsyncResult, EagerResult
+from celery.signals import after_task_publish
 from celery.utils.serialization import UnpickleableExceptionWrapper
 
 try:
@@ -1689,6 +1692,69 @@ class test_apply_async(TasksCase):
             expected_args, expected_kwargs = self.common_send_task_arguments()
             expected_kwargs["ignore_result"] = True
             send_task.assert_called_once_with(*expected_args, **expected_kwargs)
+
+
+@contextmanager
+def collect_published():
+    """Collect the headers of every task message that reaches the broker."""
+    published = []
+
+    def on_published(headers=None, **kwargs):
+        published.append(headers)
+
+    after_task_publish.connect(on_published, weak=False)
+    try:
+        yield published
+    finally:
+        after_task_publish.disconnect(on_published)
+
+
+class test_async_task_body(TasksCase):
+    """The task API called from inside an ``async def`` task body.
+
+    Publishing from there cannot block on the shared background loop, which is
+    what every one of these used to do.
+    """
+
+    async def trace(self, task, args=(), kwargs=None, **request):
+        tracer = build_async_tracer(task.name, task, app=self.app)
+        task_id = uuid()
+        return await tracer(task_id, args, kwargs or {}, {"id": task_id, "task": task.name, **request})
+
+    def test_sync_body_retry_publishes_the_retry(self):
+        @self.app.task(bind=True, shared=False, max_retries=3)
+        def retrying(self_):
+            raise self_.retry(countdown=0)
+
+        tracer = build_tracer(retrying.name, retrying, app=self.app)
+        task_id = uuid()
+        with collect_published() as published:
+            ret = tracer(task_id, (), {}, {"id": task_id, "task": retrying.name})
+
+        assert ret.info.state == states.RETRY
+        assert [(h["task"], h["retries"]) for h in published] == [(retrying.name, 1)]
+
+    async def test_async_body_retry_publishes_the_retry(self):
+        @self.app.task(bind=True, shared=False, max_retries=3)
+        async def retrying(self_):
+            raise self_.retry(countdown=0)
+
+        with collect_published() as published:
+            ret = await self.trace(retrying)
+
+        assert ret.info.state == states.RETRY
+        assert [(h["task"], h["retries"]) for h in published] == [(retrying.name, 1)]
+
+    async def test_async_body_aretry_publishes_the_retry(self):
+        @self.app.task(bind=True, shared=False, max_retries=3)
+        async def retrying(self_):
+            raise await self_.aretry(countdown=0)
+
+        with collect_published() as published:
+            ret = await self.trace(retrying)
+
+        assert ret.info.state == states.RETRY
+        assert [(h["task"], h["retries"]) for h in published] == [(retrying.name, 1)]
 
 
 class test_calling_an_async_task(TasksCase):
