@@ -120,7 +120,7 @@ class test_Serialization:
             disabled.clear()
 
     def test_loads_when_data_is_None(self):
-        loads(None, "application/testS", "utf-8")
+        assert loads(None, "application/testS", "utf-8") is None
 
     def test_content_type_decoding(self):
         assert loads(unicode_string_as_utf8, content_type="plain/text", content_encoding="utf-8") == unicode_string
@@ -257,8 +257,15 @@ class test_Serialization:
         b = (pickle.loads(dumps(py_data, serializer="pickle")[-1]),)
         assert a == b
 
-    def test_register(self):
-        register(None, None, None, None)
+    def test_register_without_encoder_or_decoder(self):
+        register("noop", None, None, "application/noop")
+        try:
+            assert registry.name_to_type["noop"] == "application/noop"
+            assert registry.type_to_name["application/noop"] == "noop"
+            assert "noop" not in registry._encoders
+            assert "application/noop" not in registry._decoders
+        finally:
+            unregister("noop")
 
     def test_unregister(self):
         with pytest.raises(SerializerNotInstalled):
@@ -283,8 +290,8 @@ class test_Serialization:
         assert cenc == "binary"
 
     def test_loads__trusted_content(self):
-        loads("tainted", "application/data", "binary", accept=[])
-        loads("tainted", "application/text", "utf-8", accept=[])
+        assert loads("tainted", "application/data", "binary", accept=[]) == "tainted"
+        assert loads("tainted", "application/text", "utf-8", accept=[]) == "tainted"
 
     def test_loads__not_accepted(self):
         with pytest.raises(ContentDisallowed):
