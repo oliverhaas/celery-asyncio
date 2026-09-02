@@ -97,6 +97,9 @@ celery -A myapp worker --loglevel=info
 
 The `-P` flag only accepts `asyncio` (or omit it -- it's the default).
 
+The worker is a single process, so the node name substitutions `%i` and `%I`
+always expand to `0` and to the empty string.
+
 ## Canvas primitives
 
 `chain`, `group`, `chord`, `chunks` work the same way:

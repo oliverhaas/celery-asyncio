@@ -265,13 +265,11 @@ class LoggingProxy:
         return False
 
 
-def current_process():
-    """Return the current process object."""
-    from celery.platforms import current_process as _current_process
+def current_process_index() -> int:
+    """Return the index of the current worker process.
 
-    return _current_process()
+    The worker runs in a single process, so this is always 0.
+    """
+    from celery.platforms import current_process
 
-
-def current_process_index(base=1):
-    index = getattr(current_process(), "index", None)
-    return index + base if index is not None else index
+    return current_process().index
