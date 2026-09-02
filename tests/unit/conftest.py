@@ -17,6 +17,7 @@ import pytest
 from click.testing import CliRunner
 from kombu import Queue
 
+from celery.app.log import Logging
 from celery.backends.cache import CacheBackend, DummyClient
 
 # we have to import the pytest plugin fixtures here,
@@ -412,6 +413,9 @@ def _restore_logging():
     root = logging.getLogger()
     level = root.level
     handlers = root.handlers
+    # A real setup_logging_subsystem() call latches this on the class, and
+    # every later call in the session then returns without doing anything.
+    already_setup = Logging._setup
 
     try:
         yield
@@ -419,6 +423,7 @@ def _restore_logging():
         sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__ = outs
         root.level = level
         root.handlers[:] = handlers
+        Logging._setup = already_setup
 
 
 @contextmanager

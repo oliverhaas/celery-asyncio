@@ -4,7 +4,18 @@ from unittest.mock import patch
 
 import pytest
 
+from celery.app.log import Logging
 from celery.bin.celery import celery
+
+
+@pytest.fixture
+def logging_already_set_up(monkeypatch):
+    """Skip the logging sanity checks the CLI runs on the way up.
+
+    `_setup` used to be set on the class and never put back, which left every
+    later `setup_logging_subsystem` in the session returning early.
+    """
+    monkeypatch.setattr(Logging, "_setup", True)
 
 
 @pytest.fixture(autouse=True)
