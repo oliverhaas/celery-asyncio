@@ -506,10 +506,10 @@ class Control:
         Returns:
             int: the number of tasks discarded.
         """
-        return default_loop_runner().run(self._apurge(connection))
+        return default_loop_runner().run(self.apurge(connection))
 
-    async def _apurge(self, connection=None):
-        """Async implementation of purge."""
+    async def apurge(self, connection=None):
+        """Async version of :meth:`purge`."""
         own_connection = connection is None
         conn = connection or self.app.connection_for_write()
         try:

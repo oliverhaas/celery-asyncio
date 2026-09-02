@@ -6,6 +6,7 @@ All lifecycle methods (start, stop, close, terminate) are async.
 """
 
 import asyncio
+import inspect
 from collections import deque
 from typing import Any
 
@@ -77,6 +78,7 @@ class Blueprint:
         steps Sequence[Union[str, Step]]: List of steps.
         name (str): Set explicit name for this blueprint.
         on_start (Callable): Optional callback applied after blueprint start.
+            May be a coroutine function, in which case it is awaited.
         on_close (Callable): Optional callback applied before blueprint close.
         on_stopped (Callable): Optional callback applied after
             blueprint stopped.
@@ -107,7 +109,9 @@ class Blueprint:
     async def start(self, parent):
         self.state = RUN
         if self.on_start:
-            self.on_start()
+            result = self.on_start()
+            if inspect.isawaitable(result):
+                await result
         for i, step in enumerate(s for s in parent.steps if s is not None):
             self._debug("Starting %s", step.alias)
             self.started = i + 1

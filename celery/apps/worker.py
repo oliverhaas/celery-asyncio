@@ -117,7 +117,7 @@ class Worker(WorkController):
         # -- This will finalize the app!
         trace.setup_worker_optimizations(self.app, self.hostname)
 
-    def on_start(self):
+    async def on_start(self):
         app = self.app
         super().on_start()
 
@@ -130,7 +130,7 @@ class Worker(WorkController):
         )
 
         if self.purge:
-            self.purge_messages()
+            await self.purge_messages()
 
         if not self.quiet:
             self.emit_banner()
@@ -174,11 +174,13 @@ class Worker(WorkController):
             hostname=self.hostname,
         )
 
-    def purge_messages(self):
-        with self.app.connection_for_write() as connection:
-            count = self.app.control.purge(connection=connection)
-            if count:  # pragma: no cover
-                print(f"purge: Erased {count} {pluralize(count, 'message')} from the queue.\n", flush=True)
+    async def purge_messages(self):
+        # The blueprint starts this on the worker's own event loop, so the
+        # blocking Control.purge() cannot run here: it would ask the loop it
+        # is running on to run something for it.
+        count = await self.app.control.apurge()
+        if count:  # pragma: no cover
+            print(f"purge: Erased {count} {pluralize(count, 'message')} from the queue.\n", flush=True)
 
     def tasklist(self, include_builtins=True, sep="\n", int_="celery."):
         return sep.join(
