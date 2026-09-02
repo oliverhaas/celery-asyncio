@@ -1206,7 +1206,7 @@ class test_RedisBackend_chords_complex(basetest_RedisBackend):
                 # using the data stashed in the hash
                 assert self.b.client.hset.call_count == 1
                 self.b.client.hset.reset_mock()
-        # Confirm that `hvals` was not called — complex headers go through
+        # Confirm that `hvals` was not called: complex headers go through
         # the GroupResult.join() path instead.
         self.b.client.hvals.assert_not_called()
         # Confirm that the `GroupResult.restore` mock was called
@@ -1538,7 +1538,7 @@ class test_RedisBackend_aon_chord_part_return:
         return request
 
     async def test_redelivery_idempotent(self):
-        # Same tid, different result bytes — must dedup so HLEN doesn't overshoot.
+        # Same tid, different result bytes, so it has to dedup or HLEN overshoots.
         callback_sig = Mock(name="callback")
         callback_sig.adelay = AsyncMock()
         gid = "gid-async"
@@ -1552,7 +1552,7 @@ class test_RedisBackend_aon_chord_part_return:
                 await self.b.aon_chord_part_return(req0, states.SUCCESS, 10)
                 callback_sig.adelay.assert_not_called()
 
-                # Three redeliveries of tid0 with different results — counter must stay at 1.
+                # Three redeliveries of tid0 with different results, counter stays at 1.
                 await self.b.aon_chord_part_return(req0, states.SUCCESS, 11)
                 await self.b.aon_chord_part_return(req0, states.SUCCESS, 12)
                 callback_sig.adelay.assert_not_called()
