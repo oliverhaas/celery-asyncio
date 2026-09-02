@@ -143,14 +143,18 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     #: 512 MB - https://redis.io/topics/data-types
     _MAX_STR_VALUE_SIZE = 536870912
 
-    #: Check-then-SET in one round trip: returns the stored state when it is the
-    #: sticky state in ARGV[3], else SETs. JSON serializer only (cjson).
+    #: Check-then-SET in one round trip: returns the stored state when it is one
+    #: of the states ARGV[3:] must not overwrite, else SETs. JSON only (cjson).
     _ASTORE_RESULT_LUA = """\
 local existing = redis.call('GET', KEYS[1])
 if existing then
     local ok, decoded = pcall(cjson.decode, existing)
-    if ok and type(decoded) == 'table' and decoded.status == ARGV[3] then
-        return decoded.status
+    if ok and type(decoded) == 'table' then
+        for i = 3, #ARGV do
+            if decoded.status == ARGV[i] then
+                return decoded.status
+            end
+        end
     end
 end
 local expires = tonumber(ARGV[2])
@@ -780,10 +784,10 @@ return false
         """Atomic check-then-SET via Lua when serializer is JSON.
 
         One Redis round-trip instead of the two used by the
-        :class:`BaseKeyValueStoreBackend` default (GET + decode + SET),
-        under the same rule: a stored SUCCESS is never overwritten, any
-        other stored state is. A revoked task that goes on to fail, or a
-        retry that finally succeeds, has to be able to record its outcome.
+        :class:`BaseKeyValueStoreBackend` default (GET + decode + SET), under
+        the same rule, :meth:`states_not_to_overwrite`. A revoked task that
+        goes on to fail, or a retry that finally succeeds, has to be able to
+        record its outcome.
 
         For non-JSON serializers we can't peek at the status field inside
         Lua, so fall back to the base implementation.
@@ -797,10 +801,10 @@ return false
         expires = int(self.expires) if self.expires else 0
         existing = await self._astore_result_script(
             keys=[self.get_key_for_task(task_id)],
-            args=[encoded, expires, states.SUCCESS],
+            args=[encoded, expires, *sorted(self.states_not_to_overwrite(state))],
         )
         if existing is not None:
-            # A stored SUCCESS won: usually a redelivered task re-executing.
+            # The stored state won: usually a redelivered task re-executing.
             logger.error(
                 "Dropped duplicate result write for task %s: stored state %s, attempted state %s",
                 bytes_to_str(task_id),

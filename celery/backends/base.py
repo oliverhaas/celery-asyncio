@@ -304,6 +304,20 @@ class Backend:
             else:
                 g.apply_async((task_id,), parent_id=task_id, root_id=root_id)
 
+    def states_not_to_overwrite(self, state):
+        """Stored states that a write of `state` has to leave alone.
+
+        A stored SUCCESS always wins: a task redelivered after it had already
+        finished, or a lost worker reporting late, must not undo the result
+        that is already there. A revocation additionally loses to any finished
+        state, because a revoke that arrives after the task has run says
+        nothing about how it ran, and `Control.revoke` reaches the worker over
+        the broker, so it can arrive well after the outcome was stored.
+        """
+        if state == states.REVOKED:
+            return states.READY_STATES
+        return {states.SUCCESS}
+
     def mark_as_revoked(self, task_id, reason="", request=None, store_result=True, state=states.REVOKED):
         exc = TaskRevokedError(reason)
         if store_result:
@@ -1304,15 +1318,9 @@ class BaseKeyValueStoreBackend(Backend):
         meta = self._get_result_meta(result=result, state=state, traceback=traceback, request=request)
         meta["task_id"] = bytes_to_str(task_id)
 
-        # Retrieve metadata from the backend, if the status
-        # is a success then we ignore any following update to the state.
-        # This solves a task deduplication issue because of network
-        # partitioning or lost workers. This issue involved a race condition
-        # making a lost task overwrite the last successful result in the
-        # result backend.
         current_meta = self._get_task_meta_for(task_id)
 
-        if current_meta["status"] == states.SUCCESS:
+        if current_meta["status"] in self.states_not_to_overwrite(state):
             return result
 
         try:
@@ -1328,7 +1336,7 @@ class BaseKeyValueStoreBackend(Backend):
         meta["task_id"] = bytes_to_str(task_id)
 
         current_meta = await self._aget_task_meta_for(task_id)
-        if current_meta["status"] == states.SUCCESS:
+        if current_meta["status"] in self.states_not_to_overwrite(state):
             return result
 
         try:

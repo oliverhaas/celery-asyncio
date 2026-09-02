@@ -1208,6 +1208,26 @@ class test_KeyValueStoreBackend:
         stored_meta = self.b.decode(self.b.get(self.b.get_key_for_task(tid)))
         assert stored_meta["status"] == states.SUCCESS
 
+    def test_a_revoke_arriving_after_the_failure_leaves_it_alone(self):
+        tid = uuid()
+        request = Context(group="gid", children=[])
+        self.b.store_result(tid, state=states.FAILURE, result=KeyError("boom"), request=request)
+
+        self.b.mark_as_revoked(tid, reason="revoked", request=request)
+
+        stored_meta = self.b.decode(self.b.get(self.b.get_key_for_task(tid)))
+        assert stored_meta["status"] == states.FAILURE
+
+    def test_a_revoke_is_stored_when_the_task_has_not_finished(self):
+        tid = uuid()
+        request = Context(group="gid", children=[])
+        self.b.store_result(tid, state=states.STARTED, result=None, request=request)
+
+        self.b.mark_as_revoked(tid, reason="revoked", request=request)
+
+        stored_meta = self.b.decode(self.b.get(self.b.get_key_for_task(tid)))
+        assert stored_meta["status"] == states.REVOKED
+
     def test_get_key_for_task_none_task_id(self):
         with pytest.raises(ValueError):
             self.b.get_key_for_task(None)

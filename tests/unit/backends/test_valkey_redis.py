@@ -1400,6 +1400,22 @@ class test_RedisBackend_astore_result:
 
         assert (await b.aget_task_meta(task_id, cache=False))["status"] == states.FAILURE
 
+    async def test_a_revoke_guards_against_every_finished_state(self):
+        script = self._stub_script(None)
+
+        await self.b._astore_result(uuid(), "revoked", states.REVOKED)
+
+        assert script.await_args.kwargs["args"][2:] == sorted(states.READY_STATES)
+
+    async def test_a_late_revoke_leaves_a_stored_failure_alone(self):
+        b = self.Backend(app=self.app, serializer="pickle")
+        task_id = uuid()
+
+        await b.astore_result(task_id, KeyError("boom"), states.FAILURE)
+        await b.astore_result(task_id, TaskRevokedError("gone"), states.REVOKED)
+
+        assert (await b.aget_task_meta(task_id, cache=False))["status"] == states.FAILURE
+
 
 class test_RedisBackend_await_for:
     """Polling for a single result over the native async client."""
