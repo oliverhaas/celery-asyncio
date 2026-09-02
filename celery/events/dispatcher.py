@@ -174,7 +174,7 @@ class EventDispatcher:
             # After a reconnect the old dispatcher is closed, but stale timers
             # such as Heart keep calling this. Without the guard every one of
             # them raised AttributeError and got buffered (upstream acce2acc7).
-            return
+            return None
         exchange = self.exchange
         try:
             coro = producer.publish(
@@ -213,10 +213,14 @@ class EventDispatcher:
         except RuntimeError:
             running_loop = None
         if running_loop is loop:
-            loop.create_task(coro).add_done_callback(done)
+            scheduled = loop.create_task(coro)
         else:
             # On a LoopWorker loop, or on a thread with no loop at all.
-            asyncio.run_coroutine_threadsafe(coro, loop).add_done_callback(done)
+            scheduled = asyncio.run_coroutine_threadsafe(coro, loop)
+        scheduled.add_done_callback(done)
+        # Handed back for a caller that has to know the event is out, such as
+        # `Task.send_event`. Fire and forget stays the default.
+        return scheduled
 
     def _on_publish_done(self, event, routing_key, outcome):
         """Buffer the event if the publish it was scheduled for failed."""

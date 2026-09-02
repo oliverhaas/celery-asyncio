@@ -340,7 +340,7 @@ class test_add_to_chord:
     @patch("celery.Celery.backend", new=PropertyMock(name="backend"))
     def test_add_to_chord(self):
         sig = self.add.s(2, 2)
-        sig.delay = Mock(name="sig.delay")
+        sig.apply_async = Mock(name="sig.apply_async")
         self.adds.request.group = uuid()
         self.adds.request.id = uuid()
 
@@ -354,7 +354,7 @@ class test_add_to_chord:
         assert sig.options["task_id"]
         assert sig.options["group_id"] == self.adds.request.group
         assert sig.options["chord"] == self.adds.request.chord
-        sig.delay.assert_not_called()
+        sig.apply_async.assert_not_called()
         self.app.backend.add_to_chord.assert_called_with(
             self.adds.request.group,
             sig.freeze(),
@@ -362,13 +362,13 @@ class test_add_to_chord:
 
         self.app.backend.reset_mock()
         sig2 = self.add.s(4, 4)
-        sig2.delay = Mock(name="sig2.delay")
+        sig2.apply_async = Mock(name="sig2.apply_async")
         res2 = self.adds.run(sig2)
-        assert res2 == sig2.delay.return_value
+        assert res2 == sig2.apply_async.return_value
         assert sig2.options["task_id"]
         assert sig2.options["group_id"] == self.adds.request.group
         assert sig2.options["chord"] == self.adds.request.chord
-        sig2.delay.assert_called_with()
+        sig2.apply_async.assert_called_with()
         self.app.backend.add_to_chord.assert_called_with(
             self.adds.request.group,
             sig2.freeze(),

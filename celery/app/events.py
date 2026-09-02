@@ -4,7 +4,7 @@
 
 from contextlib import contextmanager
 
-from kombu.utils.eventloop import default_loop_runner
+from kombu.utils.eventloop import current_loop, default_loop_runner
 from kombu.utils.objects import cached_property
 
 
@@ -32,11 +32,14 @@ class Events:
 
     @contextmanager
     def default_dispatcher(self, hostname=None, enabled=True, buffer_while_offline=False):
-        conn = self.app.connection_for_write()
-        try:
-            prod = self.app.amqp.Producer(conn)
-            with self.Dispatcher(conn, hostname, enabled, channel=None, buffer_while_offline=buffer_while_offline) as d:
-                d.producer = prod
-                yield d
-        finally:
-            default_loop_runner().run(conn.close())
+        # The app's connection for the loop this runs on, rather than one of
+        # our own: the app closes it, so leaving this block has nothing to
+        # close, which off a loop it could only do by blocking on the shared
+        # loop and from a task body could only raise.
+        conn = self.app.async_connection
+        with self.Dispatcher(conn, hostname, enabled, channel=None, buffer_while_offline=buffer_while_offline) as d:
+            # A dispatcher publishes on the loop it captured when it was built.
+            # Built off a loop it captured none, and dropped every event it was
+            # handed; the connection above belongs to the loop named here.
+            d._event_loop = current_loop() or default_loop_runner().loop
+            yield d

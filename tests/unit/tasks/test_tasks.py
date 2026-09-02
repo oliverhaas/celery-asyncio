@@ -7,6 +7,7 @@ from datetime import datetime
 from unittest.mock import ANY, MagicMock, Mock, patch, sentinel
 
 import pytest
+from kombu import Producer
 from kombu.exceptions import EncodeError
 
 from celery import Task, chain, group, states, uuid
@@ -1708,6 +1709,75 @@ def collect_published():
         yield published
     finally:
         after_task_publish.disconnect(on_published)
+
+
+@contextmanager
+def collect_events():
+    """Collect the events whose publish actually completed."""
+    published = []
+    real = Producer.publish
+
+    async def publish(self, body, **kwargs):
+        result = await real(self, body, **kwargs)
+        published.append(body)
+        return result
+
+    with patch.object(Producer, "publish", publish):
+        yield published
+
+
+class test_send_event(TasksCase):
+    """`Task.send_event` from a sync and from an async task body.
+
+    From a sync body the dispatcher had no loop to publish on and dropped the
+    event without a word; from an async body closing its connection raised.
+    """
+
+    def test_sync_body_sends_the_event(self):
+        @self.app.task(bind=True, shared=False)
+        def emitting(self_):
+            self_.send_event("task-custom", data=1)
+            return "ok"
+
+        tracer = build_tracer(emitting.name, emitting, app=self.app)
+        task_id = uuid()
+        with collect_events() as events:
+            ret = tracer(task_id, (), {}, {"id": task_id, "task": emitting.name})
+
+        assert ret.retval == "ok"
+        assert [(e["type"], e["uuid"], e["data"]) for e in events] == [("task-custom", task_id, 1)]
+
+    async def test_async_body_sends_the_event(self):
+        @self.app.task(bind=True, shared=False)
+        async def emitting(self_):
+            self_.send_event("task-custom", data=2)
+            return "ok"
+
+        tracer = build_async_tracer(emitting.name, emitting, app=self.app)
+        task_id = uuid()
+        with collect_events() as events:
+            ret = await tracer(task_id, (), {}, {"id": task_id, "task": emitting.name})
+
+        assert ret.retval == "ok"
+        assert [(e["type"], e["uuid"], e["data"]) for e in events] == [("task-custom", task_id, 2)]
+
+    async def test_async_body_asend_event_sends_it_on_this_loop(self):
+        publish_loops = []
+
+        @self.app.task(bind=True, shared=False)
+        async def emitting(self_):
+            await self_.asend_event("task-custom", data=3)
+            publish_loops.append(asyncio.get_running_loop())
+            return "ok"
+
+        tracer = build_async_tracer(emitting.name, emitting, app=self.app)
+        task_id = uuid()
+        with collect_events() as events:
+            ret = await tracer(task_id, (), {}, {"id": task_id, "task": emitting.name})
+
+        assert ret.retval == "ok"
+        assert [(e["type"], e["uuid"], e["data"]) for e in events] == [("task-custom", task_id, 3)]
+        assert publish_loops == [asyncio.get_running_loop()]
 
 
 class test_async_task_body(TasksCase):

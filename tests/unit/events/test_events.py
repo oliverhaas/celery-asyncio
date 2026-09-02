@@ -4,6 +4,7 @@ import time
 from unittest.mock import Mock, call
 
 import pytest
+from kombu.utils.eventloop import default_loop_runner
 
 from celery.events import Event
 from celery.events.receiver import CLIENT_CLOCK_SKEW
@@ -453,8 +454,8 @@ def test_State(app):
 
 def test_default_dispatcher(app):
     with app.events.default_dispatcher() as d:
-        assert d
-        assert d.connection
+        assert d.connection is app.async_connection
+        assert d._event_loop is default_loop_runner().loop
 
 
 class DummyConn:

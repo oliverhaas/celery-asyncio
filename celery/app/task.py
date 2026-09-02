@@ -1342,12 +1342,30 @@ class Task:
                 from the :setting:`task_publish_retry_policy` setting.
             **fields (Any): Map containing information about the event.
                 Must be JSON serializable.
+
+        Note:
+            From an ``async def`` task body this stalls the loop the body runs
+            on until the event is out. :meth:`asend_event` does the same
+            without stalling it.
+        """
+        return default_loop_runner().run_from_any_thread(
+            self.asend_event(type_, retry=retry, retry_policy=retry_policy, **fields)
+        )
+
+    async def asend_event(self, type_, retry=True, retry_policy=None, **fields):
+        """Async version of :meth:`send_event`.
+
+        Arguments and return value are the same as :meth:`send_event`.
         """
         req = self.request
         if retry_policy is None:
             retry_policy = self.app.conf.task_publish_retry_policy
         with self.app.events.default_dispatcher(hostname=req.hostname) as d:
-            return d.send(type_, uuid=req.id, retry=retry, retry_policy=retry_policy, **fields)
+            sent = d.send(type_, uuid=req.id, retry=retry, retry_policy=retry_policy, **fields)
+            # The dispatcher hands back what it scheduled the publish as, so
+            # returning from here means the event is on the broker. A disabled
+            # or buffering dispatcher schedules nothing and returns None.
+            return await sent if inspect.isawaitable(sent) else sent
 
     def replace(self, sig):
         """Replace this task, with a new task inheriting the task id.
