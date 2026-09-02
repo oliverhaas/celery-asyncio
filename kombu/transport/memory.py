@@ -47,9 +47,7 @@ __all__ = ("Channel", "Transport")
 
 logger = get_logger("kombu.transport.memory")
 
-#: Upper bound on a single wait inside :meth:`Channel.drain_events`. Waking up
-#: this often lets a drain that is already blocked pick up consumers another
-#: task registered in the meantime.
+#: Longest single wait in drain_events, so a blocked drain notices new consumers.
 MAX_WAIT = 1.0
 
 
