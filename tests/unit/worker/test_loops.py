@@ -1,6 +1,8 @@
+import time
 from collections import deque
 
 import pytest
+from kombu.common import QoS
 
 from celery.bootsteps import CLOSE, RUN
 from celery.utils.scheduling import Timer
@@ -135,6 +137,60 @@ class test_asynloop_connection_errors(LoopCase):
         await coro
 
         assert connection.drained == 2
+
+
+class test_asynloop_qos(LoopCase):
+    async def test_pushes_the_prefetch_count_back_down_after_an_eta_task(self):
+        applied = []
+        pushed = []
+
+        async def basic_qos(prefetch_count=None):
+            pushed.append(prefetch_count)
+
+        qos = QoS(basic_qos, 2)
+        await qos.update()
+        assert pushed == [2]
+
+        timer = Timer(max_interval=0.01)
+
+        def apply_eta_task():
+            applied.append("eta")
+            qos.decrement_eventually()
+
+        # What strategy.default does for a task with an ETA: hold a prefetch
+        # slot open for it and hand it to the timer.
+        qos.increment_eventually()
+        timer.call_at(time.time() - 1, apply_eta_task)
+
+        coro, _, _, _, _ = self.make_loop(lambda: None, qos=qos, timer=timer)
+        await coro
+
+        assert applied == ["eta"]
+        # Up while the task waited on the timer, back down once it ran. Before
+        # the loop pushed changes, the increment held a slot for good.
+        assert pushed == [2, 3, 2]
+        assert qos.value == 2
+
+    async def test_leaves_the_channel_alone_while_the_count_is_unchanged(self):
+        pushed = []
+
+        async def basic_qos(prefetch_count=None):
+            pushed.append(prefetch_count)
+
+        qos = QoS(basic_qos, 4)
+        await qos.update()
+
+        coro, _, _, _, _ = self.make_loop(lambda: None, lambda: None, qos=qos)
+        await coro
+
+        assert pushed == [4]
+
+    async def test_runs_without_a_qos(self):
+        coro, _, connection, _, _ = self.make_loop(lambda: None, qos=None)
+
+        await coro
+
+        assert connection.drained == 1
 
 
 @pytest.fixture(autouse=True)

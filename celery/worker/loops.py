@@ -172,6 +172,12 @@ async def asynloop(
     while blueprint.state == RUN:
         maybe_shutdown()
 
+        # Push out prefetch changes the strategy and the ETA timer only
+        # recorded. Without this an ETA task's increment_eventually() holds a
+        # prefetch slot for the lifetime of the worker.
+        if qos is not None and qos.prev != qos.value:
+            await qos.update()
+
         # Drain the timer: fire any scheduled entries whose ETA has passed
         # (e.g. countdown/eta tasks, rate-limit buckets).
         drain_timeout = 1.0
