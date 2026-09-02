@@ -68,7 +68,15 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev --python ${{ matrix.python-version }}
 
+      # A free-threaded build re-enables the GIL for the whole process the
+      # moment it imports an extension that has not declared free-threading
+      # support. _brotli (pulled in by kombu's compression registry and by
+      # requests) and ephem._libastro both do, so without PYTHON_GIL=0 the
+      # 3.14t job runs with the GIL back on and proves nothing. The variable is
+      # empty on 3.14, where the build rejects PYTHON_GIL=0 outright.
       - name: Run tests
+        env:
+          PYTHON_GIL: ${{ matrix.python-version == '3.14t' && '0' || '' }}
         run: uv run --python ${{ matrix.python-version }} pytest -p no:xdist
 
       - name: Upload coverage
