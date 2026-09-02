@@ -189,7 +189,7 @@ def _start_worker_thread(
 
 
 def _wait_until_ready(
-    w: worker.WorkController,
+    w: TestWorkController,
     running: concurrent.futures.Future,
     timeout: float,
 ) -> None:
@@ -204,9 +204,8 @@ def _wait_until_ready(
         if running.done():
             # Re-raises whatever start() itself raised, on this thread.
             running.result()
-            error = getattr(w, "worker_error", None)
-            if error is not None:
-                raise error
+            if w.worker_error is not None:
+                raise w.worker_error
             raise RuntimeError("Embedded worker stopped before it was ready.")
         if time.monotonic() >= deadline:
             running.cancel()
