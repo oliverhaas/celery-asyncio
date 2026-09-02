@@ -6,8 +6,8 @@ from kombu.common import QoS
 
 from celery.bootsteps import CLOSE, RUN
 from celery.utils.scheduling import Timer
-from celery.worker import state
-from celery.worker.loops import asynloop
+from celery.worker import loops, state
+from celery.worker.loops import _check_restart_conditions, _enter_draining, asynloop
 
 
 class BlueprintState:
@@ -75,6 +75,38 @@ class FakeConsumer:
 
     def on_ready(self):
         self.ready = True
+
+
+class FakePoolHandle:
+    """Stand-in for the pool's ApplyResult: ``cancel()`` reports whether it took."""
+
+    def __init__(self, releases):
+        self.releases = releases
+        self.cancels = 0
+
+    def cancel(self):
+        self.cancels += 1
+        return self.releases
+
+
+class FakeRequest:
+    """Stand-in for :class:`celery.worker.request.Request`."""
+
+    def __init__(self, id, handle=None):
+        self.id = id
+        self.name = "tests.add"
+        self.handle = handle
+        self.rejected = None
+        # Request stores a weakref to the pool handle, so a callable it is.
+        self._apply_result = None if handle is None else (lambda: self.handle)
+
+    def reject(self, requeue=False):
+        self.rejected = requeue
+
+
+class FakePool:
+    def __init__(self, stuck_thread_count=0):
+        self._stuck_thread_count = stuck_thread_count
 
 
 class LoopCase:
@@ -193,7 +225,125 @@ class test_asynloop_qos(LoopCase):
         assert connection.drained == 1
 
 
+class test_enter_draining:
+    async def test_requeues_only_the_tasks_the_pool_released(self):
+        released = FakeRequest("released", FakePoolHandle(releases=True))
+        queued = FakeRequest("queued", FakePoolHandle(releases=False))
+        running = FakeRequest("running", FakePoolHandle(releases=False))
+        for req in (released, queued, running):
+            state.task_reserved(req)
+        state.task_accepted(running)
+        task_consumer = FakeTaskConsumer()
+
+        await _enter_draining(task_consumer, "max tasks per child (1) reached")
+
+        assert task_consumer.cancelled
+        assert released.rejected is True
+        # Requeuing these would run them here as well as on the worker that
+        # gets the redelivery.
+        assert queued.rejected is None
+        assert running.rejected is None
+        assert running.handle.cancels == 0
+        assert set(state.reserved_requests) == {queued, running}
+
+    async def test_keeps_a_task_whose_pool_handle_is_gone(self):
+        req = FakeRequest("collected")
+        state.task_reserved(req)
+
+        await _enter_draining(FakeTaskConsumer(), "memory limit exceeded")
+
+        assert req.rejected is None
+        assert set(state.reserved_requests) == {req}
+
+
+class test_check_restart_conditions(LoopCase):
+    def make_obj(self, **conf):
+        self.app.conf.update(conf)
+        return FakeConsumer(self.app)
+
+    def test_no_reason_below_the_limits(self):
+        obj = self.make_obj(worker_max_tasks_per_child=10, worker_max_memory_per_child=None)
+        state.all_total_count[0] = 9
+
+        assert _check_restart_conditions(obj, FakePool()) is None
+
+    def test_max_tasks_per_child_reached(self):
+        obj = self.make_obj(worker_max_tasks_per_child=10)
+        state.all_total_count[0] = 10
+
+        assert _check_restart_conditions(obj, FakePool()) == "max tasks per child (10) reached"
+
+    def test_max_memory_per_child_exceeded(self, monkeypatch):
+        monkeypatch.setattr(loops, "_get_rss_kib", lambda: 2048)
+        obj = self.make_obj(worker_max_tasks_per_child=None, worker_max_memory_per_child=1024)
+
+        assert _check_restart_conditions(obj, FakePool()) == "memory limit exceeded (RSS 2048 KiB > 1024 KiB)"
+
+    def test_memory_is_only_sampled_every_few_seconds(self, monkeypatch):
+        samples = []
+        monkeypatch.setattr(loops, "_get_rss_kib", lambda: samples.append(1) or 2048)
+        obj = self.make_obj(worker_max_tasks_per_child=None, worker_max_memory_per_child=1024)
+
+        assert _check_restart_conditions(obj, FakePool())
+        assert _check_restart_conditions(obj, FakePool()) is None
+        assert len(samples) == 1
+
+    def test_stuck_threads(self):
+        obj = self.make_obj(worker_max_tasks_per_child=None, worker_max_memory_per_child=None)
+
+        reason = _check_restart_conditions(obj, FakePool(stuck_thread_count=1))
+
+        assert reason == "stuck thread(s) detected after hard timeout"
+
+    def test_a_drain_waits_for_a_task_the_pool_would_not_release(self, monkeypatch):
+        restarts = []
+        monkeypatch.setattr(loops, "_trigger_restart", restarts.append)
+        obj = self.make_obj()
+        state.is_draining = True
+        queued = FakeRequest("queued", FakePoolHandle(releases=False))
+        state.task_reserved(queued)
+
+        assert _check_restart_conditions(obj, FakePool()) is None
+        assert restarts == []
+
+        state.task_ready(queued)
+
+        assert _check_restart_conditions(obj, FakePool()) is None
+        assert restarts == ["all tasks finished during drain"]
+
+
+class test_asynloop_draining(LoopCase):
+    async def test_drains_and_restarts_when_max_tasks_per_child_is_reached(self, monkeypatch):
+        restarts = []
+        monkeypatch.setattr(loops, "_trigger_restart", restarts.append)
+        self.app.conf.worker_max_tasks_per_child = 1
+        state.all_total_count[0] = 1
+        released = FakeRequest("released", FakePoolHandle(releases=True))
+        queued = FakeRequest("queued", FakePoolHandle(releases=False))
+        state.task_reserved(released)
+        state.task_reserved(queued)
+        blueprint = BlueprintState()
+
+        def finish_the_kept_task():
+            state.task_ready(queued)
+            blueprint.state = CLOSE
+
+        coro, _, _, task_consumer, _ = self.make_loop(
+            lambda: None,
+            finish_the_kept_task,
+            pool=FakePool(),
+            blueprint=blueprint,
+        )
+        await coro
+
+        assert task_consumer.cancelled
+        assert released.rejected is True
+        assert queued.rejected is None
+        assert restarts == ["all tasks finished during drain"]
+
+
 @pytest.fixture(autouse=True)
 def _reset_worker_state():
+    state.reset_state()
     yield
     state.reset_state()
