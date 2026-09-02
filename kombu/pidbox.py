@@ -439,7 +439,7 @@ class Mailbox:
             accept = self.accept
         channel = channel or await self.connection.default_channel()
         queue = self.reply_queue
-        consumer = Consumer(self.connection, [queue], accept=accept, no_ack=True)
+        consumer = Consumer(self.connection, [queue], channel=channel, accept=accept, no_ack=True)
         responses = []
         unclaimed = self.unclaimed
         adjust_clock = self.clock.adjust

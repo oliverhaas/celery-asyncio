@@ -183,3 +183,24 @@ async def test_dispatch_reports_an_async_handler_that_raises():
         raise KeyError("no such command")
 
     assert await _dispatch_node({"boom": boom}).dispatch("boom") == {"error": "KeyError('no such command')"}
+
+
+async def test_collect_consumes_on_the_channel_it_was_given():
+    # The reply consumer resolved a channel of its own, so a caller that had
+    # already opened one collected its replies somewhere else.
+    async with Connection("memory://") as conn:
+        channel = await conn.channel()
+        consumed = []
+        basic_consume = channel.basic_consume
+
+        async def recording_basic_consume(queue, *args, **kwargs):
+            consumed.append(queue)
+            return await basic_consume(queue, *args, **kwargs)
+
+        channel.basic_consume = recording_basic_consume
+        mailbox = Mailbox("testns")(conn)
+
+        responses = await mailbox._collect("ticket", timeout=0.05, channel=channel)
+
+    assert responses == []
+    assert consumed == [mailbox.reply_queue.name]
