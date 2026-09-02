@@ -1,6 +1,11 @@
+import base64
+import zlib
+
 import pytest
 
-from kombu import compression
+from kombu import Connection, compression
+from kombu.messaging import Producer
+from kombu.utils.json import loads as json_loads
 
 
 class test_compression:
@@ -66,3 +71,52 @@ class test_compression:
         assert text != c
         d = compression.decompress(c, ctype)
         assert d == text
+
+
+class test_publish_compression:
+    """Producer.publish used to accept `compression` and drop it."""
+
+    async def test_publish_compresses_the_body(self):
+        payload = {"hello": "world" * 20}
+        async with Connection("memory://") as conn:
+            channel = await conn.default_channel()
+            envelopes = []
+            publish = channel.publish
+
+            async def capture(message, **kwargs):
+                envelopes.append(json_loads(message))
+                await publish(message=message, **kwargs)
+
+            channel.publish = capture
+            headers = {"x": 1}
+            producer = Producer(conn, compression="zlib")
+            await producer.publish(payload, routing_key="compressed_q", headers=headers)
+
+            envelope = envelopes[0]
+            assert envelope["headers"]["compression"] == "application/x-gzip"
+            assert envelope["headers"]["body_encoding"] == "base64"
+            assert headers == {"x": 1}
+
+            wire = base64.b64decode(envelope["body"])
+            assert json_loads(zlib.decompress(wire)) == payload
+            assert len(wire) < len(zlib.decompress(wire))
+
+            message = await channel.get("compressed_q", no_ack=True)
+            assert message.decode() == payload
+
+    async def test_publish_without_compression_keeps_the_body_readable(self):
+        async with Connection("memory://") as conn:
+            channel = await conn.default_channel()
+            envelopes = []
+            publish = channel.publish
+
+            async def capture(message, **kwargs):
+                envelopes.append(json_loads(message))
+                await publish(message=message, **kwargs)
+
+            channel.publish = capture
+            await Producer(conn).publish({"hello": "world"}, routing_key="plain_q")
+
+            envelope = envelopes[0]
+            assert envelope["headers"] == {}
+            assert envelope["body"] == '{"hello": "world"}'

@@ -5,6 +5,7 @@ import base64
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from .compression import compress
 from .entity import Exchange, Queue
 from .log import get_logger
 from .serialization import dumps
@@ -138,6 +139,10 @@ class Producer:
         # Resolve defaults
         routing_key = routing_key if routing_key is not None else self.routing_key
         serializer = serializer if serializer is not None else (self.serializer or "json")
+        compression = compression if compression is not None else self.compression
+        # Copied so the envelope keys below do not leak into a headers dict the
+        # caller reuses for the next publish.
+        headers = {} if headers is None else dict(headers)
 
         if isinstance(exchange, str):
             exchange_name = exchange
@@ -151,6 +156,9 @@ class Producer:
         # Serialize the body
         content_type, content_encoding, serialized_body = dumps(body, serializer)
 
+        if compression:
+            serialized_body, headers["compression"] = compress(serialized_body, compression)
+
         # Build message envelope
         properties = {
             **kwargs,
@@ -163,24 +171,27 @@ class Producer:
             properties["delivery_mode"] = delivery_mode
 
         # Encode body for JSON envelope
+        body_str = serialized_body
         if isinstance(serialized_body, bytes):
-            try:
-                body_str = serialized_body.decode(content_encoding or "utf-8")
-            except UnicodeDecodeError, LookupError:  # fmt: skip
-                # Binary serializers (pickle, msgpack) produce non-UTF-8 bytes
+            if compression:
+                # Compressed bytes are not text, even when they happen to decode.
+                body_str = None
+            else:
+                try:
+                    body_str = serialized_body.decode(content_encoding or "utf-8")
+                except UnicodeDecodeError, LookupError:  # fmt: skip
+                    # Binary serializers (pickle, msgpack) produce non-UTF-8 bytes
+                    body_str = None
+            if body_str is None:
                 body_str = base64.b64encode(serialized_body).decode("ascii")
-                if headers is None:
-                    headers = {}
                 headers["body_encoding"] = "base64"
-        else:
-            body_str = serialized_body
 
         message = {
             "body": body_str,
             "content-type": content_type,
             "content-encoding": content_encoding,
             "properties": properties,
-            "headers": headers or {},
+            "headers": headers,
         }
 
         # Encode and publish
@@ -257,7 +268,7 @@ class Consumer:
             self._channel = channel
         self._queues = queues or []
         self._callbacks = callbacks or []
-        # on_message receives just (message,) — raw message, no body decode.
+        # on_message receives just (message,): raw message, no body decode.
         # Regular callbacks receive (body, message).
         self._on_message_callback = on_message
         self._no_ack = no_ack
@@ -320,7 +331,7 @@ class Consumer:
     async def _on_message(self, body: Any, message: Message) -> Any:
         """Handle received message."""
         if self._on_message_callback:
-            # Raw message callback — receives just the message (no body decode)
+            # Raw message callback: receives just the message (no body decode)
             result = self._on_message_callback(message)
             if asyncio.iscoroutine(result):
                 await result
