@@ -587,6 +587,37 @@ class test_State:
         assert len(r.state.tasks_by_worker["utest1"]) == 10
         assert len(r.state.tasks_by_worker["utest2"]) == 10
 
+    def test_tasks_by_worker_skips_tasks_that_have_no_worker_yet(self):
+        # A task-sent event comes from the client, so the task has a client
+        # but no worker. Asking it for a hostname raised AttributeError and
+        # took the whole query with it.
+        s = State()
+        s.event(
+            {
+                "type": "task-sent",
+                "uuid": "client-only",
+                "hostname": "client@host",
+                "name": "tasks.add",
+                "timestamp": 1.0,
+                "local_received": 1.0,
+                "clock": 1,
+            }
+        )
+        s.event(
+            {
+                "type": "task-received",
+                "uuid": "on-worker",
+                "hostname": "utest1",
+                "name": "tasks.add",
+                "timestamp": 2.0,
+                "local_received": 2.0,
+                "clock": 2,
+            }
+        )
+
+        assert [uuid for uuid, _ in s.tasks_by_worker("utest1")] == ["on-worker"]
+        assert list(s.tasks_by_worker("client@host")) == []
+
     def test_survives_unknown_worker_event(self):
         s = State()
         s.event(

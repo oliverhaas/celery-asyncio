@@ -751,9 +751,17 @@ class State:
         """Get all tasks by worker.
 
         Slower than accessing :attr:`tasks_by_worker`, but ordered by time.
+
+        A task seen only through the client-side `task-sent` event has no
+        worker yet, and asking one of those for its hostname raised
+        AttributeError for the whole query.
         """
         return islice(
-            ((uuid, task) for uuid, task in self.tasks_by_time(reverse=reverse) if task.worker.hostname == hostname),
+            (
+                (uuid, task)
+                for uuid, task in self.tasks_by_time(reverse=reverse)
+                if task.worker is not None and task.worker.hostname == hostname
+            ),
             0,
             limit,
         )
