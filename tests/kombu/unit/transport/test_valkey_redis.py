@@ -147,6 +147,34 @@ class TestTopicMatch:
     def test_no_match(self):
         assert _topic_match("user.created", "order.*") is False
 
+    def test_hash_alone_matches_every_key(self):
+        assert _topic_match("user.created", "#") is True
+        assert _topic_match("", "#") is True
+
+    def test_leading_hash_matches_zero_or_more_words(self):
+        assert _topic_match("created", "#.created") is True
+        assert _topic_match("user.created", "#.created") is True
+        assert _topic_match("a.b.created", "#.created") is True
+        assert _topic_match("a.b.deleted", "#.created") is False
+
+    def test_hash_between_words_matches_zero_or_more_words(self):
+        assert _topic_match("user.created", "user.#.created") is True
+        assert _topic_match("user.profile.created", "user.#.created") is True
+        assert _topic_match("user.profile.created.late", "user.#.created") is False
+
+    @pytest.mark.parametrize("key", ["a(b", "a+b", "a[b", "a|b", "a$b", "a.b?"])
+    def test_a_metacharacter_in_the_pattern_is_literal(self, key):
+        assert _topic_match(key, key) is True
+
+    def test_a_metacharacter_does_not_widen_the_pattern(self):
+        # `+` used to reach the regex engine, so `a+b` matched `aab`.
+        assert _topic_match("aab", "a+b") is False
+        assert _topic_match("ab", "a?b") is False
+
+    def test_a_metacharacter_in_the_routing_key_still_matches_a_wildcard(self):
+        assert _topic_match("user.a(b", "user.*") is True
+        assert _topic_match("user.a(b.c", "user.#") is True
+
 
 class TestParseDbFromUrl:
     def test_default_db(self):

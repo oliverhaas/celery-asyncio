@@ -216,18 +216,36 @@ def _queue_score(priority: int, timestamp: float | None = None) -> float:
 
 
 def _topic_match(routing_key: str, pattern: str) -> bool:
-    """Match routing key against AMQP topic pattern (* and #).
+    """Match a routing key against an AMQP topic pattern.
 
-    Supports:
-    - * matches exactly one word
-    - # matches zero or more words (including zero)
+    ``*`` stands for exactly one word and ``#`` for zero or more words. Every
+    other character is literal: a routing key or pattern may contain regex
+    metacharacters, so both are escaped word by word rather than substituted
+    into a regex whole.
     """
-    regex = pattern.replace(".", r"\.")
-    regex = regex.replace("*", r"[^.]+")
-    regex = regex.replace(r"\.#", r"(\..*)?")  # dot-hash: zero or more words
-    regex = regex.replace(r"#\.", r"(.*\.)?")  # hash-dot: zero or more words
-    regex = regex.replace("#", r".*")  # standalone hash
-    return bool(re.match(f"^{regex}$", routing_key))
+    words = pattern.split(".")
+    if words == ["#"]:
+        return True
+
+    parts: list[str] = []
+    separator_pending = False
+    for index, word in enumerate(words):
+        if word == "#":
+            if index == 0:
+                # Leading zero or more words, each followed by its separator.
+                parts.append(r"(?:[^.]+\.)*")
+                separator_pending = False
+            else:
+                # The hash swallows the separator in front of it, so the words
+                # it stands for may also be none at all.
+                parts.append(r"(?:\.[^.]+)*")
+                separator_pending = index < len(words) - 1
+            continue
+        if separator_pending:
+            parts.append(r"\.")
+        parts.append(r"[^.]+" if word == "*" else re.escape(word))
+        separator_pending = True
+    return re.fullmatch("".join(parts), routing_key) is not None
 
 
 def _parse_db_from_url(url: str) -> str:
