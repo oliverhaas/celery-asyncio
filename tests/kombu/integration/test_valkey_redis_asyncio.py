@@ -760,6 +760,45 @@ class TestDeliveryTracking:
             assert await channel._slow_consume([queue_name], block) is False
             assert time() - start >= block
 
+    async def test_a_delayed_message_is_not_delivered_before_its_eta(self):
+        """The sweep looks one check interval ahead.
+
+        A delayed message stored without that margin was enqueued, and
+        delivered, up to a full check interval early.
+        """
+        queue_name = "test_eta_not_early"
+        interval = 2.0
+        async with Connection(REDIS_URL, transport_options={"requeue_check_interval": interval}) as conn:
+            channel = await conn.channel()
+            await channel.queue_purge(queue_name)
+            await channel.basic_consume(queue_name, callback=lambda *args: None)
+
+            eta = time() + 3.0
+            body = json_dumps(
+                {
+                    "body": {"v": "x"},
+                    "content-type": "application/json",
+                    "content-encoding": "utf-8",
+                    "properties": {"eta": eta},
+                    "headers": {},
+                },
+            ).encode()
+            await channel.publish(body, exchange="", routing_key=queue_name)
+            assert await channel.client.zcard(channel._queue_key(queue_name)) == 0
+
+            enqueued_at = None
+            while time() < eta + interval:
+                await asyncio.sleep(0.1)
+                await channel._enqueue_due_messages()
+                if await channel.client.zcard(channel._queue_key(queue_name)):
+                    enqueued_at = time()
+                    break
+
+            assert enqueued_at is not None
+            assert enqueued_at >= eta
+
+            await channel.queue_purge(queue_name)
+
 
 class TestConsumerCancellation:
     """Regressions for the upstream kombu fixes ported in UPSTREAM-PLAN.md."""

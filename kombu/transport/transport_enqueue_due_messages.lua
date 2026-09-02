@@ -8,7 +8,9 @@
 -- If delivery_limit is set and exceeded, the message is dropped (removed from index, hash deleted).
 -- Reads routing_key from hash to add message to the correct queue.
 -- KEYS: [1] = messages_index:{queue} (per-queue index, passed with global_keyprefix applied)
--- ARGV: [1] = threshold, [2] = batch_limit, [3] = visibility_timeout,
+-- ARGV: [1] = threshold, [2] = batch_limit,
+--       [3] = visibility_margin (visibility_timeout + requeue_check_interval,
+--             matching what the publish and consume paths write),
 --       [4] = priority_multiplier, [5] = message_key_prefix, [6] = global_keyprefix,
 --       [7] = queue_key_prefix, [8] = delivery_limit (-1 = no limit),
 --       [9] = dropped_report_limit (max dropped payloads returned)
@@ -19,7 +21,7 @@
 local messages_index = KEYS[1]
 local threshold = tonumber(ARGV[1])
 local batch_limit = tonumber(ARGV[2])
-local visibility_timeout = tonumber(ARGV[3])
+local visibility_margin = tonumber(ARGV[3])
 local priority_multiplier = tonumber(ARGV[4])
 local message_key_prefix = ARGV[5]
 local global_keyprefix = ARGV[6]
@@ -105,10 +107,13 @@ for _, tag in ipairs(ready) do
         end
 
         if routing_key then
-            -- Update queue_at for next cycle (now + visibility_timeout).
-            -- Done for backlogged tags too, otherwise their deadline stays in the
-            -- past and every cycle re-checks them.
-            local new_queue_at = now_sec + visibility_timeout
+            -- Update queue_at for the next cycle. Done for backlogged tags
+            -- too, otherwise their deadline stays in the past and every cycle
+            -- re-checks them. The margin is part of the deadline because the
+            -- threshold this script is called with reaches the same distance
+            -- into the future; without it every redelivery would be counted
+            -- one check interval early.
+            local new_queue_at = now_sec + visibility_margin
             redis.call('ZADD', messages_index, new_queue_at, tag)
             if restored then
                 total_enqueued = total_enqueued + 1

@@ -548,6 +548,40 @@ class TestPublish:
                     assert score == 1360.0, f"Expected 1360.0, got {score}"
                 break
 
+    async def test_a_delayed_message_is_not_due_before_its_eta(self):
+        # The sweep looks one check interval into the future, so an eta stored
+        # without that margin came due, and was delivered, that much too early.
+        ch = _make_channel(visibility_timeout=300, requeue_check_interval=60)
+        pipe = _stub_pipeline(ch, [None])
+        body = b'{"body": "later", "properties": {"eta": 5000.0}, "headers": {}}'
+
+        with patch("kombu.transport.valkey_redis.time") as mock_time:
+            mock_time.return_value = 1000.0
+            await ch._put_message("q1", body)
+
+        index_scores = [
+            score
+            for call in pipe.zadd.call_args_list
+            if "messages_index" in call.args[0]
+            for score in call.args[1].values()
+        ]
+        assert index_scores == [5000.0 + 60]
+        # A delayed message waits in the index, not in the queue.
+        assert not [call for call in pipe.zadd.call_args_list if call.args[0].startswith("queue:")]
+
+    async def test_the_sweep_dates_a_restore_a_full_visibility_timeout_out(self):
+        ch = _make_channel(visibility_timeout=300, requeue_check_interval=60)
+        ch._consumers["tag1"] = ("q1", MagicMock(), False)
+        script = AsyncMock(return_value=[0, 0, 0, 0, []])
+        ch._enqueue_script = script
+
+        await ch._enqueue_due_messages()
+
+        # The sweep's own threshold reaches one interval ahead, so the deadline
+        # it writes has to carry the same margin or the next run counts the
+        # redelivery an interval early.
+        assert script.call_args.kwargs["args"][2] == 360
+
     async def test_put_message_stores_delivery_count(self):
         """New messages should have delivery_count=0."""
         ch = _make_channel()

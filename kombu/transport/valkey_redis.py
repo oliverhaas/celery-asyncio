@@ -952,10 +952,13 @@ class Channel:
         visible_at = eta_timestamp if is_native_delayed else now
 
         queue_score = _queue_score(priority, visible_at)
-        # queue_at = time when enqueue_due_messages will pick up this message.
-        # Adding RCI ensures the message won't be restored prematurely before
-        # the next enqueue cycle runs.
-        queue_at = eta_timestamp if is_native_delayed else now + self._visibility_timeout + self._requeue_check_interval
+        # queue_at is when the sweep picks this message up. Its threshold
+        # reaches one check interval into the future so that nothing falls due
+        # between two runs, so both branches carry that same margin. Without it
+        # on the delayed branch the message is enqueued, and delivered, up to a
+        # full check interval before its eta.
+        visible_from = eta_timestamp if is_native_delayed else now + self._visibility_timeout
+        queue_at = visible_from + self._requeue_check_interval  # type: ignore[operator]
 
         message_key = self._message_key(delivery_tag)
         index_key = self._messages_index_key(queue)
@@ -1890,7 +1893,7 @@ class Channel:
                     args=[
                         threshold,
                         DEFAULT_REQUEUE_BATCH_LIMIT,
-                        self._visibility_timeout,
+                        self._visibility_timeout + self._requeue_check_interval,
                         PRIORITY_SCORE_MULTIPLIER,
                         MESSAGE_KEY_PREFIX,
                         self._global_keyprefix,
