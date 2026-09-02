@@ -308,6 +308,15 @@ class test_Signature(CanvasCase):
         x.type.app.control.election.assert_called()
         assert r.id == "foo"
 
+    def test_election_merges_the_options_the_backend_asks_for(self):
+        x = self.add.s(2, 2)
+        x.freeze("foo")
+        x.type.app.control = Mock()
+        with patch.object(x.type.backend, "on_task_call", return_value={"queue": "elected"}):
+            x.election()
+        elected = x.type.app.control.election.call_args[0][2]
+        assert elected.options["queue"] == "elected"
+
     def test_AsyncResult_when_not_registered(self):
         s = signature("xxx.not.registered", app=self.app)
         assert s.AsyncResult

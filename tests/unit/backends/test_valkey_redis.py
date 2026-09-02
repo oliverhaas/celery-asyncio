@@ -290,6 +290,10 @@ class test_RedisBackend(basetest_RedisBackend):
             with pytest.raises(ImproperlyConfigured):
                 self.Backend(app=self.app)
 
+    def test_on_task_call_returns_a_mapping(self):
+        # Signature.election() unpacks this with **, so None is not allowed.
+        assert self.b.on_task_call(Mock(name="producer"), uuid()) == {}
+
     def test_username_password_from_redis_conf(self):
         self.app.conf.redis_password = "password"
         x = self.Backend(app=self.app)

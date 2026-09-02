@@ -488,7 +488,9 @@ return false
         return retry_policy
 
     def on_task_call(self, producer, task_id):
-        pass  # Polling-based, no early subscription needed
+        # Polling-based, so there is no early subscription to make and no
+        # extra message options to contribute.
+        return {}
 
     def get(self, key):
         return self.client.get(key)
