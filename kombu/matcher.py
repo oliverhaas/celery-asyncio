@@ -25,7 +25,7 @@ class MatcherRegistry:
 
     def __init__(self) -> None:
         self._matchers: dict[str, MatcherFunction] = {}
-        self._default_matcher: MatcherFunction | None = None
+        self._default_matcher_name: str | None = None
 
     def register(self, name: str, matcher: MatcherFunction) -> None:
         """Add matcher by name to the registry."""
@@ -48,10 +48,9 @@ class MatcherRegistry:
         :raises MatcherNotInstalled: If the matching method requested
             is not available.
         """
-        try:
-            self._default_matcher = self._matchers[name]
-        except KeyError:
-            raise self.MatcherNotInstalled(f"No matcher installed for {name}") from None
+        if name not in self._matchers:
+            raise self.MatcherNotInstalled(f"No matcher installed for {name}")
+        self._default_matcher_name = name
 
     def match(
         self,
@@ -61,10 +60,14 @@ class MatcherRegistry:
         matcher_kwargs: dict[str, str] | None = None,
     ) -> bool:
         """Call the matcher."""
-        if matcher and not self._matchers.get(matcher):
-            raise self.MatcherNotInstalled(f"No matcher installed for {matcher}")
-        match_func = self._matchers[matcher or "glob"]
-        if matcher in self.matcher_pattern_first:
+        name = matcher or self._default_matcher_name
+        if name is None:
+            raise self.MatcherNotInstalled("No default matcher installed")
+        try:
+            match_func = self._matchers[name]
+        except KeyError:
+            raise self.MatcherNotInstalled(f"No matcher installed for {name}") from None
+        if name in self.matcher_pattern_first:
             first_arg = bytes_to_str(pattern)
             second_arg = bytes_to_str(data)
         else:
