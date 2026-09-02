@@ -92,7 +92,10 @@ class test_ScheduleEntry:
 
     def test_repr(self):
         entry = self.create_entry()
-        assert "<ScheduleEntry:" in repr(entry)
+        r = repr(entry)
+        assert r.startswith("<ScheduleEntry: celery.unittest.add ")
+        assert r.endswith(">")
+        assert "(2, 2)" in r
 
     def test_reduce(self):
         entry = self.create_entry(schedule=timedelta(seconds=10))
@@ -1003,11 +1006,12 @@ class test_Service:
 
 class test_EmbeddedService:
     def test_start_stop_threaded(self):
-        s = beat.EmbeddedService(self.app, thread=True)
+        s = beat.EmbeddedService(self.app)
         from threading import Thread
 
         assert isinstance(s, Thread)
         assert isinstance(s.service, beat.Service)
+        assert s.service.max_interval == 1
         s.service = MockService()
 
         s.run()
@@ -1015,6 +1019,12 @@ class test_EmbeddedService:
 
         s.stop()
         assert s.service.stopped
+
+    def test_rejects_the_dropped_pool_options(self):
+        with pytest.raises(TypeError):
+            beat.EmbeddedService(self.app, thread=True)
+        with pytest.raises(TypeError):
+            beat.EmbeddedService(self.app, max_interval=30)
 
 
 class test_schedule:

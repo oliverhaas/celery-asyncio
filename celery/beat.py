@@ -187,7 +187,8 @@ class ScheduleEntry:
         return iter(vars(self).items())
 
     def __repr__(self):
-        return f"<{type(self).__name__}: {self.name} {reprcall(self.task, self.args or (), self.kwargs or {})} {self.schedule}"
+        call = reprcall(self.task, self.args or (), self.kwargs or {})
+        return f"<{type(self).__name__}: {self.name} {call} {self.schedule}>"
 
     def __lt__(self, other):
         if isinstance(other, ScheduleEntry):
@@ -704,14 +705,10 @@ class _Threaded(Thread):
         self.service.stop(wait=True)
 
 
-def EmbeddedService(app, max_interval=None, **kwargs):
+def EmbeddedService(app, **kwargs):
     """Return embedded clock service.
 
-    Arguments:
-        thread (bool): Ignored (kept for API compatibility).
-            Always uses threading in asyncio mode.
+    The scheduler sleeps between ticks and only then looks at the shutdown
+    flag, so the interval is capped at a second to keep stopping quick.
     """
-    kwargs.pop("thread", None)
-    # Need short max interval to be able to stop thread
-    # in reasonable time.
     return _Threaded(app, max_interval=1, **kwargs)
