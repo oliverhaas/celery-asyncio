@@ -18,13 +18,15 @@ def mock_channel(mock_transport):
 
 
 @pytest.fixture(autouse=True)
-def _reset_memory_transport():
-    """Start every test with empty memory queues.
+def _reset_transport_state():
+    """Start every test with the process-wide transport state empty.
 
-    The queues are process-wide by design, so messages and bindings a test
-    leaves behind would otherwise reach the next one.
+    Memory queues and declared exchanges outlive the connection that made
+    them by design, so what a test leaves behind would reach the next one.
     """
+    from kombu.transport.filesystem import Transport as FilesystemTransport
     from kombu.transport.memory import Transport as MemoryTransport
 
     yield
     MemoryTransport.reset_state()
+    FilesystemTransport.reset_state()
