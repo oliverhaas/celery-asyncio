@@ -95,7 +95,7 @@ class test_LoaderBase:
 
     def test_cmdline_config_ValueError(self):
         with pytest.raises(ValueError):
-            self.loader.cmdline_config_parser(["broker.port=foobar"])
+            self.loader.cmdline_config_parser(["broker.heartbeat=foobar"])
 
 
 class test_DefaultLoader:
