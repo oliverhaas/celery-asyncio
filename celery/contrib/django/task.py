@@ -2,8 +2,6 @@
 # https://github.com/celery/celery
 import functools
 
-from django.db import transaction
-
 from celery.app.task import Task
 
 
@@ -16,8 +14,14 @@ class DjangoTask(Task):
 
     def delay_on_commit(self, *args, **kwargs) -> None:
         """Call :meth:`~celery.app.task.Task.delay` with Django's ``on_commit()``."""
+        # Imported here, not at module level: Django is an optional
+        # dependency, and importing this module was enough to fail without it.
+        from django.db import transaction
+
         transaction.on_commit(functools.partial(self.delay, *args, **kwargs))
 
     def apply_async_on_commit(self, *args, **kwargs) -> None:
         """Call :meth:`~celery.app.task.Task.apply_async` with Django's ``on_commit()``."""
+        from django.db import transaction
+
         transaction.on_commit(functools.partial(self.apply_async, *args, **kwargs))
