@@ -1,13 +1,16 @@
 import os
 import sys
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
 from celery.app.log import Logging
+from celery.apps.worker import Worker
 from celery.bin.celery import celery
 from celery.bin.worker import strip_detach_options
+
+from .proj.app import app as proj_app
 
 
 @pytest.fixture(scope="session")
@@ -16,50 +19,42 @@ def use_celery_app_trap():
 
 
 @pytest.fixture
-def mock_app():
-    app = Mock()
-    app.conf = Mock()
-    app.conf.worker_disable_prefetch = False
-    app.conf.worker_detect_quorum_queues = False
-    return app
+def restore_app_conf():
+    """Undo what a CLI invocation writes into the shared app configuration."""
+    changes = dict(proj_app.conf.changes)
+    yield proj_app
+    proj_app.conf.changes.clear()
+    proj_app.conf.changes.update(changes)
 
 
-@pytest.fixture
-def mock_consumer(mock_app):
-    consumer = Mock()
-    consumer.app = mock_app
-    consumer.pool = Mock()
-    consumer.pool.num_processes = 4
-    consumer.controller = Mock()
-    consumer.controller.max_concurrency = None
-    consumer.initial_prefetch_count = 16
-    consumer.task_consumer = Mock()
-    consumer.task_consumer.channel = Mock()
-    consumer.task_consumer.channel.qos = Mock()
-    original_can_consume = Mock(return_value=True)
-    consumer.task_consumer.channel.qos.can_consume = original_can_consume
-    consumer.connection = Mock()
-    consumer.connection.transport = Mock()
-    consumer.connection.transport.driver_type = "redis"  # Default to Redis for existing tests
-    consumer.connection.qos_semantics_matches_spec = True
-    consumer.update_strategies = Mock()
-    consumer.on_decode_error = Mock()
-    consumer.app.amqp = Mock()
-    consumer.app.amqp.TaskConsumer = Mock(return_value=consumer.task_consumer)
-    consumer.app.amqp.queues = {}  # Empty dict for quorum queue detection
-    return consumer
+def run_worker(cli_runner, argv):
+    """Invoke `celery worker` with `argv` and return the worker it built."""
+    started = []
+
+    async def record(self):
+        started.append(self)
+
+    with patch.object(Worker, "start", record):
+        res = cli_runner.invoke(
+            celery,
+            ["-A", "tests.unit.bin.proj.app", "worker", "--pool", "asyncio", *argv],
+            catch_exceptions=False,
+        )
+
+    assert started, (res, res.output)
+    return started[0]
 
 
+@pytest.mark.usefixtures("logging_already_set_up")
 def test_cli(cli_runner: CliRunner):
-    Logging._setup = True  # To avoid hitting the logging sanity checks
     res = cli_runner.invoke(
         celery, ["-A", "tests.unit.bin.proj.app", "worker", "--pool", "asyncio"], catch_exceptions=False
     )
     assert res.exit_code == 1, (res, res.stdout)
 
 
+@pytest.mark.usefixtures("logging_already_set_up")
 def test_cli_skip_checks(cli_runner: CliRunner):
-    Logging._setup = True  # To avoid hitting the logging sanity checks
     with patch.dict(os.environ, clear=True):
         res = cli_runner.invoke(
             celery,
@@ -70,20 +65,66 @@ def test_cli_skip_checks(cli_runner: CliRunner):
         assert os.environ["CELERY_SKIP_CHECKS"] == "true", "should set CELERY_SKIP_CHECKS"
 
 
-def test_cli_disable_prefetch_flag(cli_runner: CliRunner):
-    Logging._setup = True
-    with patch("celery.bin.worker.worker.callback") as worker_callback_mock:
-        res = cli_runner.invoke(
-            celery,
-            ["-A", "tests.unit.bin.proj.app", "worker", "--pool", "asyncio", "--disable-prefetch"],
-            catch_exceptions=False,
-        )
-        assert res.exit_code == 0
-        _, kwargs = worker_callback_mock.call_args
-        assert kwargs["disable_prefetch"] is True
+def test_setup_logging_subsystem_is_not_left_disabled(cli_runner: CliRunner):
+    # The three tests above used to set the flag on the class and never put it
+    # back, so every later call to setup_logging_subsystem returned early.
+    assert Logging._setup is False
 
 
-# disable_prefetch tests removed - feature not yet implemented in async Tasks.start
+@pytest.mark.usefixtures("logging_already_set_up")
+@pytest.mark.parametrize(
+    ("flag", "argument", "setting", "expected"),
+    [
+        ("--time-limit", "30", "task_time_limit", 30.0),
+        ("--soft-time-limit", "20", "task_soft_time_limit", 20.0),
+        ("--max-tasks-per-child", "7", "worker_max_tasks_per_child", 7),
+        ("--max-memory-per-child", "1024", "worker_max_memory_per_child", 1024),
+    ],
+)
+def test_limit_flags_reach_the_setting_the_worker_reads(
+    flag, argument, setting, expected, cli_runner: CliRunner, restore_app_conf
+):
+    # They used to be handed to the pool as constructor keywords, which parked
+    # them in `BasePool.options` where nothing ever looked them up.
+    worker = run_worker(cli_runner, [flag, argument])
+
+    assert worker.app.conf[setting] == expected
+
+
+@pytest.mark.usefixtures("logging_already_set_up")
+def test_time_limit_flags_reach_the_task(cli_runner: CliRunner, restore_app_conf):
+    worker = run_worker(cli_runner, ["--time-limit", "30", "--soft-time-limit", "20"])
+
+    @worker.app.task(name="tests.unit.bin.test_worker.limited")
+    def limited():
+        pass
+
+    assert limited.time_limit == 30.0
+    assert limited.soft_time_limit == 20.0
+
+
+@pytest.mark.usefixtures("logging_already_set_up")
+@pytest.mark.parametrize(
+    ("flag", "attribute"),
+    [
+        ("--loop-workers", "loop_workers"),
+        ("--loop-concurrency", "loop_concurrency"),
+        ("--sync-workers", "sync_workers"),
+    ],
+)
+def test_pool_sizing_flags_reach_the_worker(flag, attribute, cli_runner: CliRunner, restore_app_conf):
+    worker = run_worker(cli_runner, [flag, "3"])
+
+    assert getattr(worker, attribute) == 3
+
+
+@pytest.mark.parametrize("removed", ["-O", "--optimization", "--disable-prefetch"])
+def test_removed_options_are_rejected(removed, cli_runner: CliRunner):
+    # `-O fair` and `--disable-prefetch` both described a prefork worker.
+    res = cli_runner.invoke(celery, ["-A", "tests.unit.bin.proj.app", "worker", removed, "fair"])
+
+    assert res.exit_code == 2, (res, res.output)
+    assert "No such option" in res.output
 
 
 @pytest.mark.parametrize(

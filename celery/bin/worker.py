@@ -71,6 +71,18 @@ HOSTNAME = Hostname()
 
 C_FAKEFORK = os.environ.get("C_FAKEFORK")
 
+#: Limit options and the setting each one has to be written to. The worker
+#: reads its limits from the configuration: the hard and soft time limits
+#: through the task attributes bound from it, the child limits in the pool
+#: loop. Passing them as keyword arguments only reached `BasePool.options`,
+#: which nothing looks at, so the flags did nothing at all.
+LIMIT_SETTINGS = {
+    "time_limit": "task_time_limit",
+    "soft_time_limit": "task_soft_time_limit",
+    "max_tasks_per_child": "worker_max_tasks_per_child",
+    "max_memory_per_child": "worker_max_memory_per_child",
+}
+
 #: Flags the re-executed worker must not see again: it is already detached.
 _DETACH_FLAGS = frozenset({"--detach", "-D"})
 
@@ -178,15 +190,6 @@ def detach(
     help="Logging level.",
 )
 @click.option(
-    "-O",
-    "--optimization",
-    default="default",
-    cls=CeleryOption,
-    type=click.Choice(("default", "fair")),
-    help_group="Worker Options",
-    help="Apply optimization profile.",
-)
-@click.option(
     "--prefetch-multiplier",
     type=int,
     metavar="<prefetch multiplier>",
@@ -194,16 +197,6 @@ def detach(
     cls=CeleryOption,
     help_group="Worker Options",
     help="Set custom prefetch multiplier value for this worker instance.",
-)
-@click.option(
-    "--disable-prefetch",
-    is_flag=True,
-    default=None,
-    callback=lambda ctx, _, value: ctx.obj.app.conf.worker_disable_prefetch if value is None else value,
-    cls=CeleryOption,
-    help_group="Worker Options",
-    help="Disable broker prefetching. The worker will only fetch a task when a process slot is available. "
-    "Only supported with Redis brokers.",
 )
 @click.option(
     "-c",
@@ -338,8 +331,10 @@ def worker(
     """
     try:
         app = ctx.obj.app
-        if "disable_prefetch" in kwargs and kwargs["disable_prefetch"] is not None:
-            app.conf.worker_disable_prefetch = kwargs.pop("disable_prefetch")
+        for option, setting in LIMIT_SETTINGS.items():
+            value = kwargs.pop(option, None)
+            if value is not None:
+                app.conf[setting] = value
         if ctx.args:
             try:
                 app.config_from_cmdline(ctx.args, namespace="worker")

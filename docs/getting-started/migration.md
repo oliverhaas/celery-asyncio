@@ -100,6 +100,12 @@ The `-P` flag only accepts `asyncio` (or omit it -- it's the default).
 The worker is a single process, so the node name substitutions `%i` and `%I`
 always expand to `0` and to the empty string.
 
+### Removed worker options
+
+- `-O` / `--optimization`: the `fair` profile only ever described the prefork
+  pool, and nothing read the value.
+- `--disable-prefetch`: prefetching is bounded by the asyncio pool's semaphore.
+
 ## Canvas primitives
 
 `chain`, `group`, `chord`, `chunks` work the same way:
