@@ -400,8 +400,6 @@ class test_drain_events:
         await channel.basic_consume("quiet", lambda body, message: received.append(("quiet", body)))
         await channel.publish(envelope("reply"), "", "quiet")
 
-        # The first queue is never empty, so a drain that always starts there
-        # would never reach the second one.
         for _ in range(3):
             await channel.publish(envelope("task"), "", "busy")
             assert await channel.drain_events(timeout=1) is True

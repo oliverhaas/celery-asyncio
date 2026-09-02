@@ -27,8 +27,6 @@ class test_Matcher:
         assert "test_matcher" not in registry._matchers
 
     def test_match_uses_the_default_matcher(self, restore_default_matcher):
-        # `match` hard-coded "glob" and ignored _set_default_matcher, so a
-        # regex pattern was matched with fnmatch and quietly did not match.
         assert match("data", r"d.*") is False
         assert fnmatch("data", r"d.*") is False
 

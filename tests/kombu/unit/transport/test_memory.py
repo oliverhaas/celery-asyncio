@@ -261,7 +261,6 @@ class test_drain_events:
         await publisher
 
         assert received == ["hi"]
-        # Woken by the publish, not by the next poll.
         assert elapsed < MAX_WAIT
 
     async def test_cancelling_a_drain_leaves_the_next_message_queued(self):
@@ -313,8 +312,6 @@ class test_drain_events:
         await channel.basic_consume("quiet", lambda body, message: received.append(("quiet", body)))
         await channel.publish(envelope("reply"), "", "quiet")
 
-        # The first queue is never empty, so a drain that always starts there
-        # would never reach the second one.
         for _ in range(3):
             await channel.publish(envelope("task"), "", "busy")
             assert await channel.drain_events(timeout=1) is True
@@ -390,7 +387,6 @@ class test_process_wide_state:
 
         assert received == ["hi"]
         assert not thread.is_alive()
-        # The drain woke on the publish rather than on its own poll interval.
         assert time.monotonic() - started < MAX_WAIT
 
     async def test_reset_state_clears_the_shared_queues(self):

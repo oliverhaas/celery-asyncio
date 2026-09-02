@@ -53,8 +53,6 @@ class test_LamportClock:
         assert c.sort_heap([m4, m5, m1]) == m4
 
     def test_sort_single_event(self) -> None:
-        # A one-worker election collects a single reply, and indexing h[1]
-        # unconditionally used to raise IndexError on it.
         c = LamportClock()
         only = (c.forward(), "a.example.com:312")
         assert c.sort_heap([only]) == only
@@ -89,9 +87,6 @@ class test_timetuple:
         assert timetuple(None, t2, "B", "obj") > timetuple(None, t1, "A", "obj")
 
     def test_order_against_a_plain_tuple(self) -> None:
-        # A tuple of the same shape is a valid operand, and delegating to
-        # `other < self` used to recurse until RecursionError because Python
-        # offers the subclass its reflected operation first.
         t1 = time()
         a = timetuple(133, t1, "B", "obj")
 

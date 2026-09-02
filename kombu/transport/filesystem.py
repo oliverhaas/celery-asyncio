@@ -204,11 +204,7 @@ class Channel(BaseChannel):
         self._exchanges.pop(exchange, None)
         await asyncio.to_thread(self._delete_control_files, exchange)
 
-    # Binding storage
-    #
-    # The control file is the only record of a binding: a second worker has no
-    # way of hearing about a binding this process made, and would otherwise
-    # overwrite it with a file holding only its own.
+    # The control file is the only record of a binding, so other workers can see it.
 
     def _control_path(self, exchange: str) -> Path:
         return self._control_folder / f"{exchange}{CONTROL_SUFFIX}"

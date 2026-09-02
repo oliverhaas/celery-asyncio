@@ -34,8 +34,6 @@ def test_as_url_round_trips_url_to_parts(url):
 
 
 def test_sanitize_url_keeps_the_query_string():
-    # The query used to be accepted by as_url and dropped on the floor, so
-    # the startup banner showed a broker URL without its options.
     assert (
         sanitize_url("redis://user:pass@host:6379/0?ssl_cert_reqs=CERT_REQUIRED")
         == "redis://user:**@host:6379/0?ssl_cert_reqs=CERT_REQUIRED"
