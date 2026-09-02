@@ -202,27 +202,6 @@ class sentinel:
     Sentinel = Sentinel
 
 
-class test_RedisResultConsumer:
-    """Tests for the minimal ResultConsumer stub."""
-
-    def get_backend(self):
-        from celery.backends.valkey_redis import RedisBackend
-
-        class _RedisBackend(RedisBackend):
-            redis = redis
-
-        return _RedisBackend(app=self.app)
-
-    def test_consumer_methods_are_noop(self):
-        consumer = self.get_backend().result_consumer
-        # All methods should be no-ops (not raise)
-        consumer.start("some-task-id")
-        consumer.stop()
-        consumer.drain_events(timeout=0.001)
-        consumer.consume_from("some-task-id")
-        consumer.cancel_for("some-task-id")
-
-
 class basetest_RedisBackend:
     def get_backend(self):
         from celery.backends.valkey_redis import RedisBackend

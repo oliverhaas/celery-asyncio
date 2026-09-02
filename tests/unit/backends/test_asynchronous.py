@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from celery.backends.asynchronous import AsyncBackendMixin, BaseResultConsumer
+from celery.backends.asynchronous import AsyncBackendMixin
 from celery.exceptions import TimeoutError
 
 
@@ -31,25 +31,6 @@ class test_poll_interval:
     def test_zero_timeout_clamps_to_minimum(self):
         # timeout=0 → 0/20=0 → clamped to 0.1
         assert AsyncBackendMixin._poll_interval(0) == 0.1
-
-
-class test_BaseResultConsumer:
-    """Tests for the minimal BaseResultConsumer stub."""
-
-    def test_init_stores_backend_and_app(self):
-        backend = Mock()
-        app = Mock()
-        consumer = BaseResultConsumer(backend, app, accept=None, pending_results={}, pending_messages={})
-        assert consumer.backend is backend
-        assert consumer.app is app
-
-    def test_methods_are_noop(self):
-        consumer = BaseResultConsumer(Mock(), Mock(), None, {}, {})
-        # These should all be no-ops (not raise)
-        consumer.start("some-task-id")
-        consumer.stop()
-        consumer.consume_from("some-task-id")
-        consumer.cancel_for("some-task-id")
 
 
 class test_AsyncBackendMixin:

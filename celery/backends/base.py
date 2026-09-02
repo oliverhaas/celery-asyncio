@@ -12,11 +12,10 @@ import asyncio
 import sys
 import time
 import warnings
-from collections import deque, namedtuple
+from collections import deque
 from datetime import timedelta
 from functools import partial
 from uuid import UUID
-from weakref import WeakValueDictionary
 
 from asgiref.sync import sync_to_async
 from kombu.serialization import dumps, loads, prepare_accept_content
@@ -41,7 +40,6 @@ from celery.exceptions import (
     TimeoutError,
 )
 from celery.result import GroupResult, ResultBase, ResultSet, allow_join_result, result_from_tuple
-from celery.utils.collections import BufferMap
 from celery.utils.functional import LRUCache, arity_greater
 from celery.utils.log import get_logger
 from celery.utils.serialization import (
@@ -58,16 +56,6 @@ __all__ = ("BaseBackend", "KeyValueStoreBackend", "DisabledBackend")
 EXCEPTION_ABLE_CODECS = frozenset({"pickle"})
 
 logger = get_logger(__name__)
-
-MESSAGE_BUFFER_MAX = 8192
-
-pending_results_t = namedtuple(
-    "pending_results_t",
-    (
-        "concrete",
-        "weak",
-    ),
-)
 
 E_NO_BACKEND = """
 No result backend is configured.
@@ -130,11 +118,6 @@ class Backend:
 
     TimeoutError = TimeoutError
 
-    #: Time to sleep between polling each individual item
-    #: in `ResultSet.iterate`. as opposed to the `interval`
-    #: argument which is for each pass.
-    subpolling_interval = None
-
     #: If true the backend must implement :meth:`get_many`.
     supports_native_join = False
 
@@ -184,8 +167,6 @@ class Backend:
         self.max_retries = conf.get("result_backend_max_retries", float("inf"))
         self.thread_safe = conf.get("result_backend_thread_safe", False)
 
-        self._pending_results = pending_results_t({}, WeakValueDictionary())
-        self._pending_messages = BufferMap(MESSAGE_BUFFER_MAX)
         self.url = url
 
     def as_uri(self, include_password=False):
@@ -608,12 +589,6 @@ class Backend:
         if value is not None and type:
             return type(value)
         return value
-
-    def prepare_persistent(self, enabled=None):
-        if enabled is not None:
-            return enabled
-        persistent = self.app.conf.result_persistent
-        return self.persistent if persistent is None else persistent
 
     def encode_result(self, result, state):
         if state in self.EXCEPTION_STATES and isinstance(result, Exception):

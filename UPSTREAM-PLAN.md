@@ -238,9 +238,8 @@ The fork's result consumer polls; there is no PUBSUB subscription to leak or uns
 leak, reverted and re-landed upstream · `6b1fad369` deprecated `get_connection` args ·
 `8f0842b33` redis-py < 5.3.0 compat, and the floor here is redis>=7 ·
 `8eec5af31` + `f8668fcf5` a shared `reconnect_on_error` on `BaseResultConsumer`, without
-`socket.timeout` in the reconnect conditions. `BaseResultConsumer` is a documented no-op stub here
-and its only subclass, `valkey_redis.ResultConsumer`, is a stub too -- `start`, `stop`,
-`drain_events`, `consume_from` and `cancel_for` all do nothing, so nothing would ever call it
+`socket.timeout` in the reconnect conditions. There is no result consumer here at all:
+`BaseResultConsumer` and `valkey_redis.ResultConsumer` were no-op stubs and have been deleted
 
 **Subsystem absent**
 `efc3a7f11` multi stopwait EPERM, there is no `apps/multi.py` ·

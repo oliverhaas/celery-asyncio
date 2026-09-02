@@ -70,7 +70,7 @@ from celery.utils.functional import _regen, dictfilter
 from celery.utils.log import get_logger
 from celery.utils.time import humanize_seconds
 
-from .asynchronous import AsyncBackendMixin, BaseResultConsumer
+from .asynchronous import AsyncBackendMixin
 from .base import BaseKeyValueStoreBackend
 
 __all__ = ("RedisBackend", "SentinelBackend")
@@ -120,29 +120,6 @@ E_LOST = "Connection to Valkey/Redis lost: Retry (%s/%s) %s."
 logger = get_logger(__name__)
 
 
-class ResultConsumer(BaseResultConsumer):
-    """Minimal result consumer stub.
-
-    Polling is done directly in AsyncBackendMixin.wait_for_pending()
-    and iter_native() -- no PUBSUB subscriptions needed.
-    """
-
-    def start(self, initial_task_id, **kwargs):
-        pass
-
-    def stop(self):
-        pass
-
-    def drain_events(self, timeout=None):
-        pass
-
-    def consume_from(self, task_id):
-        pass
-
-    def cancel_for(self, task_id):
-        pass
-
-
 class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     """Valkey/Redis task result store.
 
@@ -151,8 +128,6 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     It makes use of the following commands:
     GET, MGET, DEL, INCRBY, EXPIRE, SET, SETEX
     """
-
-    ResultConsumer = ResultConsumer
 
     #: Valkey/Redis client module (set per-instance from URL).
     redis = None
@@ -325,13 +300,6 @@ return false
 
         self.connection_errors = get_all_connection_errors() + self._additional_connection_errors()
         self.channel_errors = get_all_channel_errors()
-        self.result_consumer = self.ResultConsumer(
-            self,
-            self.app,
-            self.accept,
-            self._pending_results,
-            self._pending_messages,
-        )
 
     def _add_driver_info(self):
         """Identify celery to the server via ``CLIENT SETINFO``.

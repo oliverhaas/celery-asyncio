@@ -620,9 +620,6 @@ class AsyncResult(ResultBase):
             return self._maybe_set_cache(self.backend.get_task_meta(self.id))
         return self._cache
 
-    def _iter_meta(self, **kwargs):
-        return iter([self._get_task_meta()])
-
     def _set_cache(self, d):
         children = d.get("children")
         if children:
@@ -1231,9 +1228,6 @@ class ResultSet(ResultBase):
             signal=signal,
             reply=wait,
         )
-
-    def _iter_meta(self, **kwargs):
-        return (meta for _, meta in self.backend.get_many({r.id for r in self.results}, max_iterations=1, **kwargs))
 
     def _failed_join_report(self):
         return (res for res in self.results if res.backend.is_cached(res.id) and res.state in states.PROPAGATE_STATES)

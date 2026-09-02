@@ -7,10 +7,7 @@ from kombu.utils.encoding import bytes_to_str
 from celery import states
 from celery.exceptions import TimeoutError
 
-__all__ = (
-    "AsyncBackendMixin",
-    "BaseResultConsumer",
-)
+__all__ = ("AsyncBackendMixin",)
 
 
 class AsyncBackendMixin:
@@ -133,28 +130,3 @@ class AsyncBackendMixin:
     @property
     def is_async(self):
         return True
-
-
-class BaseResultConsumer:
-    """Minimal base for result consumers.
-
-    With polling-based result fetching, the consumer is a no-op stub.
-    Subclasses only need to exist to satisfy the backend's
-    ``ResultConsumer`` class attribute.
-    """
-
-    def __init__(self, backend, app, accept, pending_results, pending_messages):
-        self.backend = backend
-        self.app = app
-
-    def start(self, initial_task_id, **kwargs):
-        pass
-
-    def stop(self):
-        pass
-
-    def consume_from(self, task_id):
-        pass
-
-    def cancel_for(self, task_id):
-        pass
