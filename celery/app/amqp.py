@@ -171,7 +171,7 @@ class Queues(dict):
 
     def add_compat(self, name, **options):
         # docs used to use binding_key as routing key
-        options.setdefault("routing_key", options.get("binding_key"))
+        options.setdefault("routing_key", options.pop("binding_key", None))
         if options["routing_key"] is None:
             options["routing_key"] = name
         return self._add(Queue.from_dict(name, **options))

@@ -146,7 +146,6 @@ class Queue:
         no_ack: bool = False,
         channel: Channel | None = None,
         alias: str | None = None,
-        **kwargs: Any,
     ):
         self.name = name
         if isinstance(exchange, str):

@@ -24,6 +24,11 @@ class test_Queues:
         assert isinstance(q["foo"], Queue)
         assert q["foo"].routing_key == "rk"
 
+    def test_add_compat_takes_binding_key_as_the_routing_key(self):
+        q = Queues()
+        q.add_compat("foo", binding_key="rk")
+        assert q["foo"].routing_key == "rk"
+
     def test_setitem_adds_default_exchange(self):
         q = Queues(default_exchange=Exchange("bar"))
         assert q.default_exchange
