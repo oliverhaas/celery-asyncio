@@ -328,6 +328,60 @@ class TestConsume:
         await channel.queue_delete(name)
 
 
+class TestPrefetch:
+    """The prefetch window is the only backpressure AMQP gives a consumer.
+
+    RabbitMQ answers channel.flow(active=false) with NOT_IMPLEMENTED, so
+    without a prefetch the broker sends the whole queue at once and aiormq
+    runs a task per delivery.
+    """
+
+    async def test_the_broker_sends_no_more_than_the_prefetch_allows(self):
+        conn = Connection(AMQP_URL, transport_options={"prefetch_count": 2})
+        await conn.connect()
+        try:
+            channel = await conn.channel()
+            name = await channel.declare_queue(Queue(f"kombu-it-{uuid.uuid4().hex}", durable=True))
+            for i in range(10):
+                await channel.publish(envelope({"n": i}), exchange="", routing_key=name)
+
+            await channel.basic_consume(name, callback=lambda body, message: None, no_ack=False)
+            await asyncio.sleep(1.0)
+
+            # Every delivery is tracked for acknowledgement until it is acked,
+            # so this is what the broker has outstanding.
+            assert len(channel._delivery_tag_map) == 2
+
+            for tag in list(channel._delivery_tag_map):
+                await channel.basic_ack(tag)
+            await asyncio.sleep(1.0)
+
+            assert len(channel._delivery_tag_map) == 2
+
+            await channel.queue_delete(name)
+        finally:
+            await conn.close()
+
+    async def test_a_prefetch_set_while_consuming_takes_effect(self):
+        conn = Connection(AMQP_URL)
+        await conn.connect()
+        try:
+            channel = await conn.channel()
+            name = await channel.declare_queue(Queue(f"kombu-it-{uuid.uuid4().hex}", durable=True))
+            await channel.basic_consume(name, callback=lambda body, message: None, no_ack=False)
+            await channel.basic_qos(prefetch_count=2)
+
+            for i in range(10):
+                await channel.publish(envelope({"n": i}), exchange="", routing_key=name)
+            await asyncio.sleep(1.0)
+
+            assert len(channel._delivery_tag_map) == 2
+
+            await channel.queue_delete(name)
+        finally:
+            await conn.close()
+
+
 RABBITMQ_CONTAINER = os.environ.get("KOMBU_TEST_RABBITMQ_CONTAINER", "audit-rabbitmq")
 
 

@@ -13,7 +13,10 @@ Connection String
 
 Transport Options
 =================
-* ``prefetch_count``: QoS prefetch count (default: 0 = unlimited)
+* ``prefetch_count``: how many unacknowledged messages the broker may have
+  outstanding per consumer (default: 0, unlimited). This is the only
+  backpressure AMQP offers a consumer: RabbitMQ answers ``channel.flow`` with
+  NOT_IMPLEMENTED, so a consumer that sets no prefetch is sent the whole queue.
 * ``publisher_confirms``: Enable publisher confirms (default: True)
 * ``heartbeat``: AMQP heartbeat interval in seconds
 """
@@ -110,6 +113,9 @@ def _as_connection_error(exc: BaseException | None) -> Exception:
     return aiormq_exc.ConnectionClosed(exc if exc is not None else "connection closed")
 
 
+#: How many messages to buffer for a consumer that set no prefetch count.
+_UNTHROTTLED_BUFFER_SIZE = 1000
+
 #: Content encodings that name a byte stream rather than a Python text codec.
 _BINARY_CONTENT_ENCODINGS = frozenset({"binary", "ascii-8bit"})
 
@@ -169,6 +175,7 @@ class Channel:
         self,
         aio_channel: aio_pika.abc.AbstractChannel,
         transport: Transport | None = None,
+        prefetch_count: int = 0,
     ) -> None:
         # The transport is what a channel goes back to for a new aio-pika
         # channel after the connection it was opened on has gone.
@@ -188,11 +195,16 @@ class Channel:
         self._queue_declarations: dict[str, dict[str, Any]] = {}
         self._bindings: list[dict[str, Any]] = []
 
-        # Incoming message buffer for drain_events.
-        # Bounded to prevent unbounded memory growth when the consumer
-        # is slower than the broker. aio-pika will apply TCP backpressure
-        # when the queue is full.
-        self._message_queue: asyncio.Queue[tuple[str, Message]] = asyncio.Queue(maxsize=1000)
+        # Incoming message buffer for drain_events. The prefetch window is
+        # what really bounds it: the broker sends no more than that many
+        # unacknowledged messages, so the buffer cannot grow past it. Without
+        # a prefetch the broker sends the whole queue, and aiormq runs the
+        # buffering callback in a task per delivery, so the bound below is
+        # all that stands between a deep queue and a task per message in it.
+        self._prefetch_count = prefetch_count
+        self._message_queue: asyncio.Queue[tuple[str, Message]] = asyncio.Queue(
+            maxsize=prefetch_count or _UNTHROTTLED_BUFFER_SIZE,
+        )
 
         # delivery_tag bridging: str(amqp_int_tag) -> aio-pika IncomingMessage
         self._delivery_tag_map: dict[str, aio_pika.abc.AbstractIncomingMessage] = {}
@@ -700,9 +712,23 @@ class Channel:
         Args:
             prefetch_count: Number of unacknowledged messages the broker
                 will deliver before waiting. 0 means unlimited.
+
+        RabbitMQ fixes a consumer's credit when the consumer is registered
+        and leaves it alone afterwards, with either value of the global flag,
+        so the consumers already running are registered again here. Without
+        that a prefetch set after consuming started would change nothing.
         """
         await self._ensure_open()
         await self._aio_channel.set_qos(prefetch_count=prefetch_count)
+        if prefetch_count == self._prefetch_count:
+            return
+
+        self._prefetch_count = prefetch_count
+        for tag, (queue_name, _callback, no_ack) in list(self._consumers.items()):
+            aio_queue = self._declared_queues.get(queue_name)
+            if aio_queue is not None:
+                await aio_queue.cancel(tag)
+            await self._start_aio_consumer(tag, queue_name, no_ack)
 
     async def basic_recover(self, requeue: bool = True) -> None:
         """Request the broker to redeliver all unacknowledged messages.
@@ -910,7 +936,11 @@ class Transport(BaseTransport):
         return aio_channel
 
     async def create_channel(self) -> _Channel:  # type: ignore[override]  # ty: ignore[invalid-method-override]
-        channel = Channel(await self.new_aio_channel(), transport=self)
+        channel = Channel(
+            await self.new_aio_channel(),
+            transport=self,
+            prefetch_count=self._options.get("prefetch_count", 0),
+        )
         self._channels.add(channel)
         return channel
 

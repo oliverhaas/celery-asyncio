@@ -215,8 +215,11 @@ class TestChannelInit:
     def test_wraps_aio_channel(self, channel, aio_channel):
         assert channel._aio_channel is aio_channel
 
-    def test_message_queue_is_bounded(self, channel):
+    def test_message_queue_is_bounded_without_a_prefetch(self, channel):
         assert channel._message_queue.maxsize == 1000
+
+    def test_message_queue_is_bounded_by_the_prefetch(self, aio_channel):
+        assert Channel(aio_channel, prefetch_count=5)._message_queue.maxsize == 5
 
 
 class TestChannelClose:
@@ -1189,6 +1192,35 @@ class TestChannelAckReject:
 
         aio_channel.set_qos.assert_awaited_once_with(prefetch_count=10)
 
+    async def test_basic_qos_registers_running_consumers_again(self, channel, aio_channel):
+        """RabbitMQ fixes a consumer's credit when it is registered.
+
+        A prefetch set afterwards reaches nothing that is already consuming,
+        so the consumers have to be registered again for it to take effect.
+        """
+        aio_q = _make_aio_queue("q1")
+        channel._declared_queues["q1"] = aio_q
+        await channel.basic_consume("q1", MagicMock(), consumer_tag="tag1")
+        aio_q.consume.reset_mock()
+
+        await channel.basic_qos(prefetch_count=3)
+
+        aio_q.cancel.assert_awaited_once_with("tag1")
+        assert aio_q.consume.await_args.kwargs["consumer_tag"] == "tag1"
+        assert channel._prefetch_count == 3
+
+    async def test_basic_qos_leaves_consumers_alone_when_nothing_changes(self, channel, aio_channel):
+        aio_q = _make_aio_queue("q1")
+        channel._declared_queues["q1"] = aio_q
+        channel._prefetch_count = 3
+        await channel.basic_consume("q1", MagicMock(), consumer_tag="tag1")
+        aio_q.consume.reset_mock()
+
+        await channel.basic_qos(prefetch_count=3)
+
+        aio_q.cancel.assert_not_awaited()
+        aio_q.consume.assert_not_awaited()
+
     async def test_basic_qos_unlimited(self, channel, aio_channel):
         await channel.basic_qos(prefetch_count=0)
 
@@ -1428,7 +1460,7 @@ class TestChannelRecovery:
         channel._delivery_tag_map["1"] = MagicMock()
         aio_channel.is_closed = True
 
-        await channel.basic_qos(prefetch_count=1)
+        await channel.drain_events(timeout=0)
 
         assert channel._delivery_tag_map == {}
 
@@ -1449,22 +1481,21 @@ class TestChannelRecovery:
         channel.on_connection_closed(ConnectionResetError("broker went away"))
 
         with pytest.raises(Transport.connection_errors):
-            await channel.basic_qos(prefetch_count=1)
+            await channel.drain_events(timeout=0)
 
-        await channel.basic_qos(prefetch_count=1)
+        await channel.drain_events(timeout=0)
 
         assert channel._aio_channel is new_aio_channel
         assert channel._declared_queues["q1"] is restored_queue
         restored_queue.consume.assert_awaited_once()
-        new_aio_channel.set_qos.assert_awaited_once_with(prefetch_count=1)
 
     async def test_a_channel_without_a_transport_keeps_reporting_the_loss(self, channel):
         channel.on_connection_closed(ConnectionResetError("broker went away"))
 
         with pytest.raises(Transport.connection_errors):
-            await channel.basic_qos(prefetch_count=1)
+            await channel.drain_events(timeout=0)
         with pytest.raises(Transport.connection_errors):
-            await channel.basic_qos(prefetch_count=1)
+            await channel.drain_events(timeout=0)
 
     async def test_bindings_are_restored_with_the_queue(self, channel, aio_channel):
         aio_queue = _make_aio_queue("q1")
@@ -1476,7 +1507,7 @@ class TestChannelRecovery:
         aio_queue.bind.reset_mock()
 
         aio_channel.is_closed = True
-        await channel.basic_qos(prefetch_count=1)
+        await channel.drain_events(timeout=0)
 
         aio_queue.bind.assert_awaited_once_with(aio_exchange, routing_key="rk", arguments=None)
 
@@ -1490,7 +1521,7 @@ class TestChannelRecovery:
         aio_queue.bind.reset_mock()
 
         aio_channel.is_closed = True
-        await channel.basic_qos(prefetch_count=1)
+        await channel.drain_events(timeout=0)
 
         aio_queue.bind.assert_not_awaited()
 
@@ -1499,7 +1530,7 @@ class TestChannelRecovery:
         await channel.declare_queue(Queue("", durable=False, exclusive=True))
 
         aio_channel.is_closed = True
-        await channel.basic_qos(prefetch_count=1)
+        await channel.drain_events(timeout=0)
 
         assert aio_channel.declare_queue.await_args_list[0].kwargs["name"] is None
         assert aio_channel.declare_queue.await_args_list[1].kwargs["name"] == "amq.gen-abc"
@@ -1640,9 +1671,11 @@ class TestTransport:
 
         t = Transport(url="amqp://localhost/", prefetch_count=10)
         await t.connect()
-        await t.create_channel()
+        channel = await t.create_channel()
 
         mock_aio_ch.set_qos.assert_awaited_once_with(prefetch_count=10)
+        # The buffer never has to hold more than the broker will send.
+        assert channel._message_queue.maxsize == 10
 
     @patch("kombu.transport.amqp.aio_pika")
     async def test_create_channel_no_publisher_confirms(self, mock_aio_pika):
