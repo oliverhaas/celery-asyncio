@@ -210,6 +210,43 @@ class test_LimitedSet:
         assert s.minlen == len(s)
         assert len(s._heap) <= s.maxlen * (100.0 + s.max_heap_percent_overload) / 100
 
+    def test_readding_an_item_refreshes_its_expiry(self):
+        # A re-revoked task id used to keep the timestamp of its first revoke,
+        # because add() left the stale heap entry behind.
+        s = LimitedSet(expires=10)
+        for i, item in enumerate("abcdefghij", start=1):
+            s.add(item, now=float(i))
+        s.add("a", now=100.0)
+        s.purge(now=20.0)
+        assert "a" in s
+        assert list(s) == ["a"]
+
+    def test_readding_an_item_moves_it_to_the_back_of_the_maxlen_queue(self):
+        s = LimitedSet(maxlen=10)
+        for i, item in enumerate("abcdefghij", start=1):
+            s.add(item, now=float(i))
+        s.add("a", now=100.0)
+        s.add("k", now=101.0)
+        assert "a" in s
+        assert "b" not in s
+        assert len(s) == 10
+
+    def test_readding_an_item_does_not_grow_the_set(self):
+        s = LimitedSet()
+        s.add("a", now=1.0)
+        s.add("a", now=2.0)
+        assert len(s) == 1
+        assert s.as_dict() == {"a": 2.0}
+
+    def test_pop_skips_stale_heap_entries(self):
+        s = LimitedSet()
+        s.add("a", now=1.0)
+        s.add("b", now=2.0)
+        s.add("a", now=3.0)
+        assert s.pop() == "b"
+        assert s.pop() == "a"
+        assert s.pop() is None
+
     def test_pickleable(self):
         s = LimitedSet(maxlen=2)
         s.add("foo")
