@@ -4,6 +4,8 @@ import asyncio
 import json
 import os
 import pickle
+import shutil
+import subprocess
 import uuid
 from typing import Any
 
@@ -265,3 +267,107 @@ class TestConsume:
         assert await channel.get(name, no_ack=True) is not None
 
         await channel.queue_delete(name)
+
+
+RABBITMQ_CONTAINER = os.environ.get("KOMBU_TEST_RABBITMQ_CONTAINER", "audit-rabbitmq")
+
+
+def close_connection_server_side(name: str) -> None:
+    """Make the broker drop the named connection, as a restart or a network cut would."""
+    listing = subprocess.run(
+        ["docker", "exec", RABBITMQ_CONTAINER, "rabbitmqctl", "list_connections", "pid", "client_properties"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    for line in listing.splitlines():
+        if name in line:
+            pid = line.split("\t")[0]
+            subprocess.run(
+                ["docker", "exec", RABBITMQ_CONTAINER, "rabbitmqctl", "close_connection", pid, "test"],
+                capture_output=True,
+                check=True,
+            )
+            return
+    raise AssertionError(f"connection {name} not found on the broker")
+
+
+@pytest.fixture
+def rabbitmqctl():
+    if shutil.which("docker") is None:
+        pytest.skip("docker is needed to close a connection from the broker side")
+    probe = subprocess.run(
+        ["docker", "exec", RABBITMQ_CONTAINER, "rabbitmqctl", "status"],
+        capture_output=True,
+        check=False,
+    )
+    if probe.returncode != 0:
+        pytest.skip(f"rabbitmqctl is not reachable in container {RABBITMQ_CONTAINER}")
+    return close_connection_server_side
+
+
+class TestConnectionLoss:
+    """The broker drops the connection; the transport has to notice and recover."""
+
+    @pytest.fixture
+    async def named_connection(self):
+        # aiormq reads the connection name from the URL query, and it is what
+        # identifies this connection in rabbitmqctl's listing.
+        name = f"kombu-it-{uuid.uuid4().hex}"
+        conn = Connection(f"{AMQP_URL}?name={name}")
+        await conn.connect()
+        conn.test_name = name
+        yield conn
+        await conn.close()
+
+    async def test_a_lost_connection_is_reported_and_then_reconnected(self, named_connection, rabbitmqctl):
+        conn = named_connection
+        channel = await conn.default_channel()
+        name = await channel.declare_queue(Queue(f"kombu-it-{uuid.uuid4().hex}", durable=True))
+        received = []
+        await channel.basic_consume(name, callback=lambda body, message: received.append(body), no_ack=True)
+
+        await channel.publish(envelope({"v": "before"}), exchange="", routing_key=name)
+        async with asyncio.timeout(5):
+            while not received:
+                await channel.drain_events(timeout=1)
+
+        rabbitmqctl(conn.test_name)
+        async with asyncio.timeout(5):
+            while conn.is_connected:
+                await asyncio.sleep(0.05)
+
+        with pytest.raises(conn.transport.connection_errors):
+            await channel.drain_events(timeout=1)
+
+        await conn.ensure_connection(max_retries=3)
+        assert conn.is_connected
+
+        # The same channel, its queue and its consumer come back on the new
+        # connection, so a caller holding one keeps working.
+        await channel.publish(envelope({"v": "after"}), exchange="", routing_key=name)
+        async with asyncio.timeout(10):
+            while len(received) < 2:
+                await channel.drain_events(timeout=1)
+
+        assert received == [{"v": "before"}, {"v": "after"}]
+        await channel.queue_delete(name)
+
+    async def test_ensure_connection_does_not_report_success_on_a_dead_connection(
+        self,
+        named_connection,
+        rabbitmqctl,
+    ):
+        conn = named_connection
+        await conn.default_channel()
+
+        rabbitmqctl(conn.test_name)
+        async with asyncio.timeout(5):
+            while conn.is_connected:
+                await asyncio.sleep(0.05)
+
+        old_connection = conn.transport._connection
+        await conn.ensure_connection(max_retries=3)
+
+        assert conn.is_connected
+        assert conn.transport._connection is not old_connection

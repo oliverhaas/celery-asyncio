@@ -21,6 +21,7 @@ Transport Options
 import asyncio
 import base64
 import uuid
+import weakref
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -41,6 +42,7 @@ from kombu.log import get_logger
 from kombu.message import Message
 from kombu.transport.base import Transport as BaseTransport
 from kombu.utils.json import loads as json_loads
+from kombu.utils.url import maybe_sanitize_url
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -65,7 +67,13 @@ if aio_pika is not None:
         OSError,
         aiormq_exc.AMQPConnectionError,
     )
-    _amqp_channel_errors: tuple[type[Exception], ...] = (aiormq_exc.AMQPChannelError,)
+    _amqp_channel_errors: tuple[type[Exception], ...] = (
+        aiormq_exc.AMQPChannelError,
+        # A bare RuntimeError that aio-pika raises for every operation on a
+        # channel the broker has taken away, including reopening one whose
+        # connection is gone.
+        aiormq_exc.ChannelInvalidStateError,
+    )
     # aiormq raises a distinct class per AMQP reply code and, unlike py-amqp,
     # puts no `code` attribute on the exception, so 405 is matched by type.
     _amqp_resource_locked_errors: tuple[type[Exception], ...] = (aiormq_exc.ChannelLockedResource,)
@@ -88,6 +96,18 @@ def _get_exchange_type(type_name: str) -> aio_pika.ExchangeType:
         "topic": aio_pika.ExchangeType.TOPIC,
         "headers": aio_pika.ExchangeType.HEADERS,
     }.get(type_name, aio_pika.ExchangeType.DIRECT)
+
+
+def _as_connection_error(exc: BaseException | None) -> Exception:
+    """Return the close reason as something :attr:`Transport.connection_errors` covers.
+
+    aio-pika reports a close with whatever ended the connection, from an
+    aiormq ``ConnectionClosed`` down to a bare ``CancelledError`` or nothing
+    at all, and a caller that is about to reconnect has to be able to catch it.
+    """
+    if isinstance(exc, _amqp_connection_errors):
+        return exc
+    return aiormq_exc.ConnectionClosed(exc if exc is not None else "connection closed")
 
 
 #: Content encodings that name a byte stream rather than a Python text codec.
@@ -145,8 +165,14 @@ class Channel:
     drain_events pull model using an asyncio.Queue buffer.
     """
 
-    def __init__(self, aio_channel: aio_pika.abc.AbstractChannel) -> None:
-        self._aio_channel = aio_channel
+    def __init__(
+        self,
+        aio_channel: aio_pika.abc.AbstractChannel,
+        transport: Transport | None = None,
+    ) -> None:
+        # The transport is what a channel goes back to for a new aio-pika
+        # channel after the connection it was opened on has gone.
+        self._transport = transport
         self._closed = False
 
         # Consumer state: tag -> (queue_name, callback, no_ack)
@@ -157,6 +183,11 @@ class Channel:
         self._declared_exchanges: dict[str, aio_pika.abc.AbstractExchange] = {}
         self._declared_queues: dict[str, aio_pika.abc.AbstractQueue] = {}
 
+        # What it takes to put the queues and their bindings back on a channel
+        # the broker closed, or on a new channel after a connection loss.
+        self._queue_declarations: dict[str, dict[str, Any]] = {}
+        self._bindings: list[dict[str, Any]] = []
+
         # Incoming message buffer for drain_events.
         # Bounded to prevent unbounded memory growth when the consumer
         # is slower than the broker. aio-pika will apply TCP backpressure
@@ -166,6 +197,104 @@ class Channel:
         # delivery_tag bridging: str(amqp_int_tag) -> aio-pika IncomingMessage
         self._delivery_tag_map: dict[str, aio_pika.abc.AbstractIncomingMessage] = {}
 
+        # Set when the broker takes the channel or its connection away, so a
+        # drain_events parked on the buffer wakes up instead of waiting for a
+        # message that can no longer arrive.
+        self._interrupted = asyncio.Event()
+        self._connection_error: Exception | None = None
+        self._lost_connection = False
+
+        self._aio_channel: aio_pika.abc.AbstractChannel
+        self._attach(aio_channel)
+
+    # ---- recovery ----------------------------------------------------------
+
+    def _attach(self, aio_channel: aio_pika.abc.AbstractChannel) -> None:
+        self._aio_channel = aio_channel
+        aio_channel.close_callbacks.add(self._on_aio_channel_closed)
+
+    def _on_aio_channel_closed(
+        self,
+        _sender: Any,
+        exc: BaseException | None = None,
+    ) -> None:
+        """aio-pika callback: the broker closed this channel."""
+        if self._closed:
+            return
+        logger.warning("AMQP channel closed by the broker: %r", exc)
+        self._interrupted.set()
+
+    def on_connection_closed(self, exc: BaseException | None = None) -> None:
+        """Record that the connection this channel was opened on is gone.
+
+        Called by the transport. The loss is reported to the next caller, once,
+        so it can rebuild whatever state it keeps alongside the channel; the
+        channel itself then moves to the connection that replaced the lost one.
+        """
+        if self._closed or self._lost_connection:
+            return
+        self._lost_connection = True
+        self._connection_error = _as_connection_error(exc)
+        self._interrupted.set()
+
+    def _raise_if_connection_lost(self) -> None:
+        """Report a lost connection to one caller and then stop reporting it."""
+        if self._connection_error is not None:
+            exc, self._connection_error = self._connection_error, None
+            raise exc
+
+    async def _ensure_open(self) -> None:
+        """Make the channel usable again after the broker or the network cut it.
+
+        A closed channel takes its consumers and its unacknowledged deliveries
+        with it, and a lost connection takes the channel itself, so both are
+        rebuilt here before the caller's operation runs.
+        """
+        if self._closed:
+            return
+
+        self._raise_if_connection_lost()
+
+        if self._lost_connection:
+            await self._reattach()
+        elif self._aio_channel.is_closed:
+            logger.info("Reopening AMQP channel")
+            try:
+                await self._aio_channel.reopen()
+            except aiormq_exc.ChannelInvalidStateError as exc:
+                # aio-pika refuses to reopen a channel whose connection has no
+                # transport any more, which means the connection went too.
+                self.on_connection_closed(exc)
+                self._raise_if_connection_lost()
+                raise
+            await self._restore()
+
+    async def _reattach(self) -> None:
+        """Open a channel on the connection that replaced the lost one."""
+        if self._transport is None:
+            raise _as_connection_error(None)
+
+        logger.info("Moving AMQP channel to a new connection")
+        self._attach(await self._transport.new_aio_channel())
+        self._lost_connection = False
+        self._connection_error = None
+        # The cached exchanges publish through a channel that no longer
+        # exists, and looking one up again costs nothing on the wire.
+        self._declared_exchanges.clear()
+        await self._restore()
+
+    async def _restore(self) -> None:
+        """Declare again what the closed channel took with it."""
+        self._delivery_tag_map.clear()
+        self._interrupted.clear()
+
+        for name in list(self._declared_queues):
+            self._declared_queues[name] = await self._resolve_queue(name)
+        for binding in list(self._bindings):
+            await self._bind(**binding)
+        for tag, (queue_name, _callback, no_ack) in list(self._consumers.items()):
+            await self._start_aio_consumer(tag, queue_name, no_ack)
+
     # ---- close -------------------------------------------------------------
 
     async def close(self) -> None:
@@ -173,27 +302,25 @@ class Channel:
             return
         self._closed = True
 
-        # Cancel all aio-pika consumers
-        for tag in list(self._consumers):
+        if not self._lost_connection and not self._aio_channel.is_closed:
             try:
-                await self.basic_cancel(tag)
-            except Exception as exc:
-                logger.debug("Error cancelling consumer %s: %s", tag, exc)
+                for tag in list(self._consumers):
+                    await self.basic_cancel(tag)
+                await self._aio_channel.close()
+            except (*_amqp_connection_errors, *_amqp_channel_errors) as exc:
+                # The broker took the channel away while we were handing it
+                # back, which leaves nothing left to cancel or close.
+                logger.debug("AMQP channel was already gone when closing it: %r", exc)
 
         self._consumers.clear()
         self._delivery_tag_map.clear()
-
-        if not self._aio_channel.is_closed:
-            try:
-                await self._aio_channel.close()
-            except Exception as exc:
-                logger.debug("Error closing AMQP channel: %s", exc)
 
     # ---- exchange operations -----------------------------------------------
 
     async def declare_exchange(self, exchange: Exchange) -> None:
         if not exchange.name or exchange.name in self._declared_exchanges:
             return
+        await self._ensure_open()
 
         aio_exchange = await self._aio_channel.declare_exchange(
             name=exchange.name,
@@ -205,27 +332,43 @@ class Channel:
         self._declared_exchanges[exchange.name] = aio_exchange
 
     async def exchange_delete(self, exchange: str) -> None:
+        await self._ensure_open()
         await self._aio_channel.exchange_delete(exchange)
         self._declared_exchanges.pop(exchange, None)
+        self._bindings = [b for b in self._bindings if b["exchange"] != exchange]
+
+    async def _get_exchange(self, exchange: str) -> aio_pika.abc.AbstractExchange:
+        """Return the cached exchange object, or a handle to an existing one."""
+        aio_exchange = self._declared_exchanges.get(exchange)
+        if aio_exchange is None:
+            aio_exchange = await self._aio_channel.get_exchange(exchange, ensure=False)
+            self._declared_exchanges[exchange] = aio_exchange
+        return aio_exchange
 
     # ---- queue operations --------------------------------------------------
 
     async def declare_queue(self, queue: Queue) -> str:
+        await self._ensure_open()
         arguments = {}
         if hasattr(queue, "queue_arguments") and queue.queue_arguments:
             arguments.update(queue.queue_arguments)
 
-        aio_queue = await self._aio_channel.declare_queue(
-            name=queue.name or None,  # None -> server-generated name
-            durable=queue.durable,
-            exclusive=queue.exclusive,
-            auto_delete=queue.auto_delete,
-            arguments=arguments or None,
-        )
+        declaration: dict[str, Any] = {
+            "name": queue.name or None,  # None -> server-generated name
+            "durable": queue.durable,
+            "exclusive": queue.exclusive,
+            "auto_delete": queue.auto_delete,
+            "arguments": arguments or None,
+        }
+        aio_queue = await self._aio_channel.declare_queue(**declaration)
 
         actual_name = aio_queue.name
         queue.name = actual_name
         self._declared_queues[actual_name] = aio_queue
+        # Pin a server-generated name so a redeclare after a close asks for the
+        # queue the caller is already bound to rather than a second one.
+        declaration["name"] = actual_name
+        self._queue_declarations[actual_name] = declaration
         return actual_name
 
     async def queue_bind(
@@ -237,17 +380,32 @@ class Channel:
     ) -> None:
         if not exchange:
             return  # Default exchange: bindings are implicit in AMQP
-
-        aio_queue = self._declared_queues.get(queue)
-        if not aio_queue:
+        if queue not in self._declared_queues:
             return
 
-        aio_exchange = self._declared_exchanges.get(exchange)
-        if not aio_exchange:
-            aio_exchange = await self._aio_channel.get_exchange(exchange, ensure=False)
-            self._declared_exchanges[exchange] = aio_exchange
+        binding: dict[str, Any] = {
+            "queue": queue,
+            "exchange": exchange,
+            "routing_key": routing_key,
+            "arguments": arguments,
+        }
+        await self._bind(**binding)
+        if binding not in self._bindings:
+            self._bindings.append(binding)
 
-        await aio_queue.bind(aio_exchange, routing_key=routing_key, arguments=arguments)
+    async def _bind(
+        self,
+        queue: str,
+        exchange: str,
+        routing_key: str,
+        arguments: dict | None,
+    ) -> None:
+        aio_exchange = await self._get_exchange(exchange)
+        await self._declared_queues[queue].bind(
+            aio_exchange,
+            routing_key=routing_key,
+            arguments=arguments,
+        )
 
     async def queue_unbind(
         self,
@@ -260,6 +418,15 @@ class Channel:
         aio_exchange = self._declared_exchanges.get(exchange)
         if aio_queue and aio_exchange:
             await aio_queue.unbind(aio_exchange, routing_key=routing_key, arguments=arguments)
+
+        binding = {
+            "queue": queue,
+            "exchange": exchange,
+            "routing_key": routing_key,
+            "arguments": arguments,
+        }
+        if binding in self._bindings:
+            self._bindings.remove(binding)
 
     async def queue_purge(self, queue: str) -> int:
         aio_queue = self._declared_queues.get(queue)
@@ -274,12 +441,15 @@ class Channel:
         if_unused: bool = False,
         if_empty: bool = False,
     ) -> int:
+        await self._ensure_open()
         result = await self._aio_channel.queue_delete(
             queue,
             if_unused=if_unused,
             if_empty=if_empty,
         )
         self._declared_queues.pop(queue, None)
+        self._queue_declarations.pop(queue, None)
+        self._bindings = [b for b in self._bindings if b["queue"] != queue]
         return getattr(result, "message_count", 0)
 
     # ---- publish -----------------------------------------------------------
@@ -291,7 +461,7 @@ class Channel:
         routing_key: str,
         **kwargs: Any,
     ) -> None:
-        # Parse kombu JSON envelope
+        await self._ensure_open()
         envelope = json_loads(message)
 
         content_type = envelope.get("content-type", "application/json")
@@ -333,12 +503,8 @@ class Channel:
 
         aio_message = aio_pika.Message(**msg_kwargs)
 
-        # Resolve exchange
         if exchange:
-            aio_exchange = self._declared_exchanges.get(exchange)
-            if not aio_exchange:
-                aio_exchange = await self._aio_channel.get_exchange(exchange, ensure=False)
-                self._declared_exchanges[exchange] = aio_exchange
+            aio_exchange = await self._get_exchange(exchange)
         else:
             aio_exchange = self._aio_channel.default_exchange
 
@@ -359,6 +525,7 @@ class Channel:
         no_ack: bool = False,
         accept: AbstractSet[str] | None = None,
     ) -> Message | None:
+        await self._ensure_open()
         aio_queue = self._declared_queues.get(queue)
         if not aio_queue:
             return None
@@ -385,6 +552,7 @@ class Channel:
         consumer_tag: str | None = None,
         no_ack: bool = False,
     ) -> str:
+        await self._ensure_open()
         if consumer_tag is None:
             consumer_tag = str(uuid.uuid4())
 
@@ -393,58 +561,94 @@ class Channel:
         if no_ack and self.no_ack_consumers is not None:
             self.no_ack_consumers.add(consumer_tag)
 
-        # Start aio-pika consumer with internal callback that buffers
-        # messages into _message_queue for drain_events to pull.
-        aio_queue = self._declared_queues.get(queue)
-        if aio_queue:
-            queue_name = queue  # capture for closure
-            _no_ack = no_ack
-
-            _consumer_tag = consumer_tag  # capture for closure
-
-            async def _on_incoming(incoming: aio_pika.abc.AbstractIncomingMessage) -> None:
-                tag = str(incoming.delivery_tag)
-                if not _no_ack:
-                    self._delivery_tag_map[tag] = incoming
-                msg = self._convert_message(incoming, queue_name, tag, consumer_tag=_consumer_tag)
-                await self._message_queue.put((queue_name, msg))
-
-            await aio_queue.consume(
-                callback=_on_incoming,
-                no_ack=no_ack,
-                consumer_tag=consumer_tag,
-            )
-
+        await self._start_aio_consumer(consumer_tag, queue, no_ack)
         return consumer_tag
+
+    async def _resolve_queue(self, queue: str) -> aio_pika.abc.AbstractQueue:
+        """Return a handle to a queue on this channel.
+
+        A queue this channel declared itself is declared again, so that a
+        non-durable one the broker dropped comes back. Any other queue is only
+        addressed; the broker answers a name that does not exist with 404 when
+        the operation reaches it.
+        """
+        declaration = self._queue_declarations.get(queue)
+        if declaration is not None:
+            return await self._aio_channel.declare_queue(**declaration)
+        return await self._aio_channel.get_queue(queue, ensure=False)
+
+    async def _start_aio_consumer(self, consumer_tag: str, queue: str, no_ack: bool) -> None:
+        """Attach the buffering callback drain_events pulls from."""
+        aio_queue = self._declared_queues.get(queue)
+        if aio_queue is None:
+            aio_queue = await self._resolve_queue(queue)
+            self._declared_queues[queue] = aio_queue
+
+        async def _on_incoming(incoming: aio_pika.abc.AbstractIncomingMessage) -> None:
+            tag = str(incoming.delivery_tag)
+            if not no_ack:
+                self._delivery_tag_map[tag] = incoming
+            msg = self._convert_message(incoming, queue, tag, consumer_tag=consumer_tag)
+            await self._message_queue.put((queue, msg))
+
+        await aio_queue.consume(
+            callback=_on_incoming,
+            no_ack=no_ack,
+            consumer_tag=consumer_tag,
+        )
 
     async def basic_cancel(self, consumer_tag: str) -> None:
         entry = self._consumers.pop(consumer_tag, None)
-        if entry:
-            queue_name = entry[0]
-            aio_queue = self._declared_queues.get(queue_name)
-            if aio_queue:
-                try:
-                    await aio_queue.cancel(consumer_tag)
-                except Exception as exc:
-                    logger.debug("Error cancelling consumer %s on queue: %s", consumer_tag, exc)
-
         if self.no_ack_consumers is not None:
             self.no_ack_consumers.discard(consumer_tag)
+        if entry is None:
+            return
+
+        aio_queue = self._declared_queues.get(entry[0])
+        # A channel the broker has taken away carries no consumers any more,
+        # and cancelling on it would only raise.
+        if aio_queue is not None and not self._lost_connection and not self._aio_channel.is_closed:
+            await aio_queue.cancel(consumer_tag)
 
     # ---- drain_events ------------------------------------------------------
 
     async def drain_events(self, timeout: float | None = None) -> bool:
-        if not self._consumers:
-            await asyncio.sleep(0.1)
-            return False
+        """Deliver one buffered message to its consumer.
 
-        try:
-            queue_name, message = await asyncio.wait_for(
-                self._message_queue.get(),
-                timeout=timeout,
-            )
-        except TimeoutError:
-            return False
+        Returns False when nothing arrived before ``timeout``. Raises a member
+        of :attr:`Transport.connection_errors` once the connection is gone, so
+        the caller can reconnect instead of waiting on a buffer nothing will
+        ever fill again. A channel the broker closed on its own is reopened
+        here, with its queues and consumers restored.
+        """
+        await self._ensure_open()
+
+        if timeout is not None and timeout <= 0:
+            # A non-blocking poll. asyncio.wait_for(timeout=0) cancels the get
+            # before it has run and reports a timeout even with messages
+            # already buffered, which turns the caller's fast drain into a
+            # single message per pass.
+            try:
+                queue_name, message = self._message_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return False
+        else:
+            getter = asyncio.ensure_future(self._message_queue.get())
+            interrupted = asyncio.ensure_future(self._interrupted.wait())
+            try:
+                await asyncio.wait(
+                    (getter, interrupted),
+                    timeout=timeout,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                interrupted.cancel()
+
+            if not getter.done():
+                getter.cancel()
+                self._raise_if_connection_lost()
+                return False
+            queue_name, message = getter.result()
 
         await self._deliver_to_consumer(queue_name, message)
         return True
@@ -497,6 +701,7 @@ class Channel:
             prefetch_count: Number of unacknowledged messages the broker
                 will deliver before waiting. 0 means unlimited.
         """
+        await self._ensure_open()
         await self._aio_channel.set_qos(prefetch_count=prefetch_count)
 
     async def basic_recover(self, requeue: bool = True) -> None:
@@ -632,34 +837,67 @@ class Transport(BaseTransport):
             )
         super().__init__(url, **options)
         self._connection: aio_pika.abc.AbstractConnection | None = None
-        self._channels: list[Channel] = []
-        self._connected = False
+        # Weak: a channel the caller has dropped must not be kept alive just
+        # so close() can walk it.
+        self._channels: weakref.WeakSet[Channel] = weakref.WeakSet()
 
     async def connect(self) -> None:
-        if self._connected:
+        """Open a connection, or replace one the broker has taken away.
+
+        aio-pika only marks a connection closed when the close came from this
+        side, so a broker restart or a server-side close leaves an object that
+        answers every request with "closed". Reconnecting here is what lets
+        ``Connection.ensure_connection`` mean anything on this transport.
+        """
+        if self.is_connected:
             return
+
+        if self._connection is not None:
+            self._discard_connection()
 
         kwargs: dict[str, Any] = {}
         if "heartbeat" in self._options:
             kwargs["heartbeat"] = self._options["heartbeat"]
 
-        self._connection = await aio_pika.connect(self._url, **kwargs)
-        self._connected = True
-        logger.debug("Connected to AMQP broker at %s", self._url)
+        connection = await aio_pika.connect(self._url, **kwargs)
+        self._connection = connection
+        connection.close_callbacks.add(self._on_connection_closed)
+        logger.debug("Connected to AMQP broker at %s", maybe_sanitize_url(self._url))
+
+    def _on_connection_closed(self, connection: Any, exc: BaseException | None = None) -> None:
+        """aio-pika callback: this connection is gone."""
+        if connection is not self._connection:
+            return  # left over from a connection this transport has replaced
+        logger.warning(
+            "AMQP connection to %s closed: %r",
+            maybe_sanitize_url(self._url),
+            exc,
+        )
+        for channel in list(self._channels):
+            channel.on_connection_closed(exc)
+
+    def _discard_connection(self) -> None:
+        """Drop a connection that is no longer usable.
+
+        The channels are kept: each one reports the loss to its next caller
+        and then moves itself to the connection that replaces this one.
+        """
+        for channel in list(self._channels):
+            channel.on_connection_closed(None)
+        self._connection = None
 
     async def close(self) -> None:
-        for channel in self._channels:
+        for channel in list(self._channels):
             await channel.close()
         self._channels.clear()
 
-        if self._connection and not self._connection.is_closed:
-            await self._connection.close()
-        self._connection = None
-        self._connected = False
+        connection, self._connection = self._connection, None
+        if connection is not None and not connection.is_closed:
+            await connection.close()
 
-    async def create_channel(self) -> _Channel:  # type: ignore[override]  # ty: ignore[invalid-method-override]
-        if not self._connected:
-            await self.connect()
+    async def new_aio_channel(self) -> aio_pika.abc.AbstractChannel:
+        """Open an aio-pika channel with the transport's options applied."""
+        await self.connect()
 
         publisher_confirms = self._options.get("publisher_confirms", True)
         aio_channel = await self._connection.channel(  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
@@ -669,14 +907,23 @@ class Transport(BaseTransport):
         prefetch_count = self._options.get("prefetch_count", 0)
         if prefetch_count:
             await aio_channel.set_qos(prefetch_count=prefetch_count)
+        return aio_channel
 
-        channel = Channel(aio_channel)
-        self._channels.append(channel)
+    async def create_channel(self) -> _Channel:  # type: ignore[override]  # ty: ignore[invalid-method-override]
+        channel = Channel(await self.new_aio_channel(), transport=self)
+        self._channels.add(channel)
         return channel
 
     @property
     def is_connected(self) -> bool:
-        return self._connected and self._connection is not None and not self._connection.is_closed
+        connection = self._connection
+        return (
+            connection is not None
+            # is_closed only covers a close this side asked for; the event is
+            # what aio-pika clears when the peer or the network ends it.
+            and not connection.is_closed
+            and connection.connected.is_set()
+        )
 
     def driver_version(self) -> str:
         try:

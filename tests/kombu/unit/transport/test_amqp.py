@@ -3,6 +3,7 @@
 All aio-pika objects are mocked — no RabbitMQ broker required.
 """
 
+import asyncio
 import base64
 import json
 import pickle
@@ -14,6 +15,8 @@ import pytest
 
 aio_pika = pytest.importorskip("aio_pika")
 
+from aiormq import exceptions as aiormq_exc
+
 from kombu.entity import Exchange, Queue
 from kombu.exceptions import ContentDisallowed
 from kombu.message import Message
@@ -22,6 +25,24 @@ from kombu.transport.amqp import Channel, Transport, _get_exchange_type
 # ---------------------------------------------------------------------------
 # Mock helpers
 # ---------------------------------------------------------------------------
+
+
+class _CloseCallbacks:
+    """Stand-in for aio-pika's CallbackCollection.
+
+    MagicMock(spec=...) does not expose ``close_callbacks``, since aio-pika
+    only annotates it on the abstract classes.
+    """
+
+    def __init__(self) -> None:
+        self.callbacks = []
+
+    def add(self, callback):
+        self.callbacks.append(callback)
+
+    def fire(self, sender, exc=None):
+        for callback in list(self.callbacks):
+            callback(sender, exc)
 
 
 def _make_aio_channel(**overrides) -> MagicMock:
@@ -34,7 +55,10 @@ def _make_aio_channel(**overrides) -> MagicMock:
     ch.exchange_delete = AsyncMock()
     ch.queue_delete = AsyncMock()
     ch.get_exchange = AsyncMock()
+    ch.get_queue = AsyncMock()
     ch.set_qos = AsyncMock()
+    ch.reopen = AsyncMock()
+    ch.close_callbacks = _CloseCallbacks()
 
     # default_exchange
     default_ex = AsyncMock()
@@ -115,7 +139,11 @@ def _make_aio_connection(**overrides) -> MagicMock:
     conn = MagicMock(spec=aio_pika.abc.AbstractConnection)
     conn.is_closed = False
     conn.close = AsyncMock()
-    conn.channel = AsyncMock(return_value=_make_aio_channel())
+    conn.channel = AsyncMock(side_effect=lambda **_: _make_aio_channel())
+    conn.close_callbacks = _CloseCallbacks()
+    # aio-pika clears this event when the peer closes the connection.
+    conn.connected = asyncio.Event()
+    conn.connected.set()
     for k, v in overrides.items():
         setattr(conn, k, v)
     return conn
@@ -124,6 +152,16 @@ def _make_aio_connection(**overrides) -> MagicMock:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+def _make_kombu_message(channel, body: bytes = b'{"x": 1}', delivery_tag: str = "1") -> Message:
+    return Message(
+        body=body,
+        delivery_tag=delivery_tag,
+        content_type="application/json",
+        content_encoding="utf-8",
+        channel=channel,
+    )
 
 
 @pytest.fixture
@@ -220,24 +258,27 @@ class TestChannelClose:
 
         aio_ch.close.assert_not_awaited()
 
-    async def test_close_survives_cancel_error(self, aio_channel):
-        ch = Channel(aio_channel)
+    async def test_close_survives_a_channel_the_broker_took_away(self, aio_channel):
         aio_queue = _make_aio_queue("q1")
-        aio_queue.cancel = AsyncMock(side_effect=RuntimeError("cancel failed"))
+        aio_queue.cancel = AsyncMock(side_effect=aiormq_exc.ChannelInvalidStateError("gone"))
+        ch = Channel(aio_channel)
         ch._declared_queues["q1"] = aio_queue
         ch._consumers["tag1"] = ("q1", lambda b, m: None, False)
 
-        # Should not raise
         await ch.close()
-        assert ch._closed is True
 
-    async def test_close_survives_aio_channel_close_error(self):
-        aio_ch = _make_aio_channel()
-        aio_ch.close = AsyncMock(side_effect=RuntimeError("close failed"))
-        ch = Channel(aio_ch)
+        assert ch._closed is True
+        assert ch._consumers == {}
+
+    async def test_close_after_a_lost_connection_talks_to_no_broker(self, aio_channel):
+        ch = Channel(aio_channel)
+        ch._consumers["tag1"] = ("q1", lambda b, m: None, False)
+        ch.on_connection_closed(ConnectionResetError("gone"))
 
         await ch.close()
-        assert ch._closed is True
+
+        aio_channel.close.assert_not_awaited()
+        assert ch._consumers == {}
 
 
 class TestChannelExchange:
@@ -803,23 +844,24 @@ class TestChannelConsume:
         # Should not raise
         await channel.basic_cancel("nonexistent")
 
-    async def test_basic_consume_undeclared_queue(self, channel):
-        """Consume on a queue not in _declared_queues — consumer is registered
-        but no aio-pika consume is started."""
-        tag = await channel.basic_consume("undeclared", MagicMock(), consumer_tag="tag1")
+    async def test_basic_consume_looks_up_a_queue_declared_elsewhere(self, channel, aio_channel):
+        aio_q = _make_aio_queue("elsewhere")
+        aio_channel.get_queue = AsyncMock(return_value=aio_q)
+
+        tag = await channel.basic_consume("elsewhere", MagicMock(), consumer_tag="tag1")
 
         assert tag == "tag1"
-        assert "tag1" in channel._consumers
-        # No aio-pika queue to call .consume on
+        aio_channel.get_queue.assert_awaited_once_with("elsewhere", ensure=False)
+        assert aio_q.consume.await_args.kwargs["consumer_tag"] == "tag1"
 
-    async def test_basic_cancel_survives_cancel_error(self, channel):
+    async def test_basic_cancel_reports_a_failed_cancel(self, channel):
         aio_q = _make_aio_queue("q1")
-        aio_q.cancel = AsyncMock(side_effect=RuntimeError("cancel boom"))
+        aio_q.cancel = AsyncMock(side_effect=aiormq_exc.ChannelNotFoundEntity("no such consumer"))
         channel._declared_queues["q1"] = aio_q
         channel._consumers["tag1"] = ("q1", MagicMock(), False)
 
-        await channel.basic_cancel("tag1")
-        assert "tag1" not in channel._consumers
+        with pytest.raises(aiormq_exc.ChannelNotFoundEntity):
+            await channel.basic_cancel("tag1")
 
 
 class TestChannelDrainEvents:
@@ -855,6 +897,37 @@ class TestChannelDrainEvents:
     async def test_drain_events_no_consumers(self, channel):
         result = await channel.drain_events(timeout=0.01)
         assert result is False
+
+    async def test_drain_events_with_a_zero_timeout_delivers_a_buffered_message(self, channel):
+        """A zero timeout is a poll, not an instant giving up.
+
+        The worker drains its backlog with timeout=0 in a tight loop, so a
+        poll that reports "nothing there" while the buffer is full costs a
+        pass through the outer loop per message.
+        """
+        received = []
+        channel._consumers["tag1"] = ("q1", lambda body, message: received.append(body), False)
+        await channel._message_queue.put(("q1", _make_kombu_message(channel, b'{"x": 1}')))
+
+        assert await channel.drain_events(timeout=0) is True
+        assert received == [{"x": 1}]
+        assert await channel.drain_events(timeout=0) is False
+
+    async def test_drain_events_raises_when_the_connection_goes_while_waiting(self, channel):
+        channel._consumers["tag1"] = ("q1", MagicMock(), False)
+        drain = asyncio.ensure_future(channel.drain_events(timeout=5))
+        await asyncio.sleep(0)
+
+        channel.on_connection_closed(ConnectionResetError("broker went away"))
+
+        with pytest.raises(Transport.connection_errors):
+            await drain
+
+    async def test_drain_events_raises_when_the_connection_is_already_gone(self, channel):
+        channel.on_connection_closed(ConnectionResetError("broker went away"))
+
+        with pytest.raises(Transport.connection_errors):
+            await channel.drain_events(timeout=0)
 
     async def test_drain_events_async_callback(self, channel):
         msg = Message(
@@ -1313,6 +1386,105 @@ class TestChannelContextManager:
 # ---------------------------------------------------------------------------
 
 
+class TestChannelRecovery:
+    async def test_a_channel_the_broker_closed_is_reopened(self, channel, aio_channel):
+        aio_queue = _make_aio_queue("q1")
+        aio_channel.declare_queue = AsyncMock(return_value=aio_queue)
+        await channel.declare_queue(Queue("q1", durable=True))
+        await channel.basic_consume("q1", MagicMock(), consumer_tag="tag1")
+        aio_queue.consume.reset_mock()
+
+        aio_channel.is_closed = True
+        aio_channel.close_callbacks.fire(aio_channel, aiormq_exc.ChannelClosed(404, "gone"))
+        aio_channel.is_closed = True
+
+        await channel.declare_exchange(Exchange("ex1", type="direct"))
+
+        aio_channel.reopen.assert_awaited_once()
+        assert aio_channel.declare_queue.await_count == 2
+        aio_queue.consume.assert_awaited_once()
+
+    async def test_a_reopened_channel_forgets_its_delivery_tags(self, channel, aio_channel):
+        channel._delivery_tag_map["1"] = MagicMock()
+        aio_channel.is_closed = True
+
+        await channel.basic_qos(prefetch_count=1)
+
+        assert channel._delivery_tag_map == {}
+
+    async def test_a_lost_connection_is_reported_once_and_then_repaired(self):
+        transport = Transport(url="amqp://localhost/")
+        old_aio_channel = _make_aio_channel()
+        new_aio_channel = _make_aio_channel()
+        transport.new_aio_channel = AsyncMock(return_value=new_aio_channel)
+
+        channel = Channel(old_aio_channel, transport=transport)
+        aio_queue = _make_aio_queue("q1")
+        old_aio_channel.declare_queue = AsyncMock(return_value=aio_queue)
+        await channel.declare_queue(Queue("q1", durable=True))
+        await channel.basic_consume("q1", MagicMock(), consumer_tag="tag1")
+
+        restored_queue = _make_aio_queue("q1")
+        new_aio_channel.declare_queue = AsyncMock(return_value=restored_queue)
+        channel.on_connection_closed(ConnectionResetError("broker went away"))
+
+        with pytest.raises(Transport.connection_errors):
+            await channel.basic_qos(prefetch_count=1)
+
+        await channel.basic_qos(prefetch_count=1)
+
+        assert channel._aio_channel is new_aio_channel
+        assert channel._declared_queues["q1"] is restored_queue
+        restored_queue.consume.assert_awaited_once()
+        new_aio_channel.set_qos.assert_awaited_once_with(prefetch_count=1)
+
+    async def test_a_channel_without_a_transport_keeps_reporting_the_loss(self, channel):
+        channel.on_connection_closed(ConnectionResetError("broker went away"))
+
+        with pytest.raises(Transport.connection_errors):
+            await channel.basic_qos(prefetch_count=1)
+        with pytest.raises(Transport.connection_errors):
+            await channel.basic_qos(prefetch_count=1)
+
+    async def test_bindings_are_restored_with_the_queue(self, channel, aio_channel):
+        aio_queue = _make_aio_queue("q1")
+        aio_channel.declare_queue = AsyncMock(return_value=aio_queue)
+        aio_exchange = _make_aio_exchange("ex1")
+        aio_channel.get_exchange = AsyncMock(return_value=aio_exchange)
+        await channel.declare_queue(Queue("q1", durable=True))
+        await channel.queue_bind("q1", "ex1", routing_key="rk")
+        aio_queue.bind.reset_mock()
+
+        aio_channel.is_closed = True
+        await channel.basic_qos(prefetch_count=1)
+
+        aio_queue.bind.assert_awaited_once_with(aio_exchange, routing_key="rk", arguments=None)
+
+    async def test_an_unbound_queue_is_not_bound_again_after_a_reopen(self, channel, aio_channel):
+        aio_queue = _make_aio_queue("q1")
+        aio_channel.declare_queue = AsyncMock(return_value=aio_queue)
+        aio_channel.get_exchange = AsyncMock(return_value=_make_aio_exchange("ex1"))
+        await channel.declare_queue(Queue("q1", durable=True))
+        await channel.queue_bind("q1", "ex1", routing_key="rk")
+        await channel.queue_unbind("q1", "ex1", routing_key="rk")
+        aio_queue.bind.reset_mock()
+
+        aio_channel.is_closed = True
+        await channel.basic_qos(prefetch_count=1)
+
+        aio_queue.bind.assert_not_awaited()
+
+    async def test_a_server_named_queue_is_redeclared_under_its_given_name(self, channel, aio_channel):
+        aio_channel.declare_queue = AsyncMock(return_value=_make_aio_queue("amq.gen-abc"))
+        await channel.declare_queue(Queue("", durable=False, exclusive=True))
+
+        aio_channel.is_closed = True
+        await channel.basic_qos(prefetch_count=1)
+
+        assert aio_channel.declare_queue.await_args_list[0].kwargs["name"] is None
+        assert aio_channel.declare_queue.await_args_list[1].kwargs["name"] == "amq.gen-abc"
+
+
 class TestTransport:
     def test_class_attributes(self):
         assert Transport.default_port == 5672
@@ -1325,8 +1497,8 @@ class TestTransport:
         t = Transport(url="amqp://guest:guest@localhost/")
         assert t._url == "amqp://guest:guest@localhost/"
         assert t._connection is None
-        assert t._channels == []
-        assert t._connected is False
+        assert list(t._channels) == []
+        assert t.is_connected is False
 
     def test_init_stores_options(self):
         t = Transport(url="amqp://localhost/", prefetch_count=10, heartbeat=30)
@@ -1354,7 +1526,7 @@ class TestTransport:
         t = Transport(url="amqp://guest:guest@rabbit:5672/")
         await t.connect()
 
-        assert t._connected is True
+        assert t.is_connected is True
         assert t._connection is mock_conn
         mock_aio_pika.connect.assert_awaited_once_with("amqp://guest:guest@rabbit:5672/")
 
@@ -1395,7 +1567,7 @@ class TestTransport:
         await t.connect()
         await t.close()
 
-        assert t._connected is False
+        assert t.is_connected is False
         assert t._connection is None
         mock_conn.close.assert_awaited_once()
 
@@ -1415,7 +1587,7 @@ class TestTransport:
         await t.close()
 
         assert ch._closed is True
-        assert t._channels == []
+        assert list(t._channels) == []
 
     @patch("kombu.transport.amqp.aio_pika")
     async def test_create_channel(self, mock_aio_pika):
@@ -1503,7 +1675,7 @@ class TestTransport:
         t = Transport(url="amqp://localhost/")
         # Should not raise
         await t.close()
-        assert t._connected is False
+        assert t.is_connected is False
 
     @patch("kombu.transport.amqp.aio_pika")
     async def test_close_when_connection_already_closed(self, mock_aio_pika):
@@ -1532,11 +1704,11 @@ class TestTransport:
         mock_aio_pika.ExchangeType = aio_pika.ExchangeType
 
         t = Transport(url="amqp://localhost/")
-        assert t._connected is False
+        assert t.is_connected is False
 
         ch = await t.create_channel()
 
-        assert t._connected is True
+        assert t.is_connected is True
         assert isinstance(ch, Channel)
 
     @patch("kombu.transport.amqp.aio_pika")
@@ -1567,6 +1739,62 @@ class TestTransport:
         with patch("kombu.transport.amqp.aio_pika") as mock_mod:
             del mock_mod.__version__
             assert t.driver_version() == "N/A"
+
+    @patch("kombu.transport.amqp.aio_pika")
+    async def test_is_connected_is_false_after_a_server_side_close(self, mock_aio_pika):
+        mock_conn = _make_aio_connection()
+        mock_aio_pika.connect = AsyncMock(return_value=mock_conn)
+
+        t = Transport(url="amqp://localhost/")
+        await t.connect()
+        # aio-pika leaves is_closed False for a close it did not ask for.
+        mock_conn.connected.clear()
+
+        assert mock_conn.is_closed is False
+        assert t.is_connected is False
+
+    @patch("kombu.transport.amqp.aio_pika")
+    async def test_connect_replaces_a_connection_the_broker_closed(self, mock_aio_pika):
+        dead = _make_aio_connection()
+        alive = _make_aio_connection()
+        mock_aio_pika.connect = AsyncMock(side_effect=[dead, alive])
+
+        t = Transport(url="amqp://localhost/")
+        await t.connect()
+        dead.connected.clear()
+        await t.connect()
+
+        assert t._connection is alive
+        assert t.is_connected is True
+        assert mock_aio_pika.connect.await_count == 2
+
+    @patch("kombu.transport.amqp.aio_pika")
+    async def test_a_closed_connection_reaches_its_channels(self, mock_aio_pika):
+        mock_conn = _make_aio_connection()
+        mock_aio_pika.connect = AsyncMock(return_value=mock_conn)
+
+        t = Transport(url="amqp://localhost/")
+        ch = await t.create_channel()
+        mock_conn.close_callbacks.fire(mock_conn, ConnectionResetError("broker went away"))
+
+        with pytest.raises(Transport.connection_errors):
+            await ch.drain_events(timeout=0)
+
+    @patch("kombu.transport.amqp.aio_pika")
+    async def test_a_close_callback_from_a_replaced_connection_is_ignored(self, mock_aio_pika):
+        dead = _make_aio_connection()
+        alive = _make_aio_connection()
+        mock_aio_pika.connect = AsyncMock(side_effect=[dead, alive])
+
+        t = Transport(url="amqp://localhost/")
+        await t.connect()
+        dead.connected.clear()
+        await t.connect()
+        ch = await t.create_channel()
+
+        dead.close_callbacks.fire(dead, ConnectionResetError("late"))
+
+        assert await ch.drain_events(timeout=0) is False
 
 
 # ---------------------------------------------------------------------------
