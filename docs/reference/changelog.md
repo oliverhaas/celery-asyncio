@@ -735,8 +735,9 @@ of the code and settings nothing calls any more.
   `app._acquire_connection()` and `app.connection_or_acquire()` go with them
 - The sync `amqp.send_task_message`; use `asend_task_message`
 - `store_errors` from `build_tracer()` and `build_async_tracer()`, which never
-  read it, `create_missing` from `Router`, which routed by it nowhere, and
-  `TaskRegistry.regular()`, `periodic()` and `filter_types()`
+  read it, `create_missing` from `Router`, which routed by it nowhere, `eager`
+  from `chord.run()` and `chord.arun()`, which neither read nor forwarded it,
+  and `TaskRegistry.regular()`, `periodic()` and `filter_types()`
 - `BaseResultConsumer` and the Valkey/Redis `ResultConsumer`. Result fetching
   polls, so both were no-op stubs nothing called, as were the `_pending_results`
   and `_pending_messages` maps the backends built for them, along with
