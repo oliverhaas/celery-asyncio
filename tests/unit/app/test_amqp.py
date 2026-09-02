@@ -434,6 +434,42 @@ class test_AMQP(test_AMQP_Base):
         assert q.exchange.type == "topic"
 
 
+class test_eta_property(test_AMQP_Base):
+    """The eta a transport can act on without knowing celery's headers."""
+
+    async def _publish(self, **options):
+        prod = self.producer()
+        await self.app.amqp.asend_task_message(
+            prod,
+            "foo",
+            self.app.amqp.as_task_v2(uuid(), "foo", **options),
+            retry=False,
+        )
+        return prod.publish.await_args.kwargs
+
+    async def test_a_countdown_becomes_a_timestamp(self):
+        eta = datetime.now(UTC) + timedelta(seconds=30)
+
+        published = await self._publish(eta=eta)
+
+        assert published["eta"] == eta.timestamp()
+
+    async def test_a_message_without_an_eta_has_no_eta_property(self):
+        published = await self._publish()
+
+        assert "eta" not in published
+
+    async def test_an_eta_that_is_not_a_time_is_not_published_as_now(self):
+        prod = self.producer()
+        message = self.app.amqp.as_task_v2(uuid(), "foo")
+        message.headers["eta"] = "the day after tomorrow"
+
+        with pytest.raises(ValueError):
+            await self.app.amqp.asend_task_message(prod, "foo", message, retry=False)
+
+        prod.publish.assert_not_awaited()
+
+
 class test_as_task_v2(test_AMQP_Base):
     def test_raises_if_args_is_not_tuple(self):
         with pytest.raises(TypeError):

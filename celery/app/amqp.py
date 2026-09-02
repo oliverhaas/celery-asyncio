@@ -3,7 +3,6 @@
 """Sending/Receiving Messages (Kombu integration)."""
 
 import numbers
-import threading
 from collections import namedtuple
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -25,41 +24,22 @@ from . import routes as _routes
 
 __all__ = ("AMQP", "Queues", "task_message")
 
-# -- Signal handler for native delayed delivery (Redis transport) -----------
-# Mirrors celery-redis-plus/signals.py: converts headers.eta (ISO datetime
-# string) to properties.eta (Unix timestamp float) so the Redis transport can
-# use it for sorted-set delayed delivery without importing celery itself.
 
-_eta_signal_connected = False
-_eta_signal_lock = threading.Lock()
+def _eta_timestamp(eta):
+    """The Unix timestamp for an `eta` header.
 
-
-def _convert_eta_to_properties(body, properties, **kwargs):
-    """Convert headers.eta to properties.eta for Redis native delayed delivery."""
-    headers = kwargs.get("headers", {})
-    if not headers:
-        return
-
-    eta_value = headers.get("eta")
-    if eta_value is None:
-        return
-
-    if isinstance(eta_value, str):
-        try:
-            if eta_value.endswith("Z"):
-                eta_value = eta_value[:-1] + "+00:00"
-            eta_dt = datetime.fromisoformat(eta_value)
-            if eta_dt.tzinfo is None:
-                eta_dt = eta_dt.replace(tzinfo=UTC)
-            properties["eta"] = eta_dt.timestamp()
-        except ValueError, TypeError:
-            pass
-    elif isinstance(eta_value, datetime):
-        if eta_value.tzinfo is None:
-            eta_value = eta_value.replace(tzinfo=UTC)
-        properties["eta"] = eta_value.timestamp()
-    elif isinstance(eta_value, (int, float)):
-        properties["eta"] = float(eta_value)
+    The Redis transport delays delivery by this, and cannot read the ISO
+    string in the header without importing celery.
+    """
+    if isinstance(eta, str):
+        if eta.endswith("Z"):
+            eta = eta[:-1] + "+00:00"
+        eta = datetime.fromisoformat(eta)
+    if isinstance(eta, numbers.Real):
+        return float(eta)
+    if eta.tzinfo is None:
+        eta = eta.replace(tzinfo=UTC)
+    return eta.timestamp()
 
 
 #: earliest date supported by time.mktime.
@@ -310,14 +290,6 @@ class AMQP:
         }
         self.app._conf.bind_to(self._handle_conf_update)
         self._event_dispatchers = WeakKeyDictionary()
-
-        # Register ETA signal handler (once, idempotent)
-        global _eta_signal_connected
-        if not _eta_signal_connected:
-            with _eta_signal_lock:
-                if not _eta_signal_connected:
-                    signals.before_task_publish.connect(_convert_eta_to_properties)
-                    _eta_signal_connected = True
 
     @cached_property
     def create_task_message(self):
@@ -639,6 +611,8 @@ class AMQP:
                 headers2.update(headers)
             if kwargs:
                 properties.update(kwargs)
+            if headers2.get("eta") is not None:
+                properties["eta"] = _eta_timestamp(headers2["eta"])
 
             qname = queue
             if queue is None and exchange is None:
