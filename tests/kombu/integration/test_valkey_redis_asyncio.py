@@ -394,7 +394,6 @@ class TestExchangeTypes:
                         await conn.drain_events(timeout=0.2)
                 assert received == [{"hi": 1}]
 
-                # And again with nothing blocking on the stream in between.
                 received.clear()
                 await producer.publish({"hi": 2}, exchange=exchange, routing_key="", declare=[])
 

@@ -51,7 +51,6 @@ def _make_transport(**opts) -> Transport:
     transport._url = "redis://localhost:6379"
     transport._options = opts
     transport._client = MagicMock()
-    # An empty fanout stream, so binding a fanout queue works without a stub.
     transport._client.xrevrange = AsyncMock(return_value=[])
     transport._subclient = MagicMock()
     transport._channels = []

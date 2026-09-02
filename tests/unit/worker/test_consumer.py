@@ -695,7 +695,6 @@ class test_Tasks:
     def setup_method(self):
         self.c = Mock()
         self.c.app.conf.worker_detect_quorum_queues = True
-        self.c.connection.qos_semantics_matches_spec = False
         self.c.connection_errors = (socket.error, OSError)
         self.c.channel_errors = (ChannelError,)
 
