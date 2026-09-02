@@ -1,5 +1,4 @@
 from base64 import b64decode
-from unittest.mock import call, patch
 
 import pytest
 
@@ -77,6 +76,15 @@ ApVGggcXVpY2sgYnJvd24gZm94IGp1bXBzIG92ZXIgdGggbGF6eSBkb2c=\
 registry.register("testS", lambda s: s, lambda s: "decoded", "application/testS", "utf-8")
 
 
+@pytest.fixture
+def restore_disabled_content_types():
+    disabled = registry._disabled_content_types
+    saved = set(disabled)
+    yield disabled
+    disabled.clear()
+    disabled.update(saved)
+
+
 class test_Serialization:
     def test_disable(self):
         disabled = registry._disabled_content_types
@@ -140,31 +148,41 @@ class test_Serialization:
         assert dumps(unicode_string)[-1] == unicode_string_as_utf8
         assert dumps(latin_string)[-1] == latin_string_as_utf8
 
-    def test_enable_insecure_serializers(self):
-        with patch("kombu.serialization.registry") as registry:
-            enable_insecure_serializers()
-            registry.assert_has_calls(
-                [
-                    call.enable("pickle"),
-                    call.enable("yaml"),
-                    call.enable("msgpack"),
-                ],
-            )
-            registry.enable.side_effect = KeyError()
-            enable_insecure_serializers()
+    def test_enable_insecure_serializers(self, restore_disabled_content_types):
+        disabled = restore_disabled_content_types
+        insecure = {"application/x-python-serialize", "application/x-yaml", "application/x-msgpack"}
 
-        with patch("kombu.serialization.registry") as registry:
-            enable_insecure_serializers(["msgpack"])
-            registry.assert_has_calls([call.enable("msgpack")])
+        disable_insecure_serializers()
+        assert insecure <= disabled
 
-    def test_disable_insecure_serializers(self):
-        with patch("kombu.serialization.registry") as registry:
-            registry._decoders = ["pickle", "yaml", "doomsday"]
-            disable_insecure_serializers(allowed=["doomsday"])
-            registry.disable.assert_has_calls([call("pickle"), call("yaml")])
-            registry.enable.assert_has_calls([call("doomsday")])
-            disable_insecure_serializers(allowed=None)
-            registry.disable.assert_has_calls([call("pickle"), call("yaml"), call("doomsday")])
+        enable_insecure_serializers()
+        assert not insecure & disabled
+
+        disable_insecure_serializers()
+        enable_insecure_serializers(["msgpack"])
+        assert "application/x-msgpack" not in disabled
+        assert "application/x-python-serialize" in disabled
+
+    def test_enable_insecure_serializers_unknown_name(self, restore_disabled_content_types):
+        with pytest.raises(SerializerNotInstalled, match="nosuchserializer"):
+            enable_insecure_serializers(["nosuchserializer"])
+
+    def test_disable_insecure_serializers(self, restore_disabled_content_types):
+        disabled = restore_disabled_content_types
+
+        disable_insecure_serializers(allowed=["pickle"])
+        assert "application/json" in disabled
+        assert "application/x-yaml" in disabled
+        assert "application/x-python-serialize" not in disabled
+
+        disable_insecure_serializers(allowed=None)
+        assert "application/x-python-serialize" in disabled
+
+    def test_disable_insecure_serializers_unknown_name_changes_nothing(self, restore_disabled_content_types):
+        before = set(restore_disabled_content_types)
+        with pytest.raises(SerializerNotInstalled, match="nosuchserializer"):
+            disable_insecure_serializers(allowed=["json", "nosuchserializer"])
+        assert restore_disabled_content_types == before
 
     def test_reraises_EncodeError(self):
         with pytest.raises(EncodeError):

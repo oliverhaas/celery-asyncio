@@ -420,14 +420,14 @@ def enable_insecure_serializers(choices: Any = NOTSET):
         Will enable ``pickle``, ``yaml`` and ``msgpack`` by default, but you
         can also specify a list of serializers (by name or content type)
         to enable.
+
+    Raises
+    ------
+        SerializerNotInstalled: If a name has no registered serializer.
     """
     choices = ["pickle", "yaml", "msgpack"] if choices is NOTSET else choices
-    if choices is not None:
-        for choice in choices:
-            try:
-                registry.enable(choice)
-            except KeyError:
-                pass
+    for content_type in registry.prepare_accept_content(choices) or ():
+        registry.enable(content_type)
 
 
 def disable_insecure_serializers(allowed: Any = NOTSET):
@@ -441,13 +441,19 @@ def disable_insecure_serializers(allowed: Any = NOTSET):
         Producers will still be able to serialize data
         in these formats, but consumers will not accept
         incoming data using the untrusted content types.
+
+    Raises
+    ------
+        SerializerNotInstalled: If a name has no registered serializer.
     """
     allowed = ["json"] if allowed is NOTSET else allowed
-    for name in registry._decoders:
-        registry.disable(name)
-    if allowed is not None:
-        for name in allowed:
-            registry.enable(name)
+    # Resolved before anything is disabled: an unknown name used to raise
+    # halfway through and leave the registry in whatever state it got to.
+    allowed = registry.prepare_accept_content(allowed)
+    for content_type in registry._decoders:
+        registry.disable(content_type)
+    for content_type in allowed or ():
+        registry.enable(content_type)
 
 
 # Insecure serializers are disabled by default since v3.0
