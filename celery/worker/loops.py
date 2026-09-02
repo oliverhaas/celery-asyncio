@@ -66,49 +66,26 @@ def _trigger_restart(reason: str) -> None:
     state.should_stop = EX_OK
 
 
-def _cancel_pool_job(req) -> bool:
-    """Return True only when the pool guarantees the request will not run."""
-    # _apply_result is a weakref to the handle the pool returned for the job.
-    # A handle that has been collected, or one whose cancel() does not report
-    # success, means the job may already be running.
-    handle = req._apply_result
-    result = handle() if handle is not None else None
-    if result is None:
-        return False
-    return bool(result.cancel())
-
-
 async def _enter_draining(consumer, reason: str) -> None:
-    """Stop consuming new messages and hand back the tasks the pool has not started."""
+    """Stop consuming new messages and let the tasks already in hand finish."""
     state.is_draining = True
     with state._lock:
-        active_count = len(state.active_requests)
+        unfinished = len(state.reserved_requests)
     logger.info(
-        "Worker draining: %s. Stopped accepting new tasks, waiting for %d active task(s) to finish.",
+        "Worker draining: %s. Stopped accepting new tasks, waiting for %d task(s) in hand to finish.",
         reason,
-        active_count,
+        unfinished,
     )
 
     # Stop fetching new messages from the broker.
     await consumer.cancel()
 
-    # Give back the prefetched tasks the pool can still be talked out of, so
-    # another worker runs them instead of waiting for this one to come back.
-    # A task the pool will not release stays here and the drain waits for it:
-    # requeuing it would run it twice, once on the worker that receives the
-    # redelivery and once here, as soon as a concurrency slot frees up.
-    with state._lock:
-        prefetched = set(state.reserved_requests) - set(state.active_requests)
-    kept = 0
-    for req in prefetched:
-        if not _cancel_pool_job(req):
-            kept += 1
-            continue
-        state.task_ready(req)
-        req.reject(requeue=True)
-        logger.debug("Requeued prefetched task %s[%s]", req.name, req.id)
-    if kept:
-        logger.info("Waiting for %d prefetched task(s) the pool would not release.", kept)
+    # The prefetched tasks stay here rather than going back to the queue.
+    # Once the pool has a job there is no way to be told it will not start,
+    # so rejecting the message would run the task twice: once on the worker
+    # that gets the redelivery and once here, as soon as a slot frees up.
+    # The drain waits on the reserved set, which covers the tasks that are
+    # running and the ones still queued behind the pool's concurrency limit.
 
 
 def _check_restart_conditions(obj, pool) -> str | None:
@@ -121,7 +98,7 @@ def _check_restart_conditions(obj, pool) -> str | None:
     now = time.monotonic()
 
     # Reserved covers both the running tasks and the ones still queued behind
-    # the pool's concurrency limit that the drain could not hand back.
+    # the pool's concurrency limit.
     if state.is_draining:
         with state._lock:
             unfinished = bool(state.reserved_requests)

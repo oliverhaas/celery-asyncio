@@ -77,28 +77,13 @@ class FakeConsumer:
         self.ready = True
 
 
-class FakePoolHandle:
-    """Stand-in for the pool's ApplyResult: ``cancel()`` reports whether it took."""
-
-    def __init__(self, releases):
-        self.releases = releases
-        self.cancels = 0
-
-    def cancel(self):
-        self.cancels += 1
-        return self.releases
-
-
 class FakeRequest:
     """Stand-in for :class:`celery.worker.request.Request`."""
 
-    def __init__(self, id, handle=None):
+    def __init__(self, id):
         self.id = id
         self.name = "tests.add"
-        self.handle = handle
         self.rejected = None
-        # Request stores a weakref to the pool handle, so a callable it is.
-        self._apply_result = None if handle is None else (lambda: self.handle)
 
     def reject(self, requeue=False):
         self.rejected = requeue
@@ -226,11 +211,13 @@ class test_asynloop_qos(LoopCase):
 
 
 class test_enter_draining:
-    async def test_requeues_only_the_tasks_the_pool_released(self):
-        released = FakeRequest("released", FakePoolHandle(releases=True))
-        queued = FakeRequest("queued", FakePoolHandle(releases=False))
-        running = FakeRequest("running", FakePoolHandle(releases=False))
-        for req in (released, queued, running):
+    async def test_stops_consuming_and_keeps_the_tasks_in_hand(self):
+        # Handing a prefetched task back would run it twice: once on the
+        # worker that gets the redelivery, and once here as soon as the pool
+        # frees a slot, because nothing can promise it will not start.
+        queued = FakeRequest("queued")
+        running = FakeRequest("running")
+        for req in (queued, running):
             state.task_reserved(req)
         state.task_accepted(running)
         task_consumer = FakeTaskConsumer()
@@ -238,22 +225,10 @@ class test_enter_draining:
         await _enter_draining(task_consumer, "max tasks per child (1) reached")
 
         assert task_consumer.cancelled
-        assert released.rejected is True
-        # Requeuing these would run them here as well as on the worker that
-        # gets the redelivery.
         assert queued.rejected is None
         assert running.rejected is None
-        assert running.handle.cancels == 0
         assert set(state.reserved_requests) == {queued, running}
-
-    async def test_keeps_a_task_whose_pool_handle_is_gone(self):
-        req = FakeRequest("collected")
-        state.task_reserved(req)
-
-        await _enter_draining(FakeTaskConsumer(), "memory limit exceeded")
-
-        assert req.rejected is None
-        assert set(state.reserved_requests) == {req}
+        assert state.is_draining
 
 
 class test_check_restart_conditions(LoopCase):
@@ -300,7 +275,7 @@ class test_check_restart_conditions(LoopCase):
         monkeypatch.setattr(loops, "_trigger_restart", restarts.append)
         obj = self.make_obj()
         state.is_draining = True
-        queued = FakeRequest("queued", FakePoolHandle(releases=False))
+        queued = FakeRequest("queued")
         state.task_reserved(queued)
 
         assert _check_restart_conditions(obj, FakePool()) is None
@@ -318,27 +293,24 @@ class test_asynloop_draining(LoopCase):
         monkeypatch.setattr(loops, "_trigger_restart", restarts.append)
         self.app.conf.worker_max_tasks_per_child = 1
         state.all_total_count[0] = 1
-        released = FakeRequest("released", FakePoolHandle(releases=True))
-        queued = FakeRequest("queued", FakePoolHandle(releases=False))
-        state.task_reserved(released)
-        state.task_reserved(queued)
+        prefetched = FakeRequest("prefetched")
+        state.task_reserved(prefetched)
         blueprint = BlueprintState()
 
-        def finish_the_kept_task():
-            state.task_ready(queued)
+        def finish_the_prefetched_task():
+            state.task_ready(prefetched)
             blueprint.state = CLOSE
 
         coro, _, _, task_consumer, _ = self.make_loop(
             lambda: None,
-            finish_the_kept_task,
+            finish_the_prefetched_task,
             pool=FakePool(),
             blueprint=blueprint,
         )
         await coro
 
         assert task_consumer.cancelled
-        assert released.rejected is True
-        assert queued.rejected is None
+        assert prefetched.rejected is None
         assert restarts == ["all tasks finished during drain"]
 
 
