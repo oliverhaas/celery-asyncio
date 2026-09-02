@@ -385,16 +385,12 @@ class Consumer:
         return self._channel
 
     async def declare(self) -> None:
-        """Declare the queues that have not been declared yet, and their exchanges."""
+        """Declare the queues that have not been declared yet."""
         channel = await self._ensure_channel()
         for queue in self._queues:
             if queue.name in self._declared:
                 continue
-            if queue.exchange:
-                await queue.exchange.declare(channel)
             await queue.declare(channel)
-            if queue.exchange:
-                await queue.bind(channel)
             self._declared.add(queue.name)
 
     async def consume(self) -> None:

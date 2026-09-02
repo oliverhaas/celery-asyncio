@@ -252,13 +252,20 @@ class Queue:
         return f"Queue {self.name!r}"
 
     async def declare(self, channel: Channel | None = None) -> str:
-        """Declare the queue.
+        """Declare the exchange, the queue, and the binding between the two.
+
+        A queue on its own receives nothing on a broker with real exchanges,
+        so declaring one means declaring all three.
 
         Returns the queue name (useful for auto-generated names).
         """
         ch = channel or self._channel
         if ch and not self.no_declare:
-            return await ch.declare_queue(self)
+            if self.exchange is not None:
+                await self.exchange.declare(ch)
+            name = await ch.declare_queue(self)
+            await self.bind(ch)
+            return name
         return self.name
 
     async def bind(self, channel: Channel | None = None) -> None:

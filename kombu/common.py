@@ -114,26 +114,19 @@ async def maybe_declare(
     entity: Exchange | Queue,
     channel: Channel | None = None,
 ) -> bool:
-    """Declare entity (exchange or queue) if not already declared.
+    """Declare an exchange or a queue on a channel.
 
     Args:
         entity: Exchange or Queue to declare.
         channel: Channel to use for declaration.
 
     Returns:
-        True if entity was declared, False if already declared.
+        True.
     """
     if channel is None:
         raise ValueError("Channel is required for declaration")
 
-    if isinstance(entity, Exchange):
-        await entity.declare(channel)
-    elif isinstance(entity, Queue):
-        if entity.exchange:
-            await entity.exchange.declare(channel)
-        await entity.declare(channel)
-        if entity.exchange:
-            await entity.bind(channel)
+    await entity.declare(channel)
     return True
 
 

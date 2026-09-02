@@ -165,6 +165,17 @@ class test_Queue:
         assert name == "test"
         assert any(c[0] == "declare_queue" for c in mock_channel.calls)
 
+    async def test_declare_covers_the_exchange_and_the_binding(self, mock_channel):
+        q = Queue("test", exchange=Exchange("myex"), routing_key="rk")
+        await q.declare(mock_channel)
+
+        assert [call[0] for call in mock_channel.calls] == [
+            "declare_exchange",
+            "declare_queue",
+            "queue_bind",
+        ]
+        assert mock_channel.calls[2][1] == ("test", "myex", "rk")
+
     async def test_declare_no_declare(self, mock_channel):
         q = Queue("test", no_declare=True)
         name = await q.declare(mock_channel)

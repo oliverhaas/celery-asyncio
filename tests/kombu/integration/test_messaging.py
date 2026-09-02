@@ -154,3 +154,28 @@ class TestPublishRetry:
         finally:
             cleanup = await amqp_connection.channel()
             await cleanup.queue_delete(queue_name)
+
+
+class TestPublishDeclare:
+    async def test_a_queue_declared_at_publish_time_receives_the_message(self, connection):
+        exchange = Exchange(name("ex"), type="direct", auto_delete=True)
+        queue = Queue(name("q"), exchange=exchange, routing_key="rk", auto_delete=True)
+
+        try:
+            producer = connection.Producer(auto_declare=False)
+            await producer.publish({"routed": True}, exchange=exchange.name, routing_key="rk", declare=[queue])
+
+            received = []
+            consumer = connection.Consumer(
+                [queue],
+                callbacks=[lambda body, message: received.append(body)],
+                no_ack=True,
+            )
+            await consumer.consume()
+            await drain(connection)
+            await consumer.cancel()
+
+            assert received == [{"routed": True}]
+        finally:
+            channel = await connection.default_channel()
+            await channel.queue_delete(queue.name)
