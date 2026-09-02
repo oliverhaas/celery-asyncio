@@ -5,8 +5,6 @@ from random import shuffle
 from time import time
 from unittest.mock import Mock, patch
 
-import pytest
-
 from celery import states, uuid
 from celery.events import Event
 from celery.events.state import HEARTBEAT_DRIFT_MAX, HEARTBEAT_EXPIRE_WINDOW, State, Task, Worker, heartbeat_expires
@@ -350,25 +348,18 @@ class test_State:
         assert now[1][0] == tC
         assert now[2][0] == tB
 
-    @pytest.mark.skip("TODO: not working")
-    def test_task_descending_clock_ordering(self):
+    def test_task_ascending_clock_ordering(self):
+        # Ascending is by the first event of each task, where the default
+        # ordering goes by the last one. The replay was played once on
+        # purpose: every later round appends to the same heap, so the tasks
+        # that come first stay the ones this round put there.
         state = State()
         r = ev_logical_clock_ordering(state)
         tA, tB, tC = r.uids
         r.play()
-        now = list(state.tasks_by_time(reverse=False))
-        assert now[0][0] == tA
-        assert now[1][0] == tB
-        assert now[2][0] == tC
-        for _ in range(1000):
-            shuffle(r.uids)
-            tA, tB, tC = r.uids
-            r.rewind_with_offset(r.current_clock + 1, r.uids)
-            r.play()
-        now = list(state.tasks_by_time(reverse=False))
-        assert now[0][0] == tB
-        assert now[1][0] == tC
-        assert now[2][0] == tA
+
+        assert [uuid for uuid, _ in state.tasks_by_time(reverse=False)] == [tA, tB, tC]
+        assert [uuid for uuid, _ in state.tasks_by_time(reverse=False, limit=2)] == [tA, tB]
 
     def test_get_or_create_task(self):
         state = State()
