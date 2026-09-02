@@ -109,6 +109,11 @@ A rediss:// or valkeys:// URL must have parameter ssl_cert_reqs and this \
 must be set to CERT_REQUIRED, CERT_OPTIONAL, or CERT_NONE
 """
 
+E_REDIS_NO_ASYNC_CONNECTION_CLASS = """
+The async Valkey/Redis client library has no {0}, so this URL cannot be \
+used with the async result backend.
+"""
+
 E_LOST = "Connection to Valkey/Redis lost: Retry (%s/%s) %s."
 
 logger = get_logger(__name__)
@@ -751,17 +756,36 @@ return false
     def _get_async_connection_pool_class(self):
         return self._aiolib.ConnectionPool
 
+    def _get_async_pool(self, **params):
+        return self._get_async_connection_pool_class()(**params)
+
     def _create_async_client(self, **params):
-        # Filter out params not supported by async client
-        async_params = params.copy()
-        # The async client uses the same connection pool parameters
-        pool = self._get_async_connection_pool_class()(**async_params)
-        return self._get_async_client_class()(connection_pool=pool)
+        return self._get_async_client_class()(connection_pool=self._get_async_pool(**params))
+
+    def _async_connparams(self):
+        """``connparams`` with the connection class swapped for its async twin.
+
+        The sync and async client libraries keep separate connection class
+        hierarchies. A ``rediss://`` or ``socket://`` URL puts a sync
+        ``SSLConnection`` or ``UnixDomainSocketConnection`` in connparams,
+        and an async pool holding one connects with blocking socket code and
+        then fails on the first command.
+        """
+        params = dict(self.connparams)
+        connection_class = params.get("connection_class")
+        if connection_class is None:
+            return params
+        name = connection_class.__name__
+        async_class = getattr(self._aiolib, name, None)
+        if async_class is None:
+            raise ImproperlyConfigured(E_REDIS_NO_ASYNC_CONNECTION_CLASS.strip().format(name))
+        params["connection_class"] = async_class
+        return params
 
     @cached_property
     def async_client(self):
         """Return an async Redis client for native asyncio operations."""
-        return self._create_async_client(**self.connparams)
+        return self._create_async_client(**self._async_connparams())
 
     async def aget(self, key):
         """Async version of get."""
@@ -1122,16 +1146,27 @@ class SentinelBackend(RedisBackend):
         return sentinel_instance
 
     def _get_pool(self, **params):
-        sentinel_instance = self._get_sentinel_instance(**params)
+        return self._master_for(self._get_sentinel_instance(**params), self._get_client(), params)
 
-        master_name = self._transport_options.get("master_name", None)
+    def _get_async_sentinel_instance(self, **params):
+        connparams = params.copy()
+        hosts = connparams.pop("hosts")
+        return self._aiolib.sentinel.Sentinel(
+            [(cp["host"], cp["port"]) for cp in hosts],
+            min_other_sentinels=self._transport_options.get("min_other_sentinels", 0),
+            sentinel_kwargs=self._transport_options.get("sentinel_kwargs", {}),
+            **connparams,
+        )
 
+    def _get_async_pool(self, **params):
+        return self._master_for(self._get_async_sentinel_instance(**params), self._get_async_client_class(), params)
+
+    def _master_for(self, sentinel_instance, redis_class, params):
         # The sentinel's own credentials do not carry over to the master, so
         # they have to be handed to master_for() as well (upstream 9f0a61c61).
         credentials = {k: params[k] for k in ("username", "password") if k in params}
-
         return sentinel_instance.master_for(
-            service_name=master_name,
-            redis_class=self._get_client(),
+            service_name=self._transport_options.get("master_name", None),
+            redis_class=redis_class,
             **credentials,
         ).connection_pool

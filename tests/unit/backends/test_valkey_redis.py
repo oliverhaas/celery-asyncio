@@ -1295,6 +1295,53 @@ class _AsyncRedis:
         return _AsyncPipeline(self)
 
 
+class test_RedisBackend_async_client:
+    """The async client has to be built with the async connection classes."""
+
+    def get_backend(self, url):
+        pytest.importorskip("redis")
+        from celery.backends.valkey_redis import RedisBackend
+
+        return RedisBackend(app=self.app, url=url)
+
+    def test_plain_url_leaves_the_pool_default(self):
+        b = self.get_backend("redis://localhost:6379/1")
+        assert "connection_class" not in b._async_connparams()
+
+    def test_ssl_url_uses_the_async_ssl_connection(self):
+        b = self.get_backend("rediss://localhost:6379/1?ssl_cert_reqs=CERT_NONE")
+        assert b.connparams["connection_class"] is b.connection_class_ssl
+        assert b.async_client.connection_pool.connection_class is b._aiolib.SSLConnection
+
+    def test_unix_socket_url_uses_the_async_socket_connection(self):
+        b = self.get_backend("socket:///tmp/does-not-need-to-exist.sock")
+        assert b.connparams["connection_class"] is b.redis.UnixDomainSocketConnection
+        assert b.async_client.connection_pool.connection_class is b._aiolib.UnixDomainSocketConnection
+
+    def test_unknown_connection_class_is_reported(self):
+        b = self.get_backend("redis://localhost:6379/1")
+
+        class NotInTheAsyncLibrary:
+            pass
+
+        b.connparams["connection_class"] = NotInTheAsyncLibrary
+        with pytest.raises(ImproperlyConfigured, match="NotInTheAsyncLibrary"):
+            b._async_connparams()
+
+    def test_sentinel_async_client_talks_to_the_master(self):
+        pytest.importorskip("redis")
+        from celery.backends.valkey_redis import SentinelBackend
+
+        self.app.conf.result_backend_transport_options = {"master_name": "mymaster"}
+        b = SentinelBackend(app=self.app, url="sentinel://localhost:26379/1")
+        assert "hosts" in b.connparams
+
+        pool = b.async_client.connection_pool
+
+        assert isinstance(pool, b._aiolib.SentinelConnectionPool)
+        assert pool.service_name == "mymaster"
+
+
 class test_RedisBackend_async_groups:
     """Group save/restore over the native async client."""
 
