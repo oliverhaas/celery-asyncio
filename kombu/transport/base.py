@@ -163,6 +163,10 @@ class Channel(ABC):
     ) -> int:
         """Delete a queue.
 
+        `if_unused` is passed to the broker by the AMQP transport. The memory,
+        filesystem and Valkey/Redis transports count no consumers per queue, so
+        they delete the queue whether or not one is attached.
+
         Returns the number of messages deleted.
         """
         ...
