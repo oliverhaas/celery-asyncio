@@ -1,5 +1,7 @@
 import dbm
 import errno
+import heapq
+import operator
 import pickle
 import warnings
 from datetime import UTC, datetime, timedelta
@@ -98,15 +100,28 @@ class test_ScheduleEntry:
         res = fun(*args)
         assert res.schedule == entry.schedule
 
-    def test_lt(self):
+    def test_lt_orders_entries_consistently(self):
         e1 = self.create_entry(schedule=timedelta(seconds=10))
         e2 = self.create_entry(schedule=timedelta(seconds=2))
-        # order doesn't matter, see comment in __lt__
-        res1 = e1 < e2  # noqa
-        try:
-            res2 = e1 < object()  # noqa
-        except TypeError:
-            pass
+        # which of the two comes first does not matter, see the comment in
+        # __lt__, only that the order is total and stable
+        assert operator.lt(e1, e2) == (id(e1) < id(e2))
+        assert operator.lt(e1, e2) != operator.lt(e2, e1)
+        assert not operator.lt(e1, e1)
+
+    def test_lt_breaks_ties_in_the_scheduler_heap(self):
+        e1 = self.create_entry(schedule=timedelta(seconds=10))
+        e2 = self.create_entry(schedule=timedelta(seconds=2))
+        heap = []
+        heapq.heappush(heap, (0, 5, e1))
+        heapq.heappush(heap, (0, 5, e2))
+        assert sorted(id(entry) for _, _, entry in heap) == sorted([id(e1), id(e2)])
+
+    def test_lt_is_not_defined_for_other_types(self):
+        e1 = self.create_entry(schedule=timedelta(seconds=10))
+        assert e1.__lt__(object()) is NotImplemented
+        with pytest.raises(TypeError):
+            operator.lt(e1, object())
 
     def test_update(self):
         entry = self.create_entry()
