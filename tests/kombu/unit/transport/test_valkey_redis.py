@@ -15,7 +15,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import ResponseError
 
 from kombu.entity import Exchange, Queue
-from kombu.exceptions import InconsistencyError
+from kombu.exceptions import ContentDisallowed, InconsistencyError
 from kombu.transport import valkey_redis
 from kombu.transport.valkey_redis import (
     BINDING_SEP,
@@ -957,6 +957,25 @@ class TestGet:
         msg = await ch.get("q1", no_ack=True)
         assert msg is not None
         assert "tag-1" not in ch._delivered
+
+    async def test_get_enforces_the_accepted_content_types(self):
+        ch = _make_channel()
+        ch._consume_script = AsyncMock(
+            return_value=[
+                b"q1",
+                b"tag-1",
+                b'{"body": "hello", "content-type": "application/x-python-serialize", "properties": {}, "headers": {}}',
+                b"0",
+            ],
+        )
+
+        msg = await ch.get("q1", no_ack=True, accept={"application/json"})
+        assert msg is not None
+        # accept is what keeps a body the application never agreed to read
+        # from being deserialised, so dropping it silently widened it to any.
+        assert msg.accept == {"application/json"}
+        with pytest.raises(ContentDisallowed):
+            msg.decode()
 
     async def test_get_lets_a_broker_failure_out(self):
         """An outage is not an empty queue, or get_nowait() reports Empty for it."""

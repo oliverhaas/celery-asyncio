@@ -1572,6 +1572,7 @@ class Channel:
         payload: dict,
         delivery_tag: str,
         delivery_count: int = 0,
+        accept: AbstractSet[str] | None = None,
     ) -> Message:
         """Create a Message from decoded payload dict.
 
@@ -1580,6 +1581,10 @@ class Channel:
         counter. ``delivery_info['redelivered']`` is where kombu's own redis
         transport puts the flag and the only place celery looks for it when
         applying ``worker_deduplicate_successful_tasks``.
+
+        ``accept`` is the set of content types the caller will deserialise, and
+        it has to reach the message: it is what stops a body arriving in a
+        format the application never agreed to read.
         """
         body = payload.get("body", "")
         content_type = payload.get("content-type", "application/json")
@@ -1612,6 +1617,7 @@ class Channel:
             },
             properties=properties,
             headers=headers,
+            accept=accept,
             channel=self,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         )
 
@@ -2048,7 +2054,7 @@ class Channel:
 
         queue_name, delivery_tag, payload_json, delivery_count = self._parse_consume_result(result)
         payload = json_loads(payload_json)
-        message = self._create_message(queue_name, payload, delivery_tag, delivery_count)
+        message = self._create_message(queue_name, payload, delivery_tag, delivery_count, accept)
         if not no_ack:
             self._delivered[delivery_tag] = (queue_name, message)
         return message
