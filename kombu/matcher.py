@@ -59,7 +59,21 @@ class MatcherRegistry:
         matcher: str | None = None,
         matcher_kwargs: dict[str, str] | None = None,
     ) -> bool:
-        """Call the matcher."""
+        """Match `data` by `pattern` using `matcher`.
+
+        :param data: The data that should be matched.
+        :param pattern: The pattern that should be applied.
+        :keyword matcher: An optional string representing the matching
+            method (for example, `glob` or `pcre`). The default matcher
+            is used when it is :const:`None`.
+        :keyword matcher_kwargs: Additional keyword arguments that will be
+            passed to the specified `matcher`.
+        :returns: :const:`True` if `data` matches pattern,
+            :const:`False` otherwise.
+
+        :raises MatcherNotInstalled: If the matching method requested is not
+            available.
+        """
         name = matcher or self._default_matcher_name
         if name is None:
             raise self.MatcherNotInstalled("No default matcher installed")
@@ -79,44 +93,8 @@ class MatcherRegistry:
 #: Global registry of matchers.
 registry = MatcherRegistry()
 
-"""
-.. function:: match(data, pattern, matcher=default_matcher,
-                    matcher_kwargs=None):
-
-    Match `data` by `pattern` using `matcher`.
-
-    :param data: The data that should be matched. Must be string.
-    :param pattern: The pattern that should be applied. Must be string.
-    :keyword matcher: An optional string representing the matching
-        method (for example, `glob` or `pcre`).
-
-        If :const:`None` (default), then `glob` will be used.
-
-    :keyword matcher_kwargs: Additional keyword arguments that will be passed
-        to the specified `matcher`.
-    :returns: :const:`True` if `data` matches pattern,
-        :const:`False` otherwise.
-
-    :raises MatcherNotInstalled: If the matching method requested is not
-        available.
-"""
 match = registry.match
-
-"""
-.. function:: register(name, matcher):
-    Register a new matching method.
-
-    :param name: A convenient name for the matching method.
-    :param matcher: A method that will be passed data and pattern.
-"""
 register = registry.register
-
-"""
-.. function:: unregister(name):
-    Unregister registered matching method.
-
-    :param name: Registered matching method name.
-"""
 unregister = registry.unregister
 
 
