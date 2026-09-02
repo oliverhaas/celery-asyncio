@@ -1482,9 +1482,6 @@ class DisabledBackend(BaseBackend):
 
     get_state = get_status = get_result = get_traceback = _is_disabled
     wait_for = get_many = _is_disabled
-    # Storage hooks the abstract base leaves to concrete backends. Reading a
-    # result or a group without a backend is an error, not an empty answer,
-    # so every one of them reports the same "no result backend" message
-    # instead of an AttributeError.
+    # The abstract storage hooks too, so a read without a backend is an error, not an AttributeError.
     _get_task_meta_for = _forget = _is_disabled
     _save_group = _delete_group = _restore_group = _is_disabled
