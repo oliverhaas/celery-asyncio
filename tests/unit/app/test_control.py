@@ -19,6 +19,9 @@ def test_client_implements_all_commands(app):
     assert commands
     for name, info in commands:
         assert getattr(app.control, name)
+        # Every command also has a twin to await, for callers on a loop: the
+        # sync one blocks on the shared loop and refuses to run from there.
+        assert getattr(app.control, "a" + name)
 
 
 def test_inspect_implements_all_commands(app):
@@ -28,6 +31,7 @@ def test_inspect_implements_all_commands(app):
     for name, info in commands:
         if info.type == "inspect":
             assert getattr(inspect, name)
+            assert getattr(inspect, "a" + name)
 
 
 class test_flatten_reply:
@@ -558,3 +562,68 @@ class test_Control:
 
         with pytest.raises(ImproperlyConfigured):
             control.Control(self.app)
+
+
+#: One call per remote control command, for the twins that take arguments.
+CONTROL_COMMAND_ARGS = {
+    "add_consumer": ("myqueue",),
+    "autoscale": (10, 3),
+    "cancel_consumer": ("myqueue",),
+    "election": ("id", "topic"),
+    "rate_limit": ("mytask", "100/m"),
+    "revoke": ("tid",),
+    "revoke_by_stamped_headers": ({"header": "value"},),
+    "terminate": ("tid",),
+    "time_limit": ("mytask",),
+}
+
+
+class test_async_commands:
+    """The `a`-prefixed twins, which are the ones usable from a running loop."""
+
+    def setup_method(self):
+        self.reply = [{"w1": {"ok": 1}}]
+        self.app.control.abroadcast = AsyncMock(name="abroadcast", return_value=self.reply)
+
+    @pytest.mark.parametrize("name", sorted(name for name, _ in _info_for_commandclass("inspect")))
+    async def test_inspect_twin_requests_its_command(self, name):
+        inspect = self.app.control.inspect()
+        arguments = {"from_node": "w1"} if name == "hello" else {}
+
+        assert await getattr(inspect, "a" + name)(**arguments) == {"w1": {"ok": 1}}
+
+        assert self.app.control.abroadcast.call_args.args[0] == name
+        assert self.app.control.abroadcast.call_args.kwargs["reply"] is True
+
+    @pytest.mark.parametrize("name", sorted(name for name, _ in _info_for_commandclass("control")))
+    async def test_control_twin_broadcasts_its_command(self, name):
+        args = CONTROL_COMMAND_ARGS.get(name, ())
+
+        result = await getattr(self.app.control, "a" + name)(*args)
+
+        # terminate is revoke with terminate=True, and says so on the wire.
+        assert self.app.control.abroadcast.call_args.args[0] == ("revoke" if name == "terminate" else name)
+        assert result == (None if name == "election" else self.reply)
+
+    async def test_purge_twin_purges(self):
+        consumer = Mock(name="TaskConsumer_instance")
+        consumer.purge = AsyncMock(return_value=3)
+        consumer.close = AsyncMock()
+        self.app.amqp.TaskConsumer = Mock(name="TaskConsumer", return_value=consumer)
+        conn = Mock(name="conn")
+        conn.is_connected = False
+        conn.connect = AsyncMock()
+        conn.close = AsyncMock()
+        self.app.connection_for_write = Mock(return_value=conn)
+
+        assert await self.app.control.apurge() == 3
+        consumer.close.assert_awaited_with()
+        conn.close.assert_awaited_with()
+
+    async def test_sync_purge_refuses_to_run_on_a_loop(self):
+        with pytest.raises(RuntimeError, match="Cannot block on the background loop"):
+            self.app.control.purge()
+
+    async def test_sync_broadcast_refuses_to_run_on_a_loop(self):
+        with pytest.raises(RuntimeError, match="Cannot block on the background loop"):
+            self.app.control.broadcast("ping")

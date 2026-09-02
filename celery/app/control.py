@@ -149,6 +149,10 @@ class Inspect:
         """
         return self._request("report")
 
+    async def areport(self):
+        """Async version of :meth:`report`."""
+        return await self._arequest("report")
+
     def clock(self):
         """Get the Clock value on workers.
 
@@ -159,6 +163,10 @@ class Inspect:
             Dict: Dictionary ``{HOSTNAME: CLOCK_VALUE}``.
         """
         return self._request("clock")
+
+    async def aclock(self):
+        """Async version of :meth:`clock`."""
+        return await self._arequest("clock")
 
     def active(self, safe=None):
         """Return list of tasks currently executed by workers.
@@ -174,6 +182,10 @@ class Inspect:
 
         """
         return self._request("active", safe=safe)
+
+    async def aactive(self, safe=None):
+        """Async version of :meth:`active`."""
+        return await self._arequest("active", safe=safe)
 
     def scheduled(self, safe=None):
         """Return list of scheduled tasks with details.
@@ -192,6 +204,10 @@ class Inspect:
         """
         return self._request("scheduled")
 
+    async def ascheduled(self, safe=None):
+        """Async version of :meth:`scheduled`."""
+        return await self._arequest("scheduled")
+
     def reserved(self, safe=None):
         """Return list of currently reserved tasks, not including scheduled/active.
 
@@ -202,6 +218,10 @@ class Inspect:
             For ``TASK_INFO`` details see :func:`query_task` return value.
         """
         return self._request("reserved")
+
+    async def areserved(self, safe=None):
+        """Async version of :meth:`reserved`."""
+        return await self._arequest("reserved")
 
     def stats(self):
         """Return statistics of worker.
@@ -268,6 +288,10 @@ class Inspect:
         """
         return self._request("stats")
 
+    async def astats(self):
+        """Async version of :meth:`stats`."""
+        return await self._arequest("stats")
+
     def revoked(self):
         """Return list of revoked tasks.
 
@@ -278,6 +302,10 @@ class Inspect:
             Dict: Dictionary ``{HOSTNAME: [TASK_ID, ...]}``.
         """
         return self._request("revoked")
+
+    async def arevoked(self):
+        """Async version of :meth:`revoked`."""
+        return await self._arequest("revoked")
 
     def registered(self, *taskinfoitems):
         """Return all registered tasks per worker.
@@ -296,7 +324,12 @@ class Inspect:
         """
         return self._request("registered", taskinfoitems=taskinfoitems)
 
+    async def aregistered(self, *taskinfoitems):
+        """Async version of :meth:`registered`."""
+        return await self._arequest("registered", taskinfoitems=taskinfoitems)
+
     registered_tasks = registered
+    aregistered_tasks = aregistered
 
     def ping(self, destination=None):
         """Ping all (or specific) workers.
@@ -324,6 +357,17 @@ class Inspect:
             finally:
                 self.destination = old_destination
         return self._request("ping")
+
+    async def aping(self, destination=None):
+        """Async version of :meth:`ping`."""
+        if destination:
+            old_destination = self.destination
+            self.destination = destination
+            try:
+                return await self._arequest("ping")
+            finally:
+                self.destination = old_destination
+        return await self._arequest("ping")
 
     def active_queues(self):
         """Return information about queues from which worker consumes tasks.
@@ -369,6 +413,10 @@ class Inspect:
         """
         return self._request("active_queues")
 
+    async def aactive_queues(self):
+        """Async version of :meth:`active_queues`."""
+        return await self._arequest("active_queues")
+
     def query_task(self, *ids):
         """Return detail of tasks currently executed by workers.
 
@@ -401,6 +449,12 @@ class Inspect:
             ids = ids[0]
         return self._request("query_task", ids=ids)
 
+    async def aquery_task(self, *ids):
+        """Async version of :meth:`query_task`."""
+        if len(ids) == 1 and isinstance(ids[0], (list, tuple)):
+            ids = ids[0]
+        return await self._arequest("query_task", ids=ids)
+
     def conf(self, with_defaults=False):
         """Return configuration of each worker.
 
@@ -417,8 +471,16 @@ class Inspect:
         """
         return self._request("conf", with_defaults=with_defaults)
 
+    async def aconf(self, with_defaults=False):
+        """Async version of :meth:`conf`."""
+        return await self._arequest("conf", with_defaults=with_defaults)
+
     def hello(self, from_node, revoked=None):
         return self._request("hello", from_node=from_node, revoked=revoked)
+
+    async def ahello(self, from_node, revoked=None):
+        """Async version of :meth:`hello`."""
+        return await self._arequest("hello", from_node=from_node, revoked=revoked)
 
     def memsample(self):
         """Return sample current RSS memory usage.
@@ -428,6 +490,10 @@ class Inspect:
         """
         return self._request("memsample")
 
+    async def amemsample(self):
+        """Async version of :meth:`memsample`."""
+        return await self._arequest("memsample")
+
     def memdump(self, samples=10):
         """Dump statistics of previous memsample requests.
 
@@ -435,6 +501,10 @@ class Inspect:
             Requires the psutils library.
         """
         return self._request("memdump", samples=samples)
+
+    async def amemdump(self, samples=10):
+        """Async version of :meth:`memdump`."""
+        return await self._arequest("memdump", samples=samples)
 
     def objgraph(self, type="Request", n=200, max_depth=10):
         """Create graph of uncollected objects (memory-leak debugging).
@@ -451,6 +521,10 @@ class Inspect:
             Requires the objgraph library.
         """
         return self._request("objgraph", num=n, max_depth=max_depth, type=type)
+
+    async def aobjgraph(self, type="Request", n=200, max_depth=10):
+        """Async version of :meth:`objgraph`."""
+        return await self._arequest("objgraph", num=n, max_depth=max_depth, type=type)
 
 
 class Control:
@@ -507,7 +581,10 @@ class Control:
         return default_loop_runner().run(self.apurge(connection))
 
     async def apurge(self, connection=None):
-        """Async version of :meth:`purge`."""
+        """Async version of :meth:`purge`.
+
+        Arguments and return value are the same as :meth:`purge`.
+        """
         own_connection = connection is None
         conn = connection or self.app.connection_for_write()
         try:
@@ -523,9 +600,23 @@ class Control:
                 await conn.close()
 
     discard_all = purge
+    adiscard_all = apurge
 
     def election(self, id, topic, action=None, connection=None):
         self.broadcast(
+            "election",
+            connection=connection,
+            destination=None,
+            arguments={
+                "id": id,
+                "topic": topic,
+                "action": action,
+            },
+        )
+
+    async def aelection(self, id, topic, action=None, connection=None):
+        """Async version of :meth:`election`."""
+        await self.abroadcast(
             "election",
             connection=connection,
             destination=None,
@@ -554,6 +645,19 @@ class Control:
             :meth:`broadcast` for supported keyword arguments.
         """
         return self.broadcast(
+            "revoke",
+            destination=destination,
+            arguments={
+                "task_id": task_id,
+                "terminate": terminate,
+                "signal": signal,
+            },
+            **kwargs,
+        )
+
+    async def arevoke(self, task_id, destination=None, terminate=False, signal=TERM_SIGNAME, **kwargs):
+        """Async version of :meth:`revoke`."""
+        return await self.abroadcast(
             "revoke",
             destination=destination,
             arguments={
@@ -604,6 +708,35 @@ class Control:
         else:
             return result
 
+    async def arevoke_by_stamped_headers(
+        self, headers, destination=None, terminate=False, signal=TERM_SIGNAME, **kwargs
+    ):
+        """Async version of :meth:`revoke_by_stamped_headers`."""
+        result = await self.abroadcast(
+            "revoke_by_stamped_headers",
+            destination=destination,
+            arguments={
+                "headers": headers,
+                "terminate": terminate,
+                "signal": signal,
+            },
+            **kwargs,
+        )
+
+        task_ids = set()
+        if result:
+            for host in result:
+                for response in host.values():
+                    if isinstance(response["ok"], set):
+                        task_ids.update(response["ok"])
+
+        if task_ids:
+            return await self.arevoke(
+                list(task_ids), destination=destination, terminate=terminate, signal=signal, **kwargs
+            )
+        else:
+            return result
+
     def terminate(self, task_id, destination=None, signal=TERM_SIGNAME, **kwargs):
         """Tell all (or specific) workers to terminate a task by id (or list of ids).
 
@@ -612,6 +745,10 @@ class Control:
             argument enabled.
         """
         return self.revoke(task_id, destination=destination, terminate=True, signal=signal, **kwargs)
+
+    async def aterminate(self, task_id, destination=None, signal=TERM_SIGNAME, **kwargs):
+        """Async version of :meth:`terminate`."""
+        return await self.arevoke(task_id, destination=destination, terminate=True, signal=signal, **kwargs)
 
     def ping(self, destination=None, timeout=1.0, **kwargs):
         """Ping all (or specific) workers.
@@ -629,6 +766,12 @@ class Control:
         """
         return self.broadcast("ping", reply=True, arguments={}, destination=destination, timeout=timeout, **kwargs)
 
+    async def aping(self, destination=None, timeout=1.0, **kwargs):
+        """Async version of :meth:`ping`."""
+        return await self.abroadcast(
+            "ping", reply=True, arguments={}, destination=destination, timeout=timeout, **kwargs
+        )
+
     def rate_limit(self, task_name, rate_limit, destination=None, **kwargs):
         """Tell workers to set a new rate limit for task by type.
 
@@ -643,6 +786,18 @@ class Control:
             :meth:`broadcast` for supported keyword arguments.
         """
         return self.broadcast(
+            "rate_limit",
+            destination=destination,
+            arguments={
+                "task_name": task_name,
+                "rate_limit": rate_limit,
+            },
+            **kwargs,
+        )
+
+    async def arate_limit(self, task_name, rate_limit, destination=None, **kwargs):
+        """Async version of :meth:`rate_limit`."""
+        return await self.abroadcast(
             "rate_limit",
             destination=destination,
             arguments={
@@ -692,6 +847,25 @@ class Control:
             **kwargs,
         )
 
+    async def aadd_consumer(
+        self, queue, exchange=None, exchange_type="direct", routing_key=None, options=None, destination=None, **kwargs
+    ):
+        """Async version of :meth:`add_consumer`."""
+        return await self.abroadcast(
+            "add_consumer",
+            destination=destination,
+            arguments=dict(
+                {
+                    "queue": queue,
+                    "exchange": exchange,
+                    "exchange_type": exchange_type,
+                    "routing_key": routing_key,
+                },
+                **options or {},
+            ),
+            **kwargs,
+        )
+
     def cancel_consumer(self, queue, destination=None, **kwargs):
         """Tell all (or specific) workers to stop consuming from ``queue``.
 
@@ -699,6 +873,10 @@ class Control:
             Supports the same arguments as :meth:`broadcast`.
         """
         return self.broadcast("cancel_consumer", destination=destination, arguments={"queue": queue}, **kwargs)
+
+    async def acancel_consumer(self, queue, destination=None, **kwargs):
+        """Async version of :meth:`cancel_consumer`."""
+        return await self.abroadcast("cancel_consumer", destination=destination, arguments={"queue": queue}, **kwargs)
 
     def time_limit(self, task_name, soft=None, hard=None, destination=None, **kwargs):
         """Tell workers to set time limits for a task by type.
@@ -720,6 +898,19 @@ class Control:
             **kwargs,
         )
 
+    async def atime_limit(self, task_name, soft=None, hard=None, destination=None, **kwargs):
+        """Async version of :meth:`time_limit`."""
+        return await self.abroadcast(
+            "time_limit",
+            arguments={
+                "task_name": task_name,
+                "hard": hard,
+                "soft": soft,
+            },
+            destination=destination,
+            **kwargs,
+        )
+
     def enable_events(self, destination=None, **kwargs):
         """Tell all (or specific) workers to enable events.
 
@@ -727,6 +918,10 @@ class Control:
             Supports the same arguments as :meth:`broadcast`.
         """
         return self.broadcast("enable_events", arguments={}, destination=destination, **kwargs)
+
+    async def aenable_events(self, destination=None, **kwargs):
+        """Async version of :meth:`enable_events`."""
+        return await self.abroadcast("enable_events", arguments={}, destination=destination, **kwargs)
 
     def disable_events(self, destination=None, **kwargs):
         """Tell all (or specific) workers to disable events.
@@ -736,6 +931,10 @@ class Control:
         """
         return self.broadcast("disable_events", arguments={}, destination=destination, **kwargs)
 
+    async def adisable_events(self, destination=None, **kwargs):
+        """Async version of :meth:`disable_events`."""
+        return await self.abroadcast("disable_events", arguments={}, destination=destination, **kwargs)
+
     def shutdown(self, destination=None, **kwargs):
         """Shutdown worker(s).
 
@@ -743,6 +942,10 @@ class Control:
             Supports the same arguments as :meth:`broadcast`
         """
         return self.broadcast("shutdown", arguments={}, destination=destination, **kwargs)
+
+    async def ashutdown(self, destination=None, **kwargs):
+        """Async version of :meth:`shutdown`."""
+        return await self.abroadcast("shutdown", arguments={}, destination=destination, **kwargs)
 
     def pool_restart(self, modules=None, reload=False, reloader=None, destination=None, **kwargs):
         """Restart the execution pools of all or specific workers.
@@ -768,6 +971,19 @@ class Control:
             **kwargs,
         )
 
+    async def apool_restart(self, modules=None, reload=False, reloader=None, destination=None, **kwargs):
+        """Async version of :meth:`pool_restart`."""
+        return await self.abroadcast(
+            "pool_restart",
+            arguments={
+                "modules": modules,
+                "reload": reload,
+                "reloader": reloader,
+            },
+            destination=destination,
+            **kwargs,
+        )
+
     def heartbeat(self, destination=None, **kwargs):
         """Tell worker(s) to send a heartbeat immediately.
 
@@ -775,6 +991,10 @@ class Control:
             Supports the same arguments as :meth:`broadcast`
         """
         return self.broadcast("heartbeat", arguments={}, destination=destination, **kwargs)
+
+    async def aheartbeat(self, destination=None, **kwargs):
+        """Async version of :meth:`heartbeat`."""
+        return await self.abroadcast("heartbeat", arguments={}, destination=destination, **kwargs)
 
     def broadcast(
         self,
