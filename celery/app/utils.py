@@ -31,7 +31,6 @@ __all__ = (
 #: Format used to generate bug-report information.
 BUGREPORT_INFO = """
 software -> celery:{celery_v} kombu:{kombu_v} py:{py_v}
-            {driver_v}
 platform -> system:{system} arch:{arch}
             kernel version:{kernel_version} imp:{py_i}
 loader   -> {loader}
@@ -331,11 +330,10 @@ def filter_hidden_settings(conf):
         if isinstance(key, str):
             if HIDDEN_SETTINGS.search(key):
                 return mask
-            elif "broker_url" in key.lower():
-                from kombu import Connection
-
-                return Connection(value).as_uri()
-            elif "backend" in key.lower():
+            elif "broker_url" in key.lower() or "backend" in key.lower():
+                # Building a Connection here to reach as_uri() only made the
+                # censoring raise on a URL no transport can serve, and as_uri()
+                # sanitizes with this same function anyway.
                 return maybe_sanitize_url(value, mask=mask)
 
         return value
@@ -350,11 +348,11 @@ def bugreport(app):
     import celery
 
     try:
-        conn = app.connection()
-        driver_v = f"{conn.transport.driver_name}:{conn.transport.driver_version()}"
-        transport = conn.transport_cls
-    except Exception:
-        transport = driver_v = ""
+        transport = app.connection().info()["transport"]
+    except ValueError as exc:
+        # A broker URL that no transport can serve belongs in the report,
+        # not behind it: this is what people run when it does not work.
+        transport = f"unusable ({exc})"
 
     return BUGREPORT_INFO.format(
         system=_platform.system(),
@@ -364,7 +362,6 @@ def bugreport(app):
         celery_v=celery.VERSION_BANNER,
         kombu_v=kombu.__version__,
         py_v=_platform.python_version(),
-        driver_v=driver_v,
         transport=transport,
         results=maybe_sanitize_url(app.conf.result_backend or "disabled"),
         human_settings=app.conf.humanize(),

@@ -1,5 +1,4 @@
 from collections.abc import Mapping, MutableMapping
-from unittest.mock import Mock
 
 from celery.app.utils import Settings, bugreport, filter_hidden_settings
 
@@ -41,11 +40,27 @@ class test_filter_hidden_settings:
         }
         filter_hidden_settings(conf)
 
+    def test_masks_the_password_in_a_broker_url(self):
+        censored = filter_hidden_settings({"broker_url": "amqp://user:s3cret@host:5672//"})
+
+        assert censored["broker_url"] == "amqp://user:********@host:5672//"
+
+    def test_masks_a_url_of_a_transport_it_does_not_know(self):
+        # Censoring used to go through kombu.Connection, which refuses a
+        # scheme it has no transport for, so `celery report` raised for the
+        # very configuration someone would be reporting.
+        censored = filter_hidden_settings({"broker_url": "nosuchtransport://user:s3cret@host"})
+
+        assert censored["broker_url"] == "nosuchtransport://user:********@host/"
+
 
 class test_bugreport:
-    def test_no_conn_driver_info(self):
-        self.app.connection = Mock()
-        conn = self.app.connection.return_value = Mock()
-        conn.transport = None
+    def test_names_the_transport_without_connecting(self):
+        self.app.conf.broker_url = "redis://localhost:6379/0"
 
-        bugreport(self.app)
+        assert "transport:redis" in bugreport(self.app)
+
+    def test_reports_a_broker_url_no_transport_can_serve(self):
+        self.app.conf.broker_url = "nosuchtransport://localhost"
+
+        assert "transport:unusable" in bugreport(self.app)
