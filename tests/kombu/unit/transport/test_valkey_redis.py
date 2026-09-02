@@ -4,6 +4,7 @@ All Redis operations are mocked — no Redis server required.
 """
 
 import asyncio
+import re
 from collections import deque
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,6 +13,7 @@ from redis.exceptions import ResponseError
 
 from kombu.entity import Exchange, Queue
 from kombu.exceptions import InconsistencyError
+from kombu.transport import valkey_redis
 from kombu.transport.valkey_redis import (
     BINDING_SEP,
     DEFAULT_DELIVERY_LIMIT,
@@ -1033,6 +1035,80 @@ class TestTransport:
         version = t.driver_version()
         # Should return something (either version string or "N/A")
         assert isinstance(version, str)
+
+
+# ---------------------------------------------------------------------------
+# Documented transport options
+# ---------------------------------------------------------------------------
+
+_DOCSTRING_OPTION = re.compile(r"^\* ``(?P<name>[a-z_]+)``:", re.MULTILINE)
+
+#: Documented options that name a keyword argument of the client library, so
+#: the transport is supposed to hand them to from_url untouched.
+_CLIENT_OPTIONS = frozenset(
+    {
+        "health_check_interval",
+        "max_connections",
+        "socket_connect_timeout",
+        "socket_timeout",
+    },
+)
+
+#: A usable value for every documented option, so a transport can be built
+#: with all of them at once.
+_OPTION_VALUES = {
+    "block_timeout": 1.0,
+    "credential_provider": None,
+    "delivery_limit": 3,
+    "fanout_prefix": True,
+    "global_keyprefix": "prefix:",
+    "health_check_interval": 5,
+    "max_connections": 4,
+    "message_ttl": -1,
+    "queue_expires": 30,
+    "requeue_check_interval": 5.0,
+    "socket_connect_timeout": 2.0,
+    "socket_timeout": 2.0,
+    "stream_maxlen": 100,
+    "visibility_timeout": 60.0,
+}
+
+
+class TestDocumentedTransportOptions:
+    def test_the_docstring_lists_exactly_the_options_we_classify(self):
+        documented = set(_DOCSTRING_OPTION.findall(valkey_redis.__doc__))
+        assert documented == set(Transport._TRANSPORT_ONLY_OPTIONS) | _CLIENT_OPTIONS
+        assert documented == set(_OPTION_VALUES)
+
+    def test_only_client_options_are_forwarded(self):
+        t = Transport(url="redis://localhost:6379", **_OPTION_VALUES)
+        assert set(t._client_kwargs()) == set(_CLIENT_OPTIONS)
+
+    async def test_the_client_accepts_every_forwarded_option(self):
+        # from_url builds the connection pool eagerly, so an option this
+        # transport should have consumed raises TypeError right here.
+        t = Transport(url="redis://localhost:6379/0", **_OPTION_VALUES)
+        client = t._aiolib.from_url(t._url, decode_responses=False, **t._client_kwargs())
+        try:
+            kwargs = client.connection_pool.connection_kwargs
+            assert kwargs["socket_timeout"] == 2.0
+            assert kwargs["socket_connect_timeout"] == 2.0
+            assert kwargs["health_check_interval"] == 5
+            assert client.connection_pool.max_connections == 4
+        finally:
+            await client.aclose()
+
+    def test_every_transport_only_option_is_read_by_a_channel(self):
+        ch = _make_channel(**{name: _OPTION_VALUES[name] for name in Transport._TRANSPORT_ONLY_OPTIONS})
+        assert ch._global_keyprefix == "prefix:"
+        assert ch._visibility_timeout == 60.0
+        assert ch._requeue_check_interval == 5.0
+        assert ch._queue_expires == 30
+        assert ch._message_ttl == -1
+        assert ch._stream_maxlen == 100
+        assert ch._delivery_limit == 3
+        assert ch._block_timeout == 1.0
+        assert ch._fanout_prefix == "/0."
 
 
 # ---------------------------------------------------------------------------

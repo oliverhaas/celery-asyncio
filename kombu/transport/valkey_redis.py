@@ -2091,16 +2091,23 @@ class Transport(BaseTransport):
         self._connected = False
         self._db = _parse_db_from_url(url)
 
-    #: Transport-only options that should not be forwarded to the Redis client
+    #: Options this transport consumes itself. Anything else in
+    #: ``transport_options`` is a client keyword argument and is forwarded to
+    #: ``from_url``, which rejects names it does not know. Every option the
+    #: module docstring lists has to appear either here or in the client's
+    #: signature; ``tests/kombu/unit/transport/test_valkey_redis.py`` checks it.
     _TRANSPORT_ONLY_OPTIONS = frozenset(
         {
-            "global_keyprefix",
-            "visibility_timeout",
-            "message_ttl",
-            "stream_maxlen",
-            "fanout_prefix",
-            "delivery_limit",
+            "block_timeout",
             "credential_provider",
+            "delivery_limit",
+            "fanout_prefix",
+            "global_keyprefix",
+            "message_ttl",
+            "queue_expires",
+            "requeue_check_interval",
+            "stream_maxlen",
+            "visibility_timeout",
         },
     )
 
