@@ -570,6 +570,8 @@ class Celery:
                     # and prints "Task was destroyed but it is pending".
                     asyncio.run_coroutine_threadsafe(closing, loop).result(timeout=self.conf.broker_connection_timeout)
             except RuntimeError, TimeoutError:
+                # The loop stopped, or the close did not finish in time. There
+                # is nothing else this side can do about the socket.
                 pass
         self._async_connections.clear()
 
