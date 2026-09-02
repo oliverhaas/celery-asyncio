@@ -3,12 +3,13 @@ import os
 import threading
 import time
 from concurrent.futures import Future
+from contextlib import contextmanager
 from itertools import count
 from unittest.mock import Mock, patch
 
 import pytest
 
-from celery import concurrency
+from celery import concurrency, signals
 from celery.concurrency.aio import ApplyResult, LoopWorker, TaskPool
 from celery.concurrency.base import BasePool, apply_target
 from celery.exceptions import WorkerShutdown, WorkerTerminate
@@ -22,6 +23,23 @@ def wait_until(predicate, timeout=10.0):
             return False
         time.sleep(0.01)
     return True
+
+
+@contextmanager
+def collect_signal(signal):
+    """Collect what a signal is sent with while the block runs."""
+    received = []
+
+    def receiver(**kwargs):
+        received.append(kwargs)
+
+    # Receivers are held weakly, and a local function would be collected
+    # before the signal fires.
+    signal.connect(receiver, weak=False)
+    try:
+        yield received
+    finally:
+        signal.disconnect(receiver)
 
 
 class test_BasePool:
@@ -421,3 +439,33 @@ class test_TaskPool:
         assert info["loop-concurrency"] == 5
         assert info["sync-workers"] == 3
         assert info["loop-active"] == [1, 2]
+
+
+class test_process_signals:
+    def test_a_loop_worker_signals_its_own_lifetime(self):
+        with collect_signal(signals.worker_process_init) as started:
+            with collect_signal(signals.worker_process_shutdown) as stopped:
+                worker = LoopWorker(concurrency=1, app=Mock(), index=0)
+                worker.start()
+                try:
+                    assert len(started) == 1
+                    assert stopped == []
+                finally:
+                    worker.stop()
+                assert len(stopped) == 1
+
+        assert stopped[0]["sender"] is None
+        assert stopped[0]["pid"] == os.getpid()
+        assert stopped[0]["exitcode"] == 0
+
+    def test_every_loop_worker_of_a_pool_is_signalled(self):
+        pool = TaskPool(10, app=Mock(), loop_workers=2)
+        with collect_signal(signals.worker_process_init) as started:
+            with collect_signal(signals.worker_process_shutdown) as stopped:
+                pool.start()
+                try:
+                    assert len(started) == 2
+                    assert stopped == []
+                finally:
+                    pool.stop()
+                assert len(stopped) == 2

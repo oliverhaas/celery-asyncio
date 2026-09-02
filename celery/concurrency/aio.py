@@ -92,8 +92,11 @@ class LoopWorker:
         # Signalled from inside the loop so that start() returns once
         # run_forever() is spinning, not merely once the loop object exists.
         self._loop.call_soon(self._ready.set)
+        exitcode = 1
         try:
+            signals.worker_process_init.send(sender=None)
             self._loop.run_forever()
+            exitcode = 0
         finally:
             # Only the owning thread can close the loop, and an unclosed one
             # leaks its self-pipe until __del__ raises from the GC.
@@ -101,6 +104,7 @@ class LoopWorker:
                 self._loop.run_until_complete(self._loop.shutdown_asyncgens())
             finally:
                 self._loop.close()
+                signals.worker_process_shutdown.send(sender=None, pid=os.getpid(), exitcode=exitcode)
 
     def submit(self, coro_factory: Callable, *args: Any) -> None:
         """Submit a coroutine to this loop worker (thread-safe).
@@ -208,7 +212,6 @@ class TaskPool(BasePool):
             self._loop_concurrency,
             self._sync_worker_count,
         )
-        signals.worker_process_init.send(sender=None)
 
     def on_stop(self) -> None:
         for f in list(self._active_futures):
