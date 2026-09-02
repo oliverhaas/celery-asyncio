@@ -1,106 +1,105 @@
+"""Task throughput benchmark.
+
+Publishes tasks, runs a worker until it has consumed them, and reports how many
+tasks a second each half managed. Needs a broker; RabbitMQ is the default::
+
+    python tests/benchmarks/bench_worker.py both 20000
+    BROKER=valkey://localhost:6379/15 python tests/benchmarks/bench_worker.py work
+
+Results are ignored and messages are transient, so the numbers measure the
+publish and consume paths rather than a result backend.
+"""
+
+import asyncio
 import os
 import sys
 import time
 
 from celery import Celery
 
-os.environ.update(
-    NOSETPS="yes",
-    USE_FAST_LOCALS="yes",
-)
-
-
 DEFAULT_ITS = 40000
-
-BROKER_TRANSPORT = os.environ.get("BROKER", "librabbitmq://")
-if hasattr(sys, "pypy_version_info"):
-    BROKER_TRANSPORT = "pyamqp://"
+QUEUE = "bench.worker"
 
 app = Celery("bench_worker")
-(
-    app.conf.update(
-        broker_url=BROKER_TRANSPORT,
-        worker_pool="solo",
-        worker_prefetch_multiplier=0,
-        task_default_delivery_mode=1,
-        task_queues={
-            "bench.worker": {
-                "exchange": "bench.worker",
-                "routing_key": "bench.worker",
-                "no_ack": True,
-                "exchange_durable": False,
-                "queue_durable": False,
-                "auto_delete": True,
-            }
-        },
-        task_serializer="json",
-        task_default_queue="bench.worker",
-        result_backend=None,
-    ),
+app.conf.update(
+    broker_url=os.environ.get("BROKER", "amqp://guest:guest@localhost:5672//"),
+    result_backend=None,
+    task_default_queue=QUEUE,
+    task_default_delivery_mode=1,
+    task_ignore_result=True,
+    task_serializer="json",
+    worker_prefetch_multiplier=64,
 )
 
 
-def tdiff(then):
-    return time.monotonic() - then
+class counter:
+    """Shared between the publisher, the tasks and the worker in one process."""
+
+    seen = 0
+    expected = 0
+    subtotal = None
+    started = None
+    done = None
 
 
-@app.task(cur=0, time_start=None, queue="bench.worker", bare=True)
-def it(_, n):
-    # use internal counter, as ordering can be skewed
-    # by previous runs, or the broker.
-    i = it.cur
-    if i and not i % 5000:
-        print(f"({i} so far: {tdiff(it.subt)}s)", file=sys.stderr)
-        it.subt = time.monotonic()
-    if not i:
-        it.subt = it.time_start = time.monotonic()
-    elif i > n - 2:
-        total = tdiff(it.time_start)
-        print(f"({i} so far: {tdiff(it.subt)}s)", file=sys.stderr)
-        print(f"-- process {n} tasks: {total}s total, {n / (total + 0.0)} tasks/s")
-        import os
-
-        os._exit(0)
-    it.cur += 1
+@app.task(queue=QUEUE, ignore_result=True)
+def it(i, n):
+    if not counter.seen:
+        counter.started = counter.subtotal = time.monotonic()
+    counter.seen += 1
+    if not counter.seen % 5000:
+        print(f"({counter.seen} so far: {time.monotonic() - counter.subtotal:.3f}s)", file=sys.stderr)
+        counter.subtotal = time.monotonic()
+    if counter.seen >= counter.expected:
+        counter.done.set()
 
 
-def bench_apply(n=DEFAULT_ITS):
-    time_start = time.monotonic()
+async def bench_apply(n=DEFAULT_ITS):
     task = it._get_current_object()
+    started = time.monotonic()
     for i in range(n):
-        task.apply_async((i, n))
-    print(f"-- apply {n} tasks: {time.monotonic() - time_start}s")
+        await task.aapply_async((i, n))
+    took = time.monotonic() - started
+    print(f"-- apply {n} tasks: {took:.3f}s total, {n / took:.0f} tasks/s")
 
 
-def bench_work(n=DEFAULT_ITS, loglevel="CRITICAL"):
+async def bench_work(n=DEFAULT_ITS, loglevel="CRITICAL"):
     loglevel = os.environ.get("BENCH_LOGLEVEL") or loglevel
     if loglevel:
         app.log.setup_logging_subsystem(loglevel=loglevel)
-    worker = app.WorkController(concurrency=15, queues=["bench.worker"])
 
+    counter.seen = 0
+    counter.expected = n
+    counter.done = asyncio.Event()
+
+    worker = app.WorkController(concurrency=15, queues=[QUEUE], without_mingle=True, without_gossip=True)
+    running = asyncio.ensure_future(worker.start())
+    print("-- starting worker")
     try:
-        print("-- starting worker")
-        worker.start()
-    except SystemExit:
-        assert sum(worker.state.total_count.values()) == n + 1
-        raise
+        await counter.done.wait()
+    finally:
+        await worker.stop()
+        running.cancel()
+
+    took = time.monotonic() - counter.started
+    print(f"-- process {n} tasks: {took:.3f}s total, {n / took:.0f} tasks/s")
 
 
-def bench_both(n=DEFAULT_ITS):
-    bench_apply(n)
-    bench_work(n)
+async def bench_both(n=DEFAULT_ITS):
+    await bench_apply(n)
+    await bench_work(n)
 
 
 def main(argv=sys.argv):
-    n = DEFAULT_ITS
-    if len(argv) < 2:
-        print(f"Usage: {os.path.basename(argv[0])} [apply|work|both] [n=20k]")
+    benchmarks = {"apply": bench_apply, "work": bench_work, "both": bench_both}
+    if len(argv) < 2 or argv[1] not in benchmarks:
+        print(f"Usage: {os.path.basename(argv[0])} [apply|work|both] [n={DEFAULT_ITS}]")
         return sys.exit(1)
     try:
         n = int(argv[2])
     except IndexError:
-        pass
-    return {"apply": bench_apply, "work": bench_work, "both": bench_both}[argv[1]](n=n)
+        n = DEFAULT_ITS
+    return asyncio.run(benchmarks[argv[1]](n=n))
 
 
 if __name__ == "__main__":
