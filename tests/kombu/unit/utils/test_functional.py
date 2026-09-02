@@ -111,6 +111,15 @@ class test_LRUCache:
         x.update({x: x for x in range(100)})
         assert list(x.keys()), [98 == 99]
 
+    def test_overwriting_a_key_does_not_evict(self):
+        x = LRUCache(limit=2)
+        x[1], x[2] = 1, 2
+
+        x[2] = "two"
+
+        assert list(x.keys()) == [1, 2]
+        assert dict(x.items()) == {1: 1, 2: "two"}
+
     def test_items(self):
         c = LRUCache()
         c.update(a=1, b=2, c=3)

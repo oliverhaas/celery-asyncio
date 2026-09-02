@@ -99,9 +99,10 @@ class LRUCache(UserDict):
             return self.data.popitem(last)
 
     def __setitem__(self, key: Any, item: Any) -> None:
-        # remove least recently used key.
         with self.mutex:
-            if self.limit and len(self.data) >= self.limit:
+            # Overwriting a key adds nothing, so only an insertion can push
+            # the cache over its limit and evict the least recently used key.
+            if key not in self.data and self.limit and len(self.data) >= self.limit:
                 self.data.pop(next(iter(self.data)))
             self.data[key] = item
 
