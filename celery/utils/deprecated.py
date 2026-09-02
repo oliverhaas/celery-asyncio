@@ -3,11 +3,10 @@
 """Deprecation utilities."""
 
 import warnings
-from functools import wraps
 
 from celery.exceptions import CDeprecationWarning, CPendingDeprecationWarning
 
-__all__ = ("Callable", "Property", "warn")
+__all__ = ("Property", "warn")
 
 
 PENDING_DEPRECATION_FMT = """
@@ -30,40 +29,6 @@ def warn(description=None, deprecation=None, removal=None, alternative=None, sta
     else:
         w = CDeprecationWarning(DEPRECATION_FMT.format(**ctx))
     warnings.warn(w, stacklevel=stacklevel)
-
-
-def Callable(deprecation=None, removal=None, alternative=None, description=None):
-    """Decorator for deprecated functions.
-
-    A deprecation warning will be emitted when the function is called.
-
-    Arguments:
-        deprecation (str): Version that marks first deprecation, if this
-            argument isn't set a ``PendingDeprecationWarning`` will be
-            emitted instead.
-        removal (str): Future version when this feature will be removed.
-        alternative (str): Instructions for an alternative solution (if any).
-        description (str): Description of what's being deprecated.
-    """
-
-    def _inner(fun):
-
-        @wraps(fun)
-        def __inner(*args, **kwargs):
-            from .imports import qualname
-
-            warn(
-                description=description or qualname(fun),
-                deprecation=deprecation,
-                removal=removal,
-                alternative=alternative,
-                stacklevel=3,
-            )
-            return fun(*args, **kwargs)
-
-        return __inner
-
-    return _inner
 
 
 def Property(deprecation=None, removal=None, alternative=None, description=None):

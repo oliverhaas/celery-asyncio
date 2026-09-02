@@ -460,12 +460,6 @@ class Signals:
     ignored = _signal.SIG_IGN
     default = _signal.SIG_DFL
 
-    def arm_alarm(self, seconds):
-        return _signal.setitimer(_signal.ITIMER_REAL, seconds)
-
-    def reset_alarm(self):
-        return _signal.alarm(0)
-
     def supported(self, name):
         """Return true if signal by ``name`` exists on this platform."""
         try:

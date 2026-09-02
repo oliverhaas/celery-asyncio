@@ -169,18 +169,6 @@ class test_Signals:
         assert signals.supported("INT")
         assert not signals.supported("SIGIMAGINARY")
 
-    @tests.skip.if_win32
-    def test_reset_alarm(self):
-        with patch("signal.alarm") as _alarm:
-            signals.reset_alarm()
-            _alarm.assert_called_with(0)
-
-    def test_arm_alarm(self):
-        if hasattr(signal, "setitimer"):
-            with patch("signal.setitimer", create=True) as seti:
-                signals.arm_alarm(30)
-                seti.assert_called()
-
     def test_signum(self):
         assert signals.signum(13) == 13
         assert signals.signum("INT") == signal.SIGINT

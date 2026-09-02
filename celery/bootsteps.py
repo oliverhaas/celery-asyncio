@@ -209,10 +209,6 @@ class Blueprint:
             step.include(parent)
         return self
 
-    def connect_with(self, other):
-        self.graph.adjacent.update(other.graph.adjacent)
-        self.graph.add_edge(type(other.order[0]), type(self.order[-1]))
-
     def __getitem__(self, name):
         return self.steps[name]
 

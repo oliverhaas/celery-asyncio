@@ -351,25 +351,7 @@ def maybe_evaluate(obj):
 # to create old modules at runtime instead of
 # having them litter the source tree.
 
-MODULE_DEPRECATED = """
-The module %s is deprecated and will be removed in a future version.
-"""
-
 DEFAULT_ATTRS = {"__file__", "__path__", "__doc__", "__all__"}
-
-
-def getappattr(path):
-    """Get attribute from current_app recursively.
-
-    Example: ``getappattr('amqp.get_task_consumer')``.
-
-    """
-    from celery import current_app
-
-    return current_app._rgetattr(path)
-
-
-COMPAT_MODULES: dict[str, dict[str, tuple[str, ...]]] = {}
 
 
 class class_property:
@@ -403,7 +385,6 @@ class class_property:
 
 
 class LazyModule(ModuleType):
-    _compat_modules = ()
     _all_by_module: dict[str, list[str]] = {}
     _direct: dict[str, str] = {}
     _object_origins: dict[str, str] = {}
@@ -427,20 +408,17 @@ class LazyModule(ModuleType):
         return import_module, (self.__name__,)
 
 
-def create_module(name, attrs, cls_attrs=None, pkg=None, base=LazyModule, prepare_attr=None):
-    fqdn = f"{pkg.__name__}.{name}" if pkg else name
+def create_module(name, attrs, cls_attrs=None, base=LazyModule):
     cls_attrs = {} if cls_attrs is None else cls_attrs
     pkg, _, modname = name.rpartition(".")
     cls_attrs["__module__"] = pkg
 
-    attrs = {attr_name: (prepare_attr(attr) if prepare_attr else attr) for attr_name, attr in attrs.items()}
-    module = sys.modules[fqdn] = type(modname, (base,), cls_attrs)(name)
+    module = sys.modules[name] = type(modname, (base,), cls_attrs)(name)
     module.__dict__.update(attrs)
     return module
 
 
-def recreate_module(name, compat_modules=None, by_module=None, direct=None, base=LazyModule, **attrs):
-    compat_modules = compat_modules or COMPAT_MODULES.get(name, ())
+def recreate_module(name, by_module=None, direct=None, base=LazyModule, **attrs):
     by_module = by_module or {}
     direct = direct or {}
     old_module = sys.modules[name]
@@ -450,36 +428,19 @@ def recreate_module(name, compat_modules=None, by_module=None, direct=None, base
         set(
             reduce(
                 operator.add,
-                [tuple(v) for v in [compat_modules, origins, direct, attrs]],
+                [tuple(v) for v in [origins, direct, attrs]],
             )
         )
     )
     cattrs = {
-        "_compat_modules": compat_modules,
         "_all_by_module": by_module,
         "_direct": direct,
         "_object_origins": origins,
         "__all__": _all,
     }
     new_module = create_module(name, attrs, cls_attrs=cattrs, base=base)
-    new_module.__dict__.update({mod: get_compat_module(new_module, mod) for mod in compat_modules})
     new_module.__spec__ = old_module.__spec__
     return old_module, new_module
-
-
-def get_compat_module(pkg, name):
-    def prepare(attr):
-        if isinstance(attr, str):
-            return Proxy(getappattr, (attr,))
-        return attr
-
-    attrs = COMPAT_MODULES[pkg.__name__][name]
-    if isinstance(attrs, str):
-        fqdn = f"{pkg.__name__}.{name}"
-        module = sys.modules[fqdn] = import_module(attrs)
-        return module
-    attrs["__all__"] = list(attrs)
-    return create_module(name, dict(attrs), pkg=pkg, prepare_attr=prepare)
 
 
 def get_origins(defs):

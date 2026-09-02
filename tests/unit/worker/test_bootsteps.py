@@ -305,33 +305,6 @@ class test_Blueprint:
         finally:
             bootsteps.IGNORE_ERRORS = prev
 
-    def test_connect_with(self):
-
-        class b1s1(bootsteps.Step):
-            pass
-
-        class b1s2(bootsteps.Step):
-            last = True
-
-        class b2s1(bootsteps.Step):
-            pass
-
-        class b2s2(bootsteps.Step):
-            last = True
-
-        b1 = self.Blueprint([b1s1, b1s2])
-        b2 = self.Blueprint([b2s1, b2s2])
-        b1.apply(Mock())
-        b2.apply(Mock())
-        b1.connect_with(b2)
-
-        assert b1s1 in b1.graph
-        assert b2s1 in b1.graph
-        assert b2s2 in b1.graph
-
-        assert repr(b1s1)
-        assert str(b1s1)
-
     def test_topsort_raises_KeyError(self):
 
         class Step(bootsteps.Step):

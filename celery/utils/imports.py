@@ -4,18 +4,11 @@
 
 import os
 import sys
-import warnings
 from contextlib import contextmanager
 from importlib import import_module, reload
 from importlib.metadata import entry_points
 
 from kombu.utils.imports import symbol_by_name
-
-#: Billiard sets this when execv is enabled.
-#: We use it to find out the name of the original ``__main__``
-#: module, so that we can properly rewrite the name of the
-#: task to be that of ``App.main``.
-MP_MAIN_FILE = os.environ.get("MP_MAIN_FILE")
 
 __all__ = (
     "NotAPackage",
@@ -140,12 +133,6 @@ def gen_task_name(app, name, module_name):
 
     if module is not None:
         module_name = module.__name__
-        # - If the task module is used as the __main__ script
-        # - we need to rewrite the module part of the task name
-        # - to match App.main.
-        if MP_MAIN_FILE and module.__file__ == MP_MAIN_FILE:
-            # - see comment about :envvar:`MP_MAIN_FILE` above.
-            module_name = "__main__"
     if module_name == "__main__" and app.main:
         return f"{app.main}.{name}"
     return ".".join(p for p in (module_name, name) if p)
@@ -155,13 +142,3 @@ def load_extension_class_names(namespace):
     _entry_points = entry_points(group=namespace)
     for ep in _entry_points:
         yield ep.name, ep.value
-
-
-def load_extension_classes(namespace):
-    for name, class_name in load_extension_class_names(namespace):
-        try:
-            cls = symbol_by_name(class_name)
-        except (ImportError, SyntaxError) as exc:
-            warnings.warn(f"Cannot load {namespace} extension {class_name!r}: {exc!r}", stacklevel=2)
-        else:
-            yield name, cls

@@ -782,21 +782,6 @@ class test_App:
             ):
                 task()
 
-    def test_task_sets_main_name_MP_MAIN_FILE(self):
-        from celery.utils import imports as _imports
-
-        _imports.MP_MAIN_FILE = __file__
-        try:
-            with self.Celery("xuzzy") as app:
-
-                @app.task
-                def foo():
-                    pass
-
-                assert foo.name == "xuzzy.foo"
-        finally:
-            _imports.MP_MAIN_FILE = None
-
     def test_can_get_type_hints_for_tasks(self):
 
         with self.Celery() as app:

@@ -7,7 +7,7 @@ from textwrap import dedent
 
 from kombu.utils.encoding import bytes_to_str, safe_str
 
-__all__ = ("DOT", "CycleError", "DependencyGraph", "GraphFormatter")
+__all__ = ("DOT", "DependencyGraph", "GraphFormatter")
 
 
 class DOT:
@@ -23,10 +23,6 @@ class DOT:
     ATTRSEP = ", "
     DIRS = {"graph": "--", "digraph": "->"}
     TAIL = "{IN}}}"
-
-
-class CycleError(Exception):
-    """A cycle was detected in an acyclic graph."""
 
 
 class DependencyGraph:

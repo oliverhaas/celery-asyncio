@@ -295,8 +295,7 @@ class Signal:  # pragma: no cover
         """Send signal from sender to all connected receivers.
 
         If any receiver raises an error, the exception is returned as the
-        corresponding response. (This is different from the "send" in
-        Django signals. In Celery "send" and "send_robust" do the same thing.)
+        corresponding response instead of propagating.
 
         Arguments:
             sender (Any): The sender of the signal.
@@ -321,8 +320,6 @@ class Signal:  # pragma: no cover
             else:
                 responses.append((receiver, response))
         return responses
-
-    send_robust = send  # Compat with Django interface.
 
     def _clear_dead_receivers(self):
         # Warning: caller is assumed to hold self.lock

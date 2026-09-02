@@ -6,13 +6,11 @@ import datetime
 import numbers
 import pickle
 import sys
-from base64 import b64decode as base64decode
-from base64 import b64encode as base64encode
 from functools import partial
 from inspect import getmro
 from itertools import takewhile
 
-from kombu.utils.encoding import bytes_to_str, safe_repr, str_to_bytes
+from kombu.utils.encoding import safe_repr
 
 __all__ = (
     "UnpickleableExceptionWrapper",
@@ -187,14 +185,6 @@ def get_pickled_exception(exc):
     if isinstance(exc, UnpickleableExceptionWrapper):
         return exc.restore()
     return exc
-
-
-def b64encode(s):
-    return bytes_to_str(base64encode(str_to_bytes(s)))
-
-
-def b64decode(s):
-    return base64decode(str_to_bytes(s))
 
 
 def strtobool(term, table=None):

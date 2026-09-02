@@ -131,3 +131,13 @@ class test_gen_task_name:
         app = Mock()
         app.name == "__main__"
         assert gen_task_name(app, "foo", "axsadaewe")
+
+    def test_main_module_uses_app_main(self):
+        app = Mock()
+        app.main = "xuzzy"
+        assert gen_task_name(app, "foo", "__main__") == "xuzzy.foo"
+
+    def test_named_module_keeps_its_name(self):
+        app = Mock()
+        app.main = "xuzzy"
+        assert gen_task_name(app, "foo", "tests.unit.utils.test_imports") == "tests.unit.utils.test_imports.foo"

@@ -8,7 +8,6 @@ from collections.abc import Callable
 from functools import partial
 from pprint import pformat
 from re import Match, Pattern
-from textwrap import fill
 from typing import Any
 
 __all__ = (
@@ -18,7 +17,6 @@ __all__ = (
     "dedent_initial",
     "ensure_newlines",
     "ensure_sep",
-    "fill_paragraphs",
     "indent",
     "join",
     "pluralize",
@@ -52,11 +50,6 @@ def dedent_initial(s: str, n: int = 4) -> str:
 def dedent(s: str, sep: str = "\n") -> str:
     """Remove indentation."""
     return sep.join(dedent_initial(l) for l in s.splitlines())
-
-
-def fill_paragraphs(s: str, width: int, sep: str = "\n") -> str:
-    """Fill paragraphs with newlines (or custom separator)."""
-    return sep.join(fill(p, width) for p in s.split(sep))
 
 
 def join(l: list[str], sep: str = "\n") -> str:
