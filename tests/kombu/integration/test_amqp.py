@@ -306,6 +306,25 @@ class TestConsume:
 
         assert received[0] == {"v": "consumed"}
 
+    async def test_two_consumers_on_one_queue_keep_their_own_callbacks(self, channel, queue):
+        first: list = []
+        second: list = []
+        await channel.basic_consume(queue, callback=lambda body, message: first.append(body), no_ack=True)
+        await channel.basic_consume(queue, callback=lambda body, message: second.append(body), no_ack=True)
+
+        for i in range(6):
+            await channel.publish(envelope({"i": i}), exchange="", routing_key=queue)
+
+        async with asyncio.timeout(5):
+            while len(first) + len(second) < 6:
+                await channel.drain_events(timeout=1)
+
+        # The broker round-robins between the two consumers, so both callbacks
+        # must have run rather than one taking everything.
+        assert first
+        assert second
+        assert sorted(m["i"] for m in first + second) == list(range(6))
+
     async def test_cancel_stops_delivery(self, channel):
         # Deliberately not auto-delete: the broker drops an auto-delete queue as
         # soon as its last consumer cancels, leaving nothing to publish to.

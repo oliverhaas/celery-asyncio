@@ -157,12 +157,18 @@ def _make_aio_connection(**overrides) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
-def _make_kombu_message(channel, body: bytes = b'{"x": 1}', delivery_tag: str = "1") -> Message:
+def _make_kombu_message(
+    channel,
+    body: bytes = b'{"x": 1}',
+    delivery_tag: str = "1",
+    consumer_tag: str = "",
+) -> Message:
     return Message(
         body=body,
         delivery_tag=delivery_tag,
         content_type="application/json",
         content_encoding="utf-8",
+        delivery_info={"consumer_tag": consumer_tag},
         channel=channel,
     )
 
@@ -1485,6 +1491,33 @@ class TestChannelContextManager:
 # ---------------------------------------------------------------------------
 # Transport tests
 # ---------------------------------------------------------------------------
+
+
+class TestConsumerRouting:
+    async def test_each_consumer_on_a_queue_gets_only_its_own_deliveries(self, channel, aio_channel):
+        aio_channel.declare_queue = AsyncMock(return_value=_make_aio_queue("q1"))
+        await channel.declare_queue(Queue("q1", durable=True))
+        first: list[Message] = []
+        second: list[Message] = []
+        await channel.basic_consume("q1", lambda b, m: first.append(m), consumer_tag="tag1")
+        await channel.basic_consume("q1", lambda b, m: second.append(m), consumer_tag="tag2")
+
+        message = _make_kombu_message(channel, consumer_tag="tag2")
+        await channel._message_queue.put(("q1", message))
+
+        assert await channel.drain_events(timeout=0) is True
+        assert first == []
+        assert second == [message]
+
+    async def test_a_delivery_without_a_known_tag_goes_to_the_queue_consumer(self, channel):
+        received: list[Message] = []
+        channel._consumers["tag1"] = ("q1", lambda b, m: received.append(m), False)
+
+        message = _make_kombu_message(channel, consumer_tag="gone")
+        await channel._message_queue.put(("q1", message))
+
+        assert await channel.drain_events(timeout=0) is True
+        assert received == [message]
 
 
 class TestChannelRecovery:

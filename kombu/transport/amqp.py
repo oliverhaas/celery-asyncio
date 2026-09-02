@@ -719,36 +719,52 @@ class Channel:
         return True
 
     async def _deliver_to_consumer(self, queue: str, message: Message) -> None:
-        """Route a message to the matching consumer callback."""
-        for q, callback, _no_ack in self._consumers.values():
-            if q == queue:
-                try:
-                    body = message.decode()
-                except Exception:
-                    # The callback still gets the message, which is what
-                    # celery works from, but a payload that cannot be read
-                    # must not pass for a normal one without a word.
-                    logger.exception(
-                        "Failed to decode message %s from queue %s, delivering it undecoded",
-                        message.delivery_tag,
-                        queue,
-                    )
-                    body = message.body
+        """Hand a message to the consumer the broker delivered it to."""
+        callback = self._callback_for(queue, message.delivery_info.get("consumer_tag", ""))
+        if callback is None:
+            # The consumer was cancelled between the delivery and this drain.
+            # Hand the message back rather than dropping it.
+            logger.warning(
+                "No consumer left on queue %s for delivery %s, requeueing it",
+                queue,
+                message.delivery_tag,
+            )
+            if message.delivery_tag is not None:
+                await self.basic_reject(message.delivery_tag, requeue=True)
+            return
 
-                result = callback(body, message)
-                if asyncio.iscoroutine(result):
-                    await result
-                return
+        try:
+            body = message.decode()
+        except Exception:
+            # The callback still gets the message, which is what celery works
+            # from, but a payload that cannot be read must not pass for a
+            # normal one without a word.
+            logger.exception(
+                "Failed to decode message %s from queue %s, delivering it undecoded",
+                message.delivery_tag,
+                queue,
+            )
+            body = message.body
 
-        # The consumer was cancelled between the delivery and this drain.
-        # Hand the message back rather than dropping it.
-        logger.warning(
-            "No consumer left on queue %s for delivery %s, requeueing it",
-            queue,
-            message.delivery_tag,
-        )
-        if message.delivery_tag is not None:
-            await self.basic_reject(message.delivery_tag, requeue=True)
+        result = callback(body, message)
+        if asyncio.iscoroutine(result):
+            await result
+
+    def _callback_for(self, queue: str, consumer_tag: str) -> Callable | None:
+        """Return the callback registered for a delivery.
+
+        Several consumers can share a queue with a callback each, so the
+        consumer tag the broker sent the message to picks the one that asked
+        for it. A message that carries no tag we know falls back to whoever
+        consumes that queue.
+        """
+        entry = self._consumers.get(consumer_tag)
+        if entry is not None:
+            return entry[1]
+        for registered_queue, callback, _no_ack in self._consumers.values():
+            if registered_queue == queue:
+                return callback
+        return None
 
     # ---- ack / reject / recover -------------------------------------------
 
