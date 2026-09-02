@@ -49,9 +49,7 @@ def apply_target(
         try:
             reraise(WorkerLostError, WorkerLostError(repr(exc)), sys.exc_info()[2])
         except WorkerLostError:
-            # A task that killed its worker never reached the tracer's own
-            # error handling, so it goes to the failure callback rather than
-            # to the one expecting a traced result.
+            # The tracer never saw this one, so it is a failure, not a traced result.
             (error_callback or callback)(ExceptionInfo())
     else:
         callback(ret)

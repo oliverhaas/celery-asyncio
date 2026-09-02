@@ -603,9 +603,7 @@ class TaskPool(BasePool):
         try:
             error_callback(exc_info)
         except Exception:
-            # This is the last place that can say anything about the task;
-            # an error raised here would otherwise be left in a result
-            # nobody reads.
+            # Last chance to report the task; nobody reads this future's result.
             logger.exception("Failed to report the failure of task %s", uuid)
 
     async def _run_tracer_with_timeouts(
@@ -638,9 +636,7 @@ class TaskPool(BasePool):
         soft_expired = False
 
         def cancellation_reason() -> BaseException | None:
-            # A cancellation of the job's own task is a termination or the
-            # hard limit. Only one that leaves the job's task alone can be
-            # the soft limit.
+            # Only a cancellation that leaves the job's own task alone is the soft limit.
             if not soft_expired or (job_task is not None and job_task.cancelling()):
                 return None
             return SoftTimeLimitExceeded(soft_timeout)
