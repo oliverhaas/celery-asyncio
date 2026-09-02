@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+from kombu import Connection
 from kombu.exceptions import InconsistencyError
 from kombu.pidbox import Mailbox
 
@@ -99,3 +100,49 @@ async def test_collect_stops_at_the_timeout_even_while_events_keep_arriving():
     assert responses == []
     assert drained > 1
     assert elapsed < 5
+
+
+async def _listen(mailbox, hostname, channel, seen):
+    node = mailbox.Node(
+        hostname,
+        state=hostname,
+        channel=channel,
+        handlers={"ping": seen.append},
+    )
+    await node.listen(channel=channel)
+    return node
+
+
+async def _broadcast_and_drain(conn, mailbox, **kwargs):
+    await mailbox._broadcast("ping", {}, reply=False, **kwargs)
+    for _ in range(4):
+        try:
+            await conn.drain_events(timeout=0.05)
+        except TimeoutError:
+            break
+
+
+async def test_broadcast_pattern_only_dispatches_on_matching_nodes():
+    seen = []
+    async with Connection("memory://") as conn:
+        mailbox = Mailbox("testns", type="fanout")(conn)
+        channel = await conn.default_channel()
+        await _listen(mailbox, "worker-a1", channel, seen)
+        await _listen(mailbox, "worker-b1", channel, seen)
+
+        await _broadcast_and_drain(conn, mailbox, pattern="worker-a*", matcher="glob")
+
+    assert seen == ["worker-a1"]
+
+
+async def test_broadcast_without_a_pattern_dispatches_everywhere():
+    seen = []
+    async with Connection("memory://") as conn:
+        mailbox = Mailbox("testns", type="fanout")(conn)
+        channel = await conn.default_channel()
+        await _listen(mailbox, "worker-a1", channel, seen)
+        await _listen(mailbox, "worker-b1", channel, seen)
+
+        await _broadcast_and_drain(conn, mailbox)
+
+    assert sorted(seen) == ["worker-a1", "worker-b1"]

@@ -347,11 +347,15 @@ class Mailbox:
         channel=None,
         timeout=None,
         serializer=None,
+        pattern=None,
+        matcher=None,
     ):
         message = {
             "method": type,
             "arguments": arguments,
             "destination": destination,
+            "pattern": pattern,
+            "matcher": matcher,
         }
         channel = channel or await self.connection.default_channel()
         exchange = self.exchange
@@ -413,6 +417,8 @@ class Mailbox:
             channel=channel,
             timeout=timeout,
             serializer=serializer,
+            pattern=pattern,
+            matcher=matcher,
         )
 
         if reply_ticket:
