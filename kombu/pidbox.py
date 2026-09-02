@@ -467,9 +467,11 @@ class Mailbox:
 
         async def drain():
             for _i in (limit and range(limit)) or count():
-                try:
-                    await self.connection.drain_events(timeout=timeout)
-                except TimeoutError:
+                # The replies arrive on `channel`, which the caller may have
+                # opened itself. `Connection.drain_events` drains the default
+                # channel, so going through it here would wait on a channel no
+                # reply is delivered on.
+                if not await channel.drain_events(timeout=timeout):
                     break
 
         async with consumer:
