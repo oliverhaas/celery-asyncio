@@ -1593,6 +1593,19 @@ class TestChannelRecovery:
 
         aio_queue.bind.assert_not_awaited()
 
+    async def test_binding_a_queue_reopens_a_channel_the_broker_closed(self, channel, aio_channel):
+        aio_queue = _make_aio_queue("q1")
+        aio_channel.declare_queue = AsyncMock(return_value=aio_queue)
+        aio_exchange = _make_aio_exchange("ex1")
+        aio_channel.get_exchange = AsyncMock(return_value=aio_exchange)
+        await channel.declare_queue(Queue("q1", durable=True))
+
+        aio_channel.is_closed = True
+        await channel.queue_bind("q1", "ex1", routing_key="rk")
+
+        aio_channel.reopen.assert_awaited_once()
+        aio_queue.bind.assert_awaited_once_with(aio_exchange, routing_key="rk", arguments=None)
+
     async def test_a_server_named_queue_is_redeclared_under_its_given_name(self, channel, aio_channel):
         aio_channel.declare_queue = AsyncMock(return_value=_make_aio_queue("amq.gen-abc"))
         await channel.declare_queue(Queue("", durable=False, exclusive=True))

@@ -440,6 +440,7 @@ class Channel:
         if not exchange:
             return  # Default exchange: bindings are implicit in AMQP
 
+        await self._ensure_open()
         binding: dict[str, Any] = {
             "queue": queue,
             "exchange": exchange,
@@ -489,6 +490,7 @@ class Channel:
         routing_key: str = "",
         arguments: dict | None = None,
     ) -> None:
+        await self._ensure_open()
         aio_queue = await self._queue(queue)
         aio_exchange = await self._get_exchange(exchange)
         await aio_queue.unbind(aio_exchange, routing_key=routing_key, arguments=arguments)
