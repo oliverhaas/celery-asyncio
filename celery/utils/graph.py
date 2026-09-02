@@ -263,9 +263,11 @@ class GraphFormatter:
         value = f'"{value}"'
         return self.FMT(self._attr, name=name, value=value)
 
-    def attrs(self, d, scheme=None):
-        d = dict(self.scheme, **dict(scheme, **d or {}) if scheme else d)
-        return self._attrsep.join(safe_str(self.attr(k, v)) for k, v in d.items())
+    def attrs(self, d=None, scheme=None):
+        d = d or {}
+        if scheme:
+            d = dict(scheme, **d)
+        return self._attrsep.join(safe_str(self.attr(k, v)) for k, v in dict(self.scheme, **d).items())
 
     def head(self, **attrs):
         return self.FMT(

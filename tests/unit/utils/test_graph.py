@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 
-from celery.utils.graph import DependencyGraph
+from celery.utils.graph import DependencyGraph, GraphFormatter
 from celery.utils.text import WhateverIO
 
 
@@ -72,3 +72,30 @@ class test_DependencyGraph:
         s = WhateverIO()
         self.graph1().to_dot(s)
         assert s.getvalue()
+
+
+class test_GraphFormatter:
+    def test_attrs_defaults_to_the_formatter_scheme(self):
+        f = GraphFormatter()
+        assert f.attrs() == f.attrs({})
+        assert 'shape="box"' in f.attrs()
+
+    def test_attrs_merges_scheme_under_the_given_attributes(self):
+        f = GraphFormatter()
+        assert 'shape="circle"' in f.attrs({"shape": "circle"}, {"shape": "diamond"})
+        assert 'shape="diamond"' in f.attrs(None, {"shape": "diamond"})
+
+    def test_draw_node_without_attributes(self):
+        assert (
+            GraphFormatter().draw_node("A")
+            == b'    "A" [shape="box", arrowhead="vee", style="filled", fontname="HelveticaNeue"]'
+        )
+
+    def test_draw_edge_without_attributes(self):
+        assert GraphFormatter().draw_edge("A", "B").startswith(b'    "A" -> "B" [')
+
+    def test_node_applies_the_node_scheme(self):
+        assert b'fillcolor="palegreen3"' in GraphFormatter().node("A")
+
+    def test_terminal_node_applies_the_terminal_scheme(self):
+        assert b'fillcolor="palegreen1"' in GraphFormatter().terminal_node("A")
