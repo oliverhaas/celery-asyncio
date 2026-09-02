@@ -216,6 +216,21 @@ class TestAcknowledgement:
 
         assert await channel.get(queue, no_ack=True) is None
 
+    async def test_a_multiple_ack_covers_every_tag_below_it(self, channel, queue):
+        for i in range(3):
+            await channel.publish(envelope({"i": i}), exchange="", routing_key=queue)
+        messages = [await channel.get(queue, no_ack=False) for _ in range(3)]
+
+        aio_channel = channel._aio_channel
+        await messages[-1].ack(multiple=True)
+        # The broker has forgotten the tags below it. Sending one of them
+        # anyway answers PRECONDITION_FAILED and takes the channel down.
+        await messages[0].ack()
+        await asyncio.sleep(0.3)
+
+        assert not aio_channel.is_closed
+        assert await channel.queue_purge(queue) == 0
+
     async def test_reject_without_requeue_drops_the_message(self, channel, queue):
         await channel.publish(envelope(), exchange="", routing_key=queue)
 
