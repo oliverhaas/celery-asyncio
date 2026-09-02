@@ -1,6 +1,7 @@
 """Integration tests for the AMQP transport against a live broker."""
 
 import asyncio
+import base64
 import json
 import os
 import pickle
@@ -12,6 +13,7 @@ from typing import Any
 import pytest
 
 from kombu import Connection, Exchange, Queue
+from kombu.compression import compress
 from kombu.serialization import disable_insecure_serializers, enable_insecure_serializers
 
 pytestmark = pytest.mark.asyncio(loop_scope="function")
@@ -146,6 +148,63 @@ class TestBinarySerializers:
         assert msg.body == pickle.dumps(payload)
         assert msg.content_encoding == "binary"
         assert "body_encoding" not in msg.headers
+
+
+class TestCompressedBodies:
+    """A compressed body reaches the broker compressed and comes back decompressed.
+
+    The producer compresses the serialized payload, base64-wraps the result to
+    fit the JSON envelope and names the method in a ``compression`` header. The
+    wrapping describes the envelope, so it stops at the transport; the header
+    describes the message and travels with it, which is what lets the receiving
+    Message decompress the body.
+    """
+
+    @pytest.mark.parametrize("method", ["zlib", "bzip2", "lzma", "zstd"])
+    async def test_round_trip(self, channel, queue, method):
+        payload = json.dumps({"task": "add", "args": list(range(200))}).encode()
+        compressed, content_type = compress(payload, method)
+        message = json.dumps(
+            {
+                "body": base64.b64encode(compressed).decode("ascii"),
+                "content-type": "application/json",
+                "content-encoding": "utf-8",
+                "properties": {},
+                "headers": {"body_encoding": "base64", "compression": content_type},
+            },
+        ).encode()
+
+        await channel.publish(message, exchange="", routing_key=queue)
+
+        msg = await channel.get(queue, no_ack=True)
+        assert msg is not None
+        assert msg.body == payload
+        assert msg.payload == {"task": "add", "args": list(range(200))}
+        assert msg.headers == {"compression": content_type}
+
+    async def test_the_compressed_bytes_are_what_travel(self, channel, queue):
+        """The wire carries the compressed bytes, not the base64 of them.
+
+        Published without the ``compression`` header, so that nothing
+        decompresses the body on the way back and the wire bytes show.
+        """
+        payload = b"x" * 4096
+        compressed, _ = compress(payload, "zlib")
+        message = json.dumps(
+            {
+                "body": base64.b64encode(compressed).decode("ascii"),
+                "content-type": "application/octet-stream",
+                "content-encoding": "binary",
+                "properties": {},
+                "headers": {"body_encoding": "base64"},
+            },
+        ).encode()
+
+        await channel.publish(message, exchange="", routing_key=queue)
+
+        msg = await channel.get(queue, no_ack=True)
+        assert msg.body == compressed
+        assert len(compressed) < len(payload)
 
 
 class TestAcknowledgement:

@@ -17,6 +17,7 @@ aio_pika = pytest.importorskip("aio_pika")
 
 from aiormq import exceptions as aiormq_exc
 
+from kombu.compression import compress
 from kombu.entity import Exchange, Queue
 from kombu.exceptions import ContentDisallowed
 from kombu.message import Message
@@ -578,6 +579,25 @@ class TestChannelPublish:
 
         aio_msg = aio_channel.default_exchange.publish.call_args[0][0]
         assert aio_msg.body == raw
+
+    async def test_publish_keeps_the_compression_header_and_drops_the_wrapper(self, channel, aio_channel):
+        """body_encoding describes the envelope, compression describes the message."""
+        compressed, content_type = compress(b"payload", "zlib")
+        envelope = json.dumps(
+            {
+                "body": base64.b64encode(compressed).decode("ascii"),
+                "content-type": "application/json",
+                "content-encoding": "utf-8",
+                "properties": {},
+                "headers": {"body_encoding": "base64", "compression": content_type},
+            },
+        ).encode()
+
+        await channel.publish(envelope, exchange="", routing_key="q")
+
+        aio_msg = aio_channel.default_exchange.publish.call_args[0][0]
+        assert aio_msg.body == compressed
+        assert aio_msg.headers == {"compression": content_type}
 
     async def test_publish_with_priority(self, channel, aio_channel):
         envelope = (
