@@ -116,3 +116,41 @@ class TestDeclareMismatch:
         finally:
             cleanup = await amqp_connection.channel()
             await cleanup.queue_delete(queue_name)
+
+
+class TestPublishRetry:
+    @pytest.mark.amqp
+    async def test_a_publish_survives_the_connection_dropping(self, amqp_connection):
+        queue_name = name("retry")
+        channel = await amqp_connection.default_channel()
+        await channel.declare_queue(Queue(queue_name))
+        reported = []
+
+        try:
+            # Hang up on the broker behind the producer's back, the way a
+            # restarted or overloaded broker does.
+            await amqp_connection.transport._connection.close()
+
+            producer = amqp_connection.Producer(auto_declare=False)
+            await producer.publish(
+                {"survived": True},
+                routing_key=queue_name,
+                retry=True,
+                retry_policy={
+                    "max_retries": 3,
+                    "interval_start": 0,
+                    "interval_step": 0,
+                    "errback": lambda exc, interval: reported.append(exc),
+                },
+            )
+
+            assert len(reported) == 1
+            # The reconnect left a new channel behind, which has to declare the
+            # queue before it can get from it.
+            channel = await amqp_connection.default_channel()
+            await channel.declare_queue(Queue(queue_name))
+            message = await channel.get(queue_name, no_ack=True)
+            assert message.decode() == {"survived": True}
+        finally:
+            cleanup = await amqp_connection.channel()
+            await cleanup.queue_delete(queue_name)

@@ -1,11 +1,12 @@
 """Tests for kombu.messaging - async Producer and Consumer."""
 
+import asyncio
 from itertools import count
 
 import pytest
 
 from kombu import Connection, Exchange, Queue
-from kombu.exceptions import ChannelError, ContentDisallowed
+from kombu.exceptions import ChannelError, ConnectionError, ContentDisallowed
 from kombu.messaging import Consumer, Producer
 
 
@@ -251,6 +252,7 @@ class RecordingChannel:
         self.bound = []
         self.consumed = []
         self.cancelled = []
+        self.ops = []
         self._tags = count()
 
     async def declare_exchange(self, exchange):
@@ -265,7 +267,11 @@ class RecordingChannel:
 
     async def basic_consume(self, queue, callback, consumer_tag=None, no_ack=False):
         self.consumed.append(queue)
+        self.ops.append(("consume", queue))
         return f"tag-{next(self._tags)}"
+
+    async def basic_qos(self, prefetch_count):
+        self.ops.append(("qos", prefetch_count))
 
     async def basic_cancel(self, consumer_tag):
         self.cancelled.append(consumer_tag)
@@ -434,3 +440,124 @@ class test_Consumer_accept:
         assert len(seen) == 1
         with pytest.raises(ContentDisallowed):
             seen[0].payload
+
+
+@pytest.fixture
+def sleeps(monkeypatch):
+    """Record what the retry loop waits for, without waiting for it."""
+    recorded = []
+
+    async def sleep(delay, result=None):
+        recorded.append(delay)
+        return result
+
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    return recorded
+
+
+class test_Producer_retry:
+    """`retry` and `retry_policy` on publish."""
+
+    async def _flaky_connection(self, failures):
+        """A memory connection whose channels fail the first publishes.
+
+        The failures are attached per channel, so a publish retried on a
+        reconnected channel meets the next one.
+        """
+        conn = Connection("memory://")
+        await conn.connect()
+        attempts = []
+        open_channel = conn.channel
+
+        async def flaky_channel():
+            channel = await open_channel()
+            publish = channel.publish
+
+            async def flaky_publish(*args, **kwargs):
+                attempts.append(1)
+                if failures:
+                    raise failures.pop(0)
+                return await publish(*args, **kwargs)
+
+            channel.publish = flaky_publish
+            return channel
+
+        conn.channel = flaky_channel
+        return conn, attempts
+
+    async def test_a_failed_publish_is_retried_until_the_broker_takes_it(self):
+        conn, attempts = await self._flaky_connection(
+            [ConnectionError("broker went away"), ChannelError("channel closed")],
+        )
+        async with conn:
+            producer = conn.Producer(auto_declare=False)
+            await producer.publish(
+                {"a": 1},
+                routing_key="retry_q",
+                retry=True,
+                retry_policy={"max_retries": 3, "interval_start": 0, "interval_step": 0},
+            )
+
+            assert len(attempts) == 3
+            channel = await conn.default_channel()
+            message = await channel.get("retry_q", no_ack=True)
+            assert message.decode() == {"a": 1}
+
+    async def test_the_retry_policy_backs_off_and_reports_every_failure(self, sleeps):
+        failures = [ConnectionError(f"attempt {i}") for i in range(10)]
+        conn, attempts = await self._flaky_connection(failures)
+        reported = []
+
+        async with conn:
+            producer = conn.Producer(auto_declare=False)
+            with pytest.raises(ConnectionError, match="attempt 3"):
+                await producer.publish(
+                    {"a": 1},
+                    routing_key="retry_q",
+                    retry=True,
+                    retry_policy={
+                        "max_retries": 3,
+                        "interval_start": 1.0,
+                        "interval_step": 2.0,
+                        "interval_max": 4.0,
+                        "errback": lambda exc, interval: reported.append((str(exc), interval)),
+                    },
+                )
+
+        assert len(attempts) == 4
+        assert reported == [("attempt 0", 1.0), ("attempt 1", 3.0), ("attempt 2", 4.0)]
+        assert sleeps == [1.0, 3.0, 4.0]
+
+    async def test_without_retry_the_first_failure_reaches_the_caller(self):
+        conn, attempts = await self._flaky_connection([ConnectionError("broker went away")])
+        async with conn:
+            producer = conn.Producer(auto_declare=False)
+            with pytest.raises(ConnectionError, match="broker went away"):
+                await producer.publish({"a": 1}, routing_key="retry_q")
+
+        assert len(attempts) == 1
+
+
+class test_Consumer_prefetch_count:
+    async def test_the_prefetch_count_is_applied_before_consuming(self):
+        channel = RecordingChannel()
+        consumer = Consumer(channel, queues=[Queue("one")], prefetch_count=10)
+        await consumer.consume()
+
+        assert channel.ops == [("qos", 10), ("consume", "one")]
+
+    async def test_a_queue_added_later_does_not_reapply_it(self):
+        channel = RecordingChannel()
+        consumer = Consumer(channel, queues=[Queue("one")], prefetch_count=10)
+        await consumer.consume()
+        consumer.add_queue(Queue("two"))
+        await consumer.consume()
+
+        assert channel.ops == [("qos", 10), ("consume", "one"), ("consume", "two")]
+
+    async def test_no_prefetch_count_leaves_the_channel_alone(self):
+        channel = RecordingChannel()
+        consumer = Consumer(channel, queues=[Queue("one")])
+        await consumer.consume()
+
+        assert channel.ops == [("consume", "one")]

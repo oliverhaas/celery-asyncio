@@ -2,7 +2,8 @@
 
 import asyncio
 import base64
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from .compression import compress
@@ -121,10 +122,97 @@ class Producer:
             expiration: Message TTL in seconds.
             delivery_mode: 1=transient, 2=persistent.
             declare: List of Exchange/Queue objects to declare before publishing.
-            retry: Whether to retry on failure.
-            retry_policy: Retry policy options.
+            retry: Retry the publish if the connection or the channel fails.
+            retry_policy: Options for the retry: ``max_retries``,
+                ``interval_start``, ``interval_step``, ``interval_max`` and
+                ``errback``, as taken by :meth:`ensure`.
             **kwargs: Additional properties.
         """
+        attempt = partial(
+            self._publish,
+            body,
+            routing_key=routing_key,
+            exchange=exchange,
+            serializer=serializer,
+            compression=compression,
+            headers=headers,
+            priority=priority,
+            expiration=expiration,
+            delivery_mode=delivery_mode,
+            declare=declare,
+            **kwargs,
+        )
+        if not retry:
+            await attempt()
+            return
+        await self.ensure(attempt, **(retry_policy or {}))
+
+    async def ensure(
+        self,
+        attempt: Callable[[], Awaitable[None]],
+        max_retries: int | None = None,
+        interval_start: float = 2.0,
+        interval_step: float = 2.0,
+        interval_max: float = 30.0,
+        errback: Callable[[Exception, float], None] | None = None,
+    ) -> None:
+        """Call `attempt` again whenever the broker breaks under it.
+
+        Args:
+            attempt: The operation to run, and to run again after a reconnect.
+            max_retries: How many times to retry, or None to retry forever.
+            interval_start: Seconds to wait before the first retry.
+            interval_step: Seconds added to the wait after each retry.
+            interval_max: Longest wait between two retries.
+            errback: Called with (exc, interval) before each wait.
+        """
+        recoverable = self._connection.connection_errors + self._connection.channel_errors
+        retries = 0
+        interval = interval_start
+
+        while True:
+            try:
+                await attempt()
+                return
+            except recoverable as exc:
+                if max_retries is not None and retries >= max_retries:
+                    raise
+
+                if errback is not None:
+                    errback(exc, interval)
+
+                logger.warning("Publish failed, retrying in %.2fs: %r", interval, exc)
+                await asyncio.sleep(interval)
+
+                retries += 1
+                interval = min(interval + interval_step, interval_max)
+                await self.revive()
+
+    async def revive(self) -> None:
+        """Reconnect and start over on a new channel.
+
+        The broker state this producer built up is gone with the connection, so
+        the exchange is declared again on the next publish.
+        """
+        self._channel = None
+        self._declared = False
+        await self._connection.close()
+        await self._connection.connect()
+
+    async def _publish(
+        self,
+        body: Any,
+        routing_key: str | None = None,
+        exchange: Exchange | str | None = None,
+        serializer: str | None = None,
+        compression: str | None = None,
+        headers: dict | None = None,
+        priority: int | None = None,
+        expiration: float | None = None,
+        delivery_mode: int | None = None,
+        declare: list | None = None,
+        **kwargs: Any,
+    ) -> None:
         channel = await self._ensure_channel()
 
         # Auto declare
@@ -238,7 +326,8 @@ class Consumer:
         callbacks: List of callbacks to call when message is received.
         no_ack: Don't require message acknowledgment. Default is False.
         accept: List of accepted content types.
-        prefetch_count: Number of messages to prefetch. Applied by `qos()`.
+        prefetch_count: Number of messages to prefetch, applied when
+            consuming starts.
 
     Example:
         async with connection.Consumer([queue], callbacks=[on_message]) as consumer:
@@ -317,6 +406,11 @@ class Consumer:
         queue and leaves the queues it is already consuming alone.
         """
         channel = await self._ensure_channel()
+
+        if self._prefetch_count is not None and not self._running:
+            # Before the first basic_consume: the broker applies a prefetch
+            # count to the consumers registered after it, not before.
+            await self.qos(prefetch_count=self._prefetch_count)
 
         await self.declare()
 
