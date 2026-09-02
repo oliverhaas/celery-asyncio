@@ -23,16 +23,16 @@ class Message:
     """Base class for received messages.
 
     Keyword Arguments:
-        channel: The channel that the message was received on.
         body: Message body.
-        delivery_mode: Delivery mode (transient or persistent).
-        priority: Message priority.
+        delivery_tag: Unique message identifier for acknowledgment.
         content_type: The message content type.
         content_encoding: The message encoding.
+        delivery_info: Delivery metadata (exchange, routing_key, etc.).
         properties: Message properties.
         headers: Message headers.
-        delivery_tag: Unique message identifier for acknowledgment.
-        delivery_info: Delivery metadata (exchange, routing_key, etc.).
+        postencode: Encoding to apply to a body that arrived as text.
+        accept: Content types the body may be decoded as, None for any.
+        channel: The channel that the message was received on.
     """
 
     MessageStateError = MessageStateError
@@ -66,7 +66,6 @@ class Message:
         postencode: str | None = None,
         accept: AbstractSet[str] | None = None,
         channel: "Channel | None" = None,  # noqa: UP037
-        **kwargs: Any,
     ):
         delivery_info = {} if not delivery_info else delivery_info
         self.errors = [] if self.errors is None else self.errors

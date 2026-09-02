@@ -27,6 +27,12 @@ class test_Message:
         assert m.properties == {}
         assert m.delivery_info == {}
 
+    def test_an_argument_the_constructor_does_not_know_is_rejected(self):
+        # Message used to end its signature in **kwargs, so a caller's
+        # delivery_mode or priority was accepted and then dropped.
+        with pytest.raises(TypeError, match="delivery_mode"):
+            Message(body=b"hello", delivery_mode=2)
+
     def test_repr(self):
         m = Message(body=b"hello", delivery_tag="tag1")
         r = repr(m)
