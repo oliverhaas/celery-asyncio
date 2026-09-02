@@ -739,7 +739,9 @@ class ResultSet(ResultBase):
     def __init__(self, results, app=None, ready_barrier=None, **kwargs):
         self._app = app
         self.results = results
-        self.on_ready = promise(args=(proxy(self),))
+        # The proxy is the default argument: on_ready() is called with none,
+        # and the .then() callbacks are meant to receive the result set.
+        self.on_ready = promise(None, proxy(self))
         self._on_full = ready_barrier or barrier(results)
         if self._on_full:
             self._on_full.then(promise(self._on_ready, weak=True))
@@ -755,8 +757,7 @@ class ResultSet(ResultBase):
                 self._on_full.add(result)
 
     def _on_ready(self):
-        if self.backend.is_async:
-            self.on_ready()
+        self.on_ready()
 
     def remove(self, result):
         """Remove result from the set; it must be a member.

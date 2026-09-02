@@ -1119,6 +1119,16 @@ class test_group(CanvasCase):
         g2 = group(self.add.s(8, 8), g1, self.add.s(16, 16), app=self.app)
         g2.apply_async()
 
+    def test_then_fires_for_a_group_that_ran_eagerly(self):
+        self.app.conf.task_always_eager = True
+        seen = []
+
+        result = group(self.add.s(2, 2), self.add.s(4, 4), app=self.app).apply_async()
+        result.then(seen.append)
+
+        assert [r.id for r in seen] == [result.id]
+        assert [r.get() for r in result.results] == [4, 8]
+
     def test_eager_apply_async_keeps_the_requested_group_id(self):
         self.app.conf.task_always_eager = True
         g = group(self.add.s(2, 2), self.add.s(4, 4), app=self.app)

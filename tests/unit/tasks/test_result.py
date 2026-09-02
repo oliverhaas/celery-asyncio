@@ -416,6 +416,18 @@ class test_AsyncResult:
         result.backend = None
         del result
 
+    def test_then_callback_runs_and_the_result_stops_being_pending(self):
+        backend = Mock(name="backend")
+        backend.meta_from_decoded.side_effect = lambda meta: meta
+        result = self.app.AsyncResult(uuid(), backend=backend)
+        seen = []
+        result.then(seen.append)
+
+        result._maybe_set_cache({"status": states.SUCCESS, "result": 42, "task_id": result.id})
+
+        assert seen == [result]
+        backend.remove_pending_result.assert_called_once_with(result)
+
     def test_get_request_meta(self):
 
         x = self.app.AsyncResult("1")
@@ -684,6 +696,23 @@ class test_GroupResult:
         ts2 = fun(*args)
         assert ts2.id == ts.id
         assert ts == ts2
+
+    def test_then_fires_once_every_member_is_ready(self):
+        ts = self.app.GroupResult(uuid(), [EagerResult(uuid(), i, states.SUCCESS) for i in range(3)])
+        seen = []
+
+        ts.then(seen.append)
+
+        assert [r.id for r in seen] == [ts.id]
+
+    def test_then_waits_for_the_members_that_are_not_ready(self):
+        pending = self.app.AsyncResult(uuid())
+        ts = self.app.GroupResult(uuid(), [EagerResult(uuid(), 1, states.SUCCESS), pending])
+        seen = []
+
+        ts.then(seen.append)
+
+        assert seen == []
 
     def test_eq_ne(self):
         ts = self.app.GroupResult(uuid(), [self.app.AsyncResult(uuid())])
