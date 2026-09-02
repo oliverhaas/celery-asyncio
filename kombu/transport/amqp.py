@@ -340,10 +340,9 @@ class Channel:
         if not aio_queue:
             return None
 
-        try:
-            incoming = await aio_queue.get(no_ack=no_ack, fail=False)
-        except Exception:
-            return None
+        # fail=False makes aio-pika answer an empty queue with None rather
+        # than raising; every other error is the caller's to see.
+        incoming = await aio_queue.get(no_ack=no_ack, fail=False)
 
         if incoming is None:
             return None
@@ -352,7 +351,7 @@ class Channel:
         if not no_ack:
             self._delivery_tag_map[delivery_tag] = incoming
 
-        return self._convert_message(incoming, queue, delivery_tag)
+        return self._convert_message(incoming, queue, delivery_tag, accept=accept)
 
     # ---- consumer operations -----------------------------------------------
 
@@ -505,6 +504,7 @@ class Channel:
         queue: str,
         delivery_tag: str,
         consumer_tag: str = "",
+        accept: AbstractSet[str] | None = None,
     ) -> Message:
         """Convert an aio-pika IncomingMessage to a kombu Message."""
         properties: dict[str, Any] = {"delivery_tag": delivery_tag}
@@ -542,6 +542,7 @@ class Channel:
             },
             properties=properties,
             headers=dict(incoming.headers) if incoming.headers else {},
+            accept=accept,
             channel=self,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         )
 

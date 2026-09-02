@@ -12,6 +12,7 @@ import pytest
 aio_pika = pytest.importorskip("aio_pika")
 
 from kombu.entity import Exchange, Queue
+from kombu.exceptions import ContentDisallowed
 from kombu.message import Message
 from kombu.transport.amqp import Channel, Transport, _get_exchange_type
 
@@ -677,14 +678,21 @@ class TestChannelGet:
         msg = await channel.get("nonexistent")
         assert msg is None
 
-    async def test_get_exception_returns_none(self, channel):
+    async def test_get_forwards_accept_to_the_message(self, channel):
+        incoming = _make_incoming_message(
+            body=b"\x80\x05\x95",
+            content_type="application/x-python-serialize",
+            content_encoding="binary",
+        )
         aio_q = _make_aio_queue("q1")
-        aio_q.get.side_effect = RuntimeError("connection lost")
+        aio_q.get.return_value = incoming
         channel._declared_queues["q1"] = aio_q
 
-        msg = await channel.get("q1")
+        msg = await channel.get("q1", no_ack=True, accept={"application/json"})
 
-        assert msg is None
+        assert msg.accept == {"application/json"}
+        with pytest.raises(ContentDisallowed):
+            msg.decode()
 
 
 class TestChannelConsume:
