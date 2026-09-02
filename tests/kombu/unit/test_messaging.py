@@ -23,6 +23,12 @@ class test_Producer:
         assert p.serializer is None
         assert p.auto_declare is True
 
+    def test_an_option_the_producer_does_not_implement_is_rejected(self):
+        # Producer ended its signature in **kwargs, so an upstream option this
+        # fork does not implement was accepted and then dropped.
+        with pytest.raises(TypeError, match="on_return"):
+            Producer(Connection("memory://"), on_return=lambda *a: None)
+
     def test_init_with_exchange(self):
         conn = Connection("memory://")
         ex = Exchange("test", type="direct")
@@ -126,6 +132,13 @@ class test_Consumer:
         assert c._queues == [q]
         assert c._callbacks == []
         assert c._no_ack is False
+
+    def test_an_option_the_consumer_does_not_implement_is_rejected(self):
+        # Consumer ended its signature in **kwargs, from which it read only
+        # on_decode_error, so `auto_declare` and the rest of the upstream
+        # options were taken and ignored.
+        with pytest.raises(TypeError, match="auto_declare"):
+            Consumer(Connection("memory://"), queues=[Queue("test")], auto_declare=False)
 
     def test_init_with_callbacks(self):
         conn = Connection("memory://")

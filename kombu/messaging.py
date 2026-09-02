@@ -58,7 +58,6 @@ class Producer:
         serializer: str | None = None,
         compression: str | None = None,
         auto_declare: bool | None = None,
-        **kwargs: Any,
     ):
         self._connection = connection
         self._channel = channel
@@ -328,6 +327,9 @@ class Consumer:
         accept: List of accepted content types.
         prefetch_count: Number of messages to prefetch, applied when
             consuming starts.
+        on_message: Called with the raw message instead of the callbacks.
+        on_decode_error: Called with (message, exc) when a body will not
+            decode. Without one the error reaches the caller draining events.
 
     Example:
         async with connection.Consumer([queue], callbacks=[on_message]):
@@ -344,7 +346,7 @@ class Consumer:
         accept: list[str] | None = None,
         prefetch_count: int | None = None,
         on_message: Callable | None = None,
-        **kwargs: Any,
+        on_decode_error: Callable | None = None,
     ):
         # Accept either a Connection or a Channel as the first argument.
         # If a Channel is passed (has basic_consume but not default_channel),
@@ -367,7 +369,7 @@ class Consumer:
         self._consumer_tags: dict[str, str] = {}
         self._running = False
         self._declared: set[str] = set()
-        self.on_decode_error = kwargs.get("on_decode_error")
+        self.on_decode_error = on_decode_error
 
     @property
     def queues(self) -> list[Queue]:

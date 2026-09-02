@@ -297,7 +297,6 @@ class test_ControlPanel:
         x = kombu.Consumer(
             self.app.connection_for_read(),
             [kombu.Queue("foo", kombu.Exchange("foo"), "foo"), kombu.Queue("bar", kombu.Exchange("bar"), "bar")],
-            auto_declare=False,
         )
         consumer = Mock()
         consumer.task_consumer = x
