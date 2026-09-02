@@ -9,6 +9,7 @@ The worker consists of several components, all managed by async bootsteps
 import asyncio
 import os
 import sys
+import time
 from datetime import UTC, datetime
 
 from celery import bootsteps, signals
@@ -37,9 +38,6 @@ def cpu_count() -> int:
 
 __all__ = ("WorkController",)
 
-#: Default socket timeout at shutdown.
-SHUTDOWN_SOCKET_TIMEOUT = 5.0
-
 SELECT_UNKNOWN_QUEUE = """
 Trying to select queue subset of {0!r}, but queue {1} isn't
 defined in the `task_queues` setting.
@@ -65,6 +63,7 @@ class WorkController:
     pidlock = None
     blueprint = None
     pool = None
+    consumer = None
 
     #: contains the exit code if a :exc:`SystemExit` event is handled.
     exitcode = None
@@ -151,7 +150,7 @@ class WorkController:
         self.timer.clear()
         # Consumer shutdown is handled by the blueprint stop mechanism.
         # Perform any remaining pending operations synchronously.
-        if hasattr(self, "consumer") and self.consumer:
+        if self.consumer:
             self.consumer.perform_pending_operations()
 
         if self.pidlock:
@@ -209,10 +208,8 @@ class WorkController:
             pass
 
     async def signal_consumer_close(self):
-        try:
+        if self.consumer is not None:
             await self.consumer.close()
-        except AttributeError:
-            pass
 
     async def stop(self, in_sighandler=False, exitcode=None):
         """Graceful shutdown of the worker server."""
@@ -411,8 +408,6 @@ class WorkController:
                 timeout,
                 active_count,
             )
-
-            import time
 
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:

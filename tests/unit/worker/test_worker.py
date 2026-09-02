@@ -222,11 +222,24 @@ class test_WorkController(ConsumerCase):
         worker.consumer = AsyncMock()
 
         await worker.signal_consumer_close()
-        worker.consumer.close.assert_called_with()
 
-        worker.consumer = AsyncMock()
-        worker.consumer.close.side_effect = AttributeError()
+        worker.consumer.close.assert_awaited_once_with()
+
+    async def test_signal_consumer_close_without_a_consumer(self):
+        worker = self.worker
+        worker.consumer = None
+
         await worker.signal_consumer_close()
+
+    async def test_signal_consumer_close_does_not_hide_a_broken_consumer(self):
+        # The AttributeError this used to catch was meant for a worker with no
+        # consumer yet, and hid every one raised inside close() as well.
+        worker = self.worker
+        worker.consumer = AsyncMock()
+        worker.consumer.close.side_effect = AttributeError("close is broken")
+
+        with pytest.raises(AttributeError):
+            await worker.signal_consumer_close()
 
     def test_rusage__no_resource(self):
         from celery.worker import worker
