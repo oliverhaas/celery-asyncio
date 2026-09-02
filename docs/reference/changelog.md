@@ -206,6 +206,13 @@ of the code and settings nothing calls any more.
 - `wait_for_pending()` and `iter_native()` took an `interval` argument and threw
   it away, always polling at `timeout / 20`. `iter_native()` also raised
   `TimeoutError` after it had already collected every result
+- A revoke that arrived after the task had finished overwrote the result with
+  `REVOKED`. `Control.revoke` reaches the worker over the broker, so the write
+  lands whenever it lands; a chord header failure with a group body revoked and
+  failed the body tasks in one breath, and `get()` raised `TaskRevokedError`
+  instead of the error that had actually stopped the chord. A write of
+  `REVOKED` now loses to any finished state, in the same check-then-set that
+  already made `SUCCESS` sticky
 - `EagerResult` overrode `forget()` and `revoke()` but inherited `aforget()` and
   `arevoke()`, which assigned to a read-only property and reached for an app an
   eager result does not have. Both raised `AttributeError`, which broke every

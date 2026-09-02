@@ -17,7 +17,7 @@ from . import local
 
 SERIES = "asyncio"
 
-__version__ = "6.0.0a5"
+__version__ = "6.0.0a6"
 __author__ = "Oliver Haas"
 __contact__ = "ohaas@e1plus.de"
 __homepage__ = "https://oliverhaas.github.io/celery-asyncio/"
