@@ -327,6 +327,7 @@ class Channel:
 
     async def _restore(self) -> None:
         """Declare again what the closed channel took with it."""
+        self._drop_buffered_redeliveries()
         self._delivery_tag_map.clear()
         self._interrupted.clear()
 
@@ -336,6 +337,22 @@ class Channel:
             await self._bind(**binding)
         for tag, (queue_name, _callback, no_ack) in list(self._consumers.items()):
             await self._start_aio_consumer(tag, queue_name, no_ack)
+
+    def _drop_buffered_redeliveries(self) -> None:
+        """Forget the buffered messages the broker is about to send again."""
+        buffered = []
+        while True:
+            try:
+                buffered.append(self._message_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+
+        for item in buffered:
+            # An unacknowledged delivery goes back on the queue when the
+            # channel closes, so keeping this copy would run it twice. A
+            # no-ack delivery is not coming back, so it stays.
+            if item[1].delivery_tag not in self._delivery_tag_map:
+                self._message_queue.put_nowait(item)
 
     # ---- close -------------------------------------------------------------
 

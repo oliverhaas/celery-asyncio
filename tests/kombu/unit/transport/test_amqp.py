@@ -1505,6 +1505,25 @@ class TestChannelRecovery:
         assert aio_channel.declare_queue.await_count == 2
         aio_queue.consume.assert_awaited_once()
 
+    async def test_a_reopened_channel_drops_what_the_broker_will_send_again(self, channel, aio_channel):
+        """An unacknowledged delivery goes back on the queue when a channel closes.
+
+        Keeping the buffered copy would run the same message twice.
+        """
+        unacked = _make_kombu_message(channel, delivery_tag="1")
+        no_ack = _make_kombu_message(channel, delivery_tag="2")
+        channel._delivery_tag_map["1"] = MagicMock()
+        await channel._message_queue.put(("q1", unacked))
+        await channel._message_queue.put(("q1", no_ack))
+        aio_channel.is_closed = True
+
+        received = []
+        channel._consumers["tag1"] = ("q1", lambda body, message: received.append(message), False)
+
+        assert await channel.drain_events(timeout=0) is True
+        assert received == [no_ack]
+        assert await channel.drain_events(timeout=0) is False
+
     async def test_a_reopened_channel_forgets_its_delivery_tags(self, channel, aio_channel):
         channel._delivery_tag_map["1"] = MagicMock()
         aio_channel.is_closed = True
