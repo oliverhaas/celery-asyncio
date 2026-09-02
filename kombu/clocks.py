@@ -47,7 +47,7 @@ class timetuple(tuple):
     def __getnewargs__(self) -> tuple:
         return tuple(self)
 
-    # The three below cannot delegate to `other < self` or `not other < self`:
+    # The four below cannot delegate to `other < self` or `not other < self`:
     # `other` is usually a plain tuple, and Python offers the subclass its
     # reflected operation first, which lands back here and recurses forever.
     def __lt__(self, other: tuple) -> bool:
