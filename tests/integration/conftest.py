@@ -81,7 +81,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Skip the RabbitMQ-only tests when the broker under test is not AMQP.
 
     The `amqp` marker records that a test asserts on broker behaviour only
-    RabbitMQ has -- queue types, delayed-delivery bindings, quorum QoS. Run
+    RabbitMQ has: queue types, delayed-delivery bindings, quorum QoS. Run
     against the default Redis broker they do not fail meaningfully, they fail
     on the first connection argument the transport does not understand.
     """
