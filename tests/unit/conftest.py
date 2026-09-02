@@ -24,7 +24,7 @@ from celery.backends.cache import CacheBackend, DummyClient
 # in case user did not do the `python setup.py develop` yet,
 # that installs the pytest plugin into the setuptools registry.
 from celery.contrib.pytest import celery_app, celery_enable_logging, celery_parameters, depends_on_current_app
-from celery.contrib.testing.app import TestApp, Trap
+from celery.contrib.testing.app import TestApp
 from celery.contrib.testing.mocks import TaskMessage, TaskMessage1, task_message_from_sig
 
 # Tricks flake8 into silencing redefining fixtures warnings.
@@ -128,20 +128,18 @@ def alive_threads():
 
 
 @pytest.fixture(autouse=True)
-def task_join_will_not_block():
+def task_join_will_not_block(monkeypatch):
     from celery import _state, result
 
-    prev_res_join_block = result.task_join_will_block
-    _state.orig_task_join_will_block = _state.task_join_will_block
-    prev_state_join_block = _state.task_join_will_block
-    result.task_join_will_block = _state.task_join_will_block = lambda: False
-    _state._set_task_join_will_block(False)
-
-    yield
-
-    result.task_join_will_block = prev_res_join_block
-    _state.task_join_will_block = prev_state_join_block
-    _state._set_task_join_will_block(False)
+    # tests/unit/tasks/test_canvas.py puts the real predicate back for the
+    # duration of one test and reads it off _state, so it has to be reachable
+    # from there. monkeypatch deletes the attribute again at teardown.
+    monkeypatch.setattr(_state, "orig_task_join_will_block", _state.task_join_will_block, raising=False)
+    monkeypatch.setattr(_state, "task_join_will_block", lambda: False)
+    monkeypatch.setattr(result, "task_join_will_block", lambda: False)
+    # The flag itself, not _set_task_join_will_block(False): monkeypatch puts
+    # back whatever it was rather than forcing False on every teardown.
+    monkeypatch.setattr(_state, "_task_join_will_block", False)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -240,67 +238,6 @@ def sanity_logging_side_effects(request):
     newhandlers = [x for x in root_now.handlers if not isinstance(x, LogCaptureHandler)]
     if newhandlers != roothandlers:
         raise RuntimeError(CASE_LOG_HANDLER_EFFECT.format(this))
-
-
-def setup_session(scope="session"):
-    using_coverage = os.environ.get("COVER_ALL_MODULES") or "--with-coverage" in sys.argv
-    os.environ.update(
-        # warn if config module not found
-        C_WNOCONF="yes",
-        KOMBU_DISABLE_LIMIT_PROTECTION="yes",
-    )
-
-    if using_coverage:
-        from warnings import catch_warnings
-
-        with catch_warnings(record=True):
-            import_all_modules()
-        warnings.resetwarnings()
-    from celery._state import set_default_app
-
-    set_default_app(Trap())
-
-
-def teardown():
-    # Make sure test database is removed.
-    if os.path.exists("test.db"):
-        try:
-            os.remove("test.db")
-        except OSError:
-            pass
-
-    # Make sure there are no remaining threads at shutdown.
-    import threading
-
-    remaining_threads = [thread for thread in threading.enumerate() if thread.getName() != "MainThread"]
-    if remaining_threads:
-        sys.stderr.write("\n\n**WARNING**: Remaining threads at teardown: %r...\n" % (remaining_threads))
-
-
-def find_distribution_modules(name=__name__, file=__file__):
-    current_dist_depth = len(name.split(".")) - 1
-    current_dist = os.path.join(os.path.dirname(file), *([os.pardir] * current_dist_depth))
-    abs = os.path.abspath(current_dist)
-    dist_name = os.path.basename(abs)
-
-    for dirpath, dirnames, filenames in os.walk(abs):
-        package = (dist_name + dirpath[len(abs) :]).replace("/", ".")
-        if "__init__.py" in filenames:
-            yield package
-            for filename in filenames:
-                if filename.endswith(".py") and filename != "__init__.py":
-                    yield f"{package}.{filename}"[:-3]
-
-
-def import_all_modules(name=__name__, file=__file__, skip=("celery.decorators", "celery.task")):
-    for module in find_distribution_modules(name, file):
-        if not module.startswith(skip):
-            try:
-                import_module(module)
-            except ImportError:
-                pass
-            except OSError as exc:
-                warnings.warn(UserWarning(f"Ignored error importing module {module}: {exc!r}"))
 
 
 @pytest.fixture
