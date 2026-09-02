@@ -4,6 +4,7 @@ import re
 import signal
 import sys
 import tempfile
+import threading
 from unittest.mock import Mock, call, patch
 
 import pytest
@@ -60,6 +61,29 @@ def test_fd_by_path():
             assert not fd_by_path([test_file.name])
     finally:
         test_file.close()
+
+
+class test_current_process:
+    def test_reports_the_main_process(self):
+        assert platforms.current_process().name == "MainProcess"
+        assert platforms.current_process()._name == "MainProcess"
+
+    def test_reports_the_main_process_from_a_worker_thread(self):
+        names = []
+        t = threading.Thread(target=lambda: names.append(platforms.current_process().name))
+        t.start()
+        t.join()
+        assert names == ["MainProcess"]
+
+    def test_index_is_zero(self):
+        assert platforms.current_process().index == 0
+
+    def test_pid_and_ident_are_the_running_process(self):
+        assert platforms.current_process().pid == os.getpid()
+        assert platforms.current_process().ident == os.getpid()
+
+    def test_is_a_singleton(self):
+        assert platforms.current_process() is platforms.current_process()
 
 
 def test_close_open_fds(patching):

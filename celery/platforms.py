@@ -13,7 +13,6 @@ import os
 import platform as _platform
 import signal as _signal
 import sys
-import threading
 import warnings
 from contextlib import contextmanager
 
@@ -29,17 +28,22 @@ grp = try_import("grp")
 
 
 class _FakeProcess:
-    """Fake process object for threading-based execution."""
+    """Stand-in for the object :func:`multiprocessing.current_process` returns.
 
-    _name: str | None = None
+    The worker runs in a single process, so there is only ever one process
+    object and it is the main one, mirroring what multiprocessing reports
+    in a program that never starts a child process.
+    """
+
+    #: Matches ``multiprocessing.current_process()._name`` in the main process.
+    _name = "MainProcess"
+
+    #: Position in the process pool.  There is no pool, so this is always 0.
+    index = 0
 
     @property
     def name(self) -> str:
-        return self._name or f"Thread-{threading.current_thread().ident}"
-
-    @name.setter
-    def name(self, value: str) -> None:
-        self._name = value
+        return self._name
 
     @property
     def ident(self) -> int:
@@ -50,14 +54,11 @@ class _FakeProcess:
         return self.ident
 
 
-_current_process: _FakeProcess | None = None
+_current_process = _FakeProcess()
 
 
 def current_process() -> _FakeProcess:
     """Return the current process object."""
-    global _current_process
-    if _current_process is None:
-        _current_process = _FakeProcess()
     return _current_process
 
 
