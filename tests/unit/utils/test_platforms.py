@@ -2,8 +2,10 @@ import errno
 import os
 import re
 import signal
+import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 from unittest.mock import Mock, call, patch
 
@@ -92,9 +94,36 @@ def test_close_open_fds(patching):
     fdmax.return_value = 6
     close_open_fds()
     _close.assert_has_calls([call(3), call(4), call(5)])
-    _close.reset_mock()
-    _close.side_effect = OSError()
+
+
+def test_close_open_fds_ignores_already_closed_fds(patching):
+    _close = patching("os.close")
+    fdmax = patching("celery.platforms.get_fdmax")
+    fdmax.return_value = 6
+    _close.side_effect = OSError(errno.EBADF, "Bad file descriptor")
     close_open_fds()
+    assert _close.call_count == 3
+
+
+def test_close_open_fds_reraises_other_errors(patching):
+    _close = patching("os.close")
+    fdmax = patching("celery.platforms.get_fdmax")
+    fdmax.return_value = 6
+    _close.side_effect = OSError(errno.EIO, "Input/output error")
+    with pytest.raises(OSError):
+        close_open_fds()
+
+
+def test_close_open_fds_keeps_a_list_of_fds_and_file_objects(patching):
+    _close = patching("os.close")
+    fdmax = patching("celery.platforms.get_fdmax")
+    fdmax.return_value = 9
+    filelike = Mock(name="filelike")
+    filelike.fileno.return_value = 7
+    unopened = Mock(name="unopened")
+    unopened.fileno.side_effect = ValueError("I/O operation on closed file")
+    close_open_fds([5, filelike, unopened])
+    assert [c.args[0] for c in _close.call_args_list] == [3, 4, 6, 8]
 
 
 class test_ignore_errno:
@@ -384,6 +413,71 @@ class test_DaemonContext:
         assert x.umask == 493
         x = DaemonContext(workdir="/opt/workdir", umask="493")
         assert x.umask == 493
+
+    @patch("os.fork")
+    @patch("os.setsid")
+    @patch("os._exit")
+    @patch("os.chdir")
+    @patch("os.dup2")
+    @patch("os.close")
+    @patch("os.open")
+    @patch("celery.platforms.fd_by_path", return_value=[])
+    @patch("celery.platforms.close_open_fds")
+    def test_open_closes_the_devnull_it_duplicates(
+        self, _close_fds, _fd_by_path, open, close, dup2, chdir, _exit, setsid, fork
+    ):
+        fork.return_value = 0
+        open.return_value = 37
+        x = DaemonContext(workdir="/opt/workdir")
+        x.stdfds = [0, 1, 2]
+        x.open()
+        assert dup2.call_args_list == [call(37, 0), call(37, 1), call(37, 2)]
+        close.assert_called_once_with(37)
+
+    def test_open_closes_fds_and_redirects_stdio(self, tmp_path):
+        # close_open_fds() used to be handed a list and die with AttributeError
+        # in the daemonized grandchild, so run the real thing in its own process.
+        script = tmp_path / "daemonize.py"
+        script.write_text(
+            textwrap.dedent(
+                """
+                import os
+                import resource
+                import sys
+
+                from celery.platforms import DaemonContext
+
+                marker, workdir = sys.argv[1], sys.argv[2]
+                _soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+                resource.setrlimit(resource.RLIMIT_NOFILE, (64, hard))
+                keeper = open(os.path.join(workdir, "keeper"), "w")
+                keeper_fd = keeper.fileno()
+
+                context = DaemonContext(workdir=workdir)
+                context._detach = lambda: context
+                context.open()
+
+                try:
+                    os.fstat(keeper_fd)
+                except OSError:
+                    keeper_closed = True
+                else:
+                    keeper_closed = False
+                on_devnull = os.fstat(0).st_rdev == os.stat(os.devnull).st_rdev
+                with open(marker, "w") as fh:
+                    fh.write(f"{keeper_closed} {on_devnull}")
+                """
+            )
+        )
+        marker = tmp_path / "marker"
+        result = subprocess.run(
+            [sys.executable, str(script), str(marker), str(tmp_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        assert marker.read_text() == "True True"
 
 
 @tests.skip.if_win32

@@ -16,6 +16,7 @@ import sys
 import warnings
 from contextlib import contextmanager
 
+from kombu.utils.compat import maybe_fileno
 from kombu.utils.encoding import safe_str
 
 from .exceptions import SecurityError, SecurityWarning, reraise
@@ -283,16 +284,23 @@ def get_fdmax(default=1024):
 
 
 def close_open_fds(keep=None):
-    """Close all open file descriptors except those in keep."""
-    keep = keep or set()
-    keep.update({0, 1, 2})
-    fdmax = get_fdmax()
-    for fd in range(3, fdmax):
-        if fd not in keep:
+    """Close all open file descriptors except those in ``keep``.
+
+    ``keep`` may hold file descriptors or file objects; the standard streams
+    are always kept.
+    """
+    keepfds = {0, 1, 2}
+    for f in keep or ():
+        fd = maybe_fileno(f)
+        if fd is not None:
+            keepfds.add(fd)
+    for fd in range(3, get_fdmax()):
+        if fd not in keepfds:
             try:
                 os.close(fd)
-            except OSError:
-                pass
+            except OSError as exc:
+                if exc.errno != errno.EBADF:
+                    raise
 
 
 def fd_by_path(paths):
@@ -341,15 +349,15 @@ class DaemonContext:
             if self.after_chdir:
                 self.after_chdir()
             if not self.fake:
-                from kombu.utils.compat import maybe_fileno
-
-                keep = list(self.stdfds) + fd_by_path(["/dev/urandom"])
-                close_open_fds(keep)
-                for fd in self.stdfds:
-                    fno = maybe_fileno(fd)
-                    if fno is not None:
-                        dest = os.open(os.devnull, os.O_RDWR)
-                        os.dup2(dest, fno)
+                close_open_fds(list(self.stdfds) + fd_by_path(["/dev/urandom"]))
+                devnull = os.open(os.devnull, os.O_RDWR)
+                try:
+                    for fd in self.stdfds:
+                        fno = maybe_fileno(fd)
+                        if fno is not None:
+                            os.dup2(devnull, fno)
+                finally:
+                    os.close(devnull)
             self._is_open = True
 
     __enter__ = open
