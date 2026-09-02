@@ -1,5 +1,4 @@
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
@@ -8,9 +7,6 @@ from pytest_celery import CeleryTestSetup, CeleryTestWorker, CeleryWorkerCluster
 from celery.app.base import set_default_app
 from celery.signals import after_task_publish
 from tests.integration.tasks import identity
-
-if TYPE_CHECKING:
-    from celery import Celery
 
 
 @pytest.fixture(
@@ -29,12 +25,6 @@ def celery_worker_cluster(request: pytest.FixtureRequest) -> CeleryWorkerCluster
 
 
 class test_thread_safety:
-    @pytest.fixture
-    def default_worker_app(self, default_worker_app: Celery) -> Celery:
-        app = default_worker_app
-        app.conf.broker_pool_limit = 42
-        return app
-
     @pytest.mark.parametrize(
         "threads_count",
         [

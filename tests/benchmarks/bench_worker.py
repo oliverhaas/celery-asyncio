@@ -20,7 +20,6 @@ app = Celery("bench_worker")
 (
     app.conf.update(
         broker_url=BROKER_TRANSPORT,
-        broker_pool_limit=10,
         worker_pool="solo",
         worker_prefetch_multiplier=0,
         task_default_delivery_mode=1,
