@@ -391,6 +391,10 @@ class test_ffwd:
         x = ffwd(year=2012)
         assert x.__radd__(object()) == NotImplemented
 
+    def test_rejects_fields_it_cannot_apply(self):
+        with pytest.raises(TypeError):
+            ffwd(minutes=5)
+
 
 class test_utcoffset:
     def test_utcoffset(self, patching):

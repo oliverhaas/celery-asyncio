@@ -417,7 +417,6 @@ class ffwd:
         minute=None,
         second=None,
         microsecond=None,
-        **kwargs: Any,
     ):
         # weekday is also a function in outer scope.
         self.year = year
@@ -430,7 +429,6 @@ class ffwd:
         self.second = second
         self.microsecond = microsecond
         self.days = weeks * 7
-        self._has_time = self.hour is not None or self.minute is not None
 
     def __repr__(self) -> str:
         return reprcall("ffwd", (), self._fields(weeks=self.weeks, weekday=self.weekday))
