@@ -143,15 +143,8 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     #: 512 MB - https://redis.io/topics/data-types
     _MAX_STR_VALUE_SIZE = 536870912
 
-    #: Atomic check-then-SET for ``_astore_result``: if the stored meta
-    #: already holds the sticky state passed as ``ARGV[3]``, skip the write
-    #: and return that state. Otherwise SET (with optional TTL) and return
-    #: nil. Which state is sticky is decided in Python, so this path and the
-    #: sync ``_store_result`` cannot drift apart.
-    #:
-    #: One round-trip instead of two. Only used when
-    #: ``self.serializer == "json"`` so the status check can be done in
-    #: Lua via cjson; other serializers fall back to the base GET+SET path.
+    #: Check-then-SET in one round trip: returns the stored state when it is the
+    #: sticky state in ARGV[3], else SETs. JSON serializer only (cjson).
     _ASTORE_RESULT_LUA = """\
 local existing = redis.call('GET', KEYS[1])
 if existing then

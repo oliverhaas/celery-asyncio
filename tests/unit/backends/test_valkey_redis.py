@@ -278,7 +278,6 @@ class test_RedisBackend(basetest_RedisBackend):
                 self.Backend(app=self.app)
 
     def test_on_task_call_returns_a_mapping(self):
-        # Signature.election() unpacks this with **, so None is not allowed.
         assert self.b.on_task_call(Mock(name="producer"), uuid()) == {}
 
     def test_username_password_from_redis_conf(self):
@@ -714,8 +713,6 @@ class test_RedisBackend(basetest_RedisBackend):
             self.Backend("redis://:bosco@vandelay.com:123//1?ssl_cert_reqs=required", app=self.app)
 
     def test_a_conf_holding_only_the_result_keys_still_builds_a_backend(self):
-        # Every other setting has to be read with a default: a conf that only
-        # carries the result keys is enough to construct the backend.
         self.app.conf = AttributeDict(
             {
                 "result_serializer": "json",
@@ -1206,8 +1203,6 @@ class test_RedisBackend_chords_complex(basetest_RedisBackend):
                 # using the data stashed in the hash
                 assert self.b.client.hset.call_count == 1
                 self.b.client.hset.reset_mock()
-        # Confirm that `hvals` was not called: complex headers go through
-        # the GroupResult.join() path instead.
         self.b.client.hvals.assert_not_called()
         # Confirm that the `GroupResult.restore` mock was called
         complex_header_result.assert_called_once_with(request.group, app=self.b.app)
@@ -1377,8 +1372,6 @@ class test_RedisBackend_astore_result:
         assert "Dropped duplicate result write for task %s" % task_id in caplog.text
 
     async def test_stored_success_survives_a_later_state(self):
-        # A non-JSON serializer runs the base GET+SET path rather than the
-        # Lua one, under the same rule.
         b = self.Backend(app=self.app, serializer="pickle")
         task_id = uuid()
 
@@ -1511,7 +1504,6 @@ class test_RedisBackend_async_groups:
         await self.b.asave_group(gid, saved)
 
         await self.b.arestore_group(gid)
-        # The sync path reads the same cache and indexes it as a meta dict.
         assert self.b.restore_group(gid).id == gid
 
 
@@ -1538,7 +1530,6 @@ class test_RedisBackend_aon_chord_part_return:
         return request
 
     async def test_redelivery_idempotent(self):
-        # Same tid, different result bytes, so it has to dedup or HLEN overshoots.
         callback_sig = Mock(name="callback")
         callback_sig.adelay = AsyncMock()
         gid = "gid-async"
@@ -1552,7 +1543,6 @@ class test_RedisBackend_aon_chord_part_return:
                 await self.b.aon_chord_part_return(req0, states.SUCCESS, 10)
                 callback_sig.adelay.assert_not_called()
 
-                # Three redeliveries of tid0 with different results, counter stays at 1.
                 await self.b.aon_chord_part_return(req0, states.SUCCESS, 11)
                 await self.b.aon_chord_part_return(req0, states.SUCCESS, 12)
                 callback_sig.adelay.assert_not_called()
@@ -1582,10 +1572,6 @@ class test_RedisBackend_aon_chord_part_return:
         assert await self.b.aon_chord_part_return(request, states.SUCCESS, 10) is None
 
     async def test_saved_group_header_is_restored_and_joined(self):
-        # A header that mixes a group with a task is saved by apply_chord(),
-        # so the part-return has to read the GroupResult back before joining.
-        # The join runs in a worker thread, so the app backend has to be
-        # visible from there rather than held in the thread-local slot.
         self.app._backend_cache = self.b
         callback_sig = Mock(name="callback")
         callback_sig.adelay = AsyncMock()
