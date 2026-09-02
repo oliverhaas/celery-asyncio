@@ -1,6 +1,6 @@
 """Unit tests for the AMQP transport (aio-pika wrapper).
 
-All aio-pika objects are mocked — no RabbitMQ broker required.
+All aio-pika objects are mocked, so no RabbitMQ broker is required.
 """
 
 import asyncio
@@ -341,7 +341,7 @@ class TestChannelExchange:
     async def test_exchange_delete_not_in_cache(self, channel, aio_channel):
         await channel.exchange_delete("uncached")
         aio_channel.exchange_delete.assert_awaited_once_with("uncached")
-        # No KeyError — pop(default=None) handles it
+        # No KeyError: pop(default=None) handles it
 
 
 class TestChannelQueue:
@@ -416,7 +416,7 @@ class TestChannelQueue:
 
     async def test_queue_bind_default_exchange_skipped(self, channel):
         await channel.queue_bind("q1", "", routing_key="rk")
-        # No error, no action — default exchange bindings are implicit
+        # No error and no action: bindings to the default exchange are implicit
 
     async def test_queue_bind_asks_the_broker_about_an_undeclared_queue(self, channel, aio_channel):
         aio_q = _make_aio_queue("elsewhere")
@@ -702,7 +702,7 @@ class TestChannelPublish:
         assert not aio_msg.headers
 
     async def test_publish_no_properties(self, channel, aio_channel):
-        """Envelope with empty properties — body and content type are correct,
+        """Envelope with empty properties: body and content type are correct,
         no explicit AMQP property fields were set from the envelope."""
         envelope = (
             b'{"body": "plain", "content-type": "text/plain",'
@@ -1843,7 +1843,7 @@ class TestTransport:
         mock_conn.is_closed = True
         await t.close()
 
-        # Connection already closed — close() should not be called
+        # The connection is already closed, so close() must not be called
         mock_conn.close.assert_not_awaited()
 
     @patch("kombu.transport.amqp.aio_pika")
