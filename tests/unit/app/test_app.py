@@ -1501,6 +1501,20 @@ class test_broker_connection_reuse:
 
         assert len(app._async_connections) == 2
 
+    def test_a_closing_loop_hands_its_connection_back(self):
+        # A transport belongs to the loop that opened it, so a loop that
+        # closes with its connection still cached leaves a socket that
+        # nothing can close: one per asyncio.run().
+        app = self._app("t.reuse.loop")
+        connected = []
+
+        with self._counting_connect(connected):
+            asyncio.run(app.asend_task("t.reuse.loop"))
+
+        assert len(connected) == 1
+        assert not connected[0].is_connected
+        assert not app._async_connections
+
     def test_close_hands_the_connection_back(self):
         app = self._app("t.reuse.close")
         app.send_task("t.reuse.close")

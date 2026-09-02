@@ -103,6 +103,11 @@ def _annotation_issubclass(annotation, cls):
     return _annotation_is_class(annotation) and issubclass(annotation, cls)
 
 
+async def _start_generator(generator):
+    """Run `generator` up to its first yield, registering it with the loop."""
+    await anext(generator)
+
+
 def _detect_quorum_queues(app, driver_type: str) -> tuple[bool, str]:
     """Detect if any queues are quorum queues (AMQP only)."""
     if driver_type == "amqp":
@@ -452,6 +457,7 @@ class Celery:
         # belongs to the loop that opened it. Weakly keyed so a loop that goes
         # away takes its connection with it.
         self._async_connections = weakref.WeakKeyDictionary()
+        self._async_connection_guards = weakref.WeakKeyDictionary()
         self._async_connections_lock = threading.Lock()
 
         self.clock = LamportClock()
@@ -1802,7 +1808,38 @@ class Celery:
                 connection = self._async_connections.get(loop)
                 if connection is None:
                     connection = self._async_connections[loop] = self.connection_for_write()
+                    if loop is current_loop():
+                        # The background loop outlives every caller and is
+                        # closed by its runner at exit, so only a loop the
+                        # caller brought needs handing back.
+                        self._close_with_loop(loop, connection)
         return connection
+
+    def _close_with_loop(self, loop, connection):
+        """Close `connection` when `loop` shuts down.
+
+        A loop that closes while its connection is still cached leaves a
+        socket that cannot be closed afterwards: closing is a coroutine and
+        the only loop that could run it is gone. Asyncio has no callback for
+        a loop closing, but a runner closes the async generators it started
+        before it closes the loop, so a generator parked on a `yield` gets to
+        clean up while the loop is still there.
+        """
+
+        async def close_at_loop_shutdown():
+            try:
+                yield
+            finally:
+                if self._async_connections.get(loop) is connection:
+                    del self._async_connections[loop]
+                    del self._async_connection_guards[loop]
+                await connection.close()
+
+        guard = close_at_loop_shutdown()
+        # Held for the loop's lifetime: dropping the last reference to a
+        # suspended generator makes the loop close it right away.
+        self._async_connection_guards[loop] = guard
+        loop.create_task(_start_generator(guard))
 
     async def ensure_async_connection(self):
         """Return this loop's broker connection, connected."""
