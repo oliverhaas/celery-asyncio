@@ -57,15 +57,16 @@ class test_AsyncBackendMixin:
 
     @pytest.fixture
     def backend(self):
-        """Create a mock backend with AsyncBackendMixin methods."""
-        backend = Mock(spec=["get_task_meta", "_ensure_not_eager", "get_key_for_task", "mget", "_mget_to_results"])
-        # Bind mixin methods to the mock
-        backend._poll_interval = AsyncBackendMixin._poll_interval
-        backend.wait_for_pending = AsyncBackendMixin.wait_for_pending.__get__(backend)
-        backend.iter_native = AsyncBackendMixin.iter_native.__get__(backend)
-        backend.add_pending_result = AsyncBackendMixin.add_pending_result.__get__(backend)
-        backend.remove_pending_result = AsyncBackendMixin.remove_pending_result.__get__(backend)
-        return backend
+        """The mixin with its storage hooks mocked out."""
+
+        class _Backend(AsyncBackendMixin):
+            _ensure_not_eager = Mock(name="_ensure_not_eager")
+            get_task_meta = Mock(name="get_task_meta")
+            get_key_for_task = Mock(name="get_key_for_task")
+            mget = Mock(name="mget")
+            _mget_to_results = Mock(name="_mget_to_results")
+
+        return _Backend()
 
     def test_wait_for_pending_immediate_result(self, backend):
         result = Mock()
@@ -176,6 +177,71 @@ class test_AsyncBackendMixin:
 
         assert items == [("task-1", meta)]
         r1._maybe_set_cache.assert_called_once_with(meta)
+
+    def test_wait_for_pending_uses_the_interval_the_caller_asked_for(self, backend):
+        result = Mock()
+        result.id = "task-1"
+        backend.get_task_meta.side_effect = [
+            {"status": "PENDING", "result": None},
+            {"status": "SUCCESS", "result": 42},
+        ]
+
+        with patch("celery.backends.asynchronous.time.sleep") as mock_sleep:
+            backend.wait_for_pending(result, timeout=600, interval=0.25)
+
+        mock_sleep.assert_called_once_with(0.25)
+
+    def test_wait_for_pending_derives_the_interval_without_one(self, backend):
+        result = Mock()
+        result.id = "task-1"
+        backend.get_task_meta.side_effect = [
+            {"status": "PENDING", "result": None},
+            {"status": "SUCCESS", "result": 42},
+        ]
+
+        with patch("celery.backends.asynchronous.time.sleep") as mock_sleep:
+            backend.wait_for_pending(result, timeout=600)
+
+        mock_sleep.assert_called_once_with(10.0)
+
+    def test_wait_for_pending_never_sleeps_past_the_timeout(self, backend):
+        result = Mock()
+        result.id = "task-1"
+        backend.get_task_meta.return_value = {"status": "PENDING", "result": None}
+
+        with patch("celery.backends.asynchronous.time.sleep") as mock_sleep:
+            with pytest.raises(TimeoutError):
+                backend.wait_for_pending(result, timeout=0.05, interval=30)
+
+        assert all(call.args[0] <= 0.05 for call in mock_sleep.call_args_list)
+
+    def test_iter_native_uses_the_interval_the_caller_asked_for(self, backend):
+        r1 = Mock()
+        r1.id = "task-1"
+        del r1._cache
+        result = Mock()
+        result.results = [r1]
+
+        meta = {"status": "SUCCESS", "result": 42}
+        backend._mget_to_results.side_effect = [{}, {"task-1": meta}]
+
+        with patch("celery.backends.asynchronous.time.sleep") as mock_sleep:
+            assert list(backend.iter_native(result, timeout=600, interval=0.25)) == [("task-1", meta)]
+
+        mock_sleep.assert_called_once_with(0.25)
+
+    def test_iter_native_does_not_time_out_once_everything_arrived(self, backend):
+        r1 = Mock()
+        r1.id = "task-1"
+        del r1._cache
+        result = Mock()
+        result.results = [r1]
+
+        meta = {"status": "SUCCESS", "result": 42}
+        backend._mget_to_results.return_value = {"task-1": meta}
+
+        with patch("celery.backends.asynchronous.time.monotonic", side_effect=[0.0, 100.0]):
+            assert list(backend.iter_native(result, timeout=0.001)) == [("task-1", meta)]
 
     def test_add_pending_result_returns_result(self, backend):
         result = Mock()
