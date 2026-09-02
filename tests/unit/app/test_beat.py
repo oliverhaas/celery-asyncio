@@ -951,6 +951,40 @@ class test_Service:
         s.start()
         assert s._is_shutdown.is_set()
 
+    def test_start_releases_stop_when_the_scheduler_cannot_be_built(self):
+        class BrokenScheduler:
+            def __init__(self, *args, **kwargs):
+                raise OSError("cannot open schedule database")
+
+        s = beat.Service(app=self.app, scheduler_cls=BrokenScheduler)
+        with pytest.raises(OSError, match="cannot open schedule database"):
+            s.start()
+        assert s._is_stopped.is_set()
+        assert s._is_shutdown.is_set()
+        # stop() must not block waiting for a service that never started.
+        s.stop(wait=True)
+
+    def test_sync_does_not_build_a_scheduler_that_start_failed_to_build(self):
+        built = []
+
+        class BrokenScheduler:
+            def __init__(self, *args, **kwargs):
+                built.append(1)
+                raise OSError("cannot open schedule database")
+
+        s = beat.Service(app=self.app, scheduler_cls=BrokenScheduler)
+        with pytest.raises(OSError):
+            s.start()
+        assert built == [1]
+
+    def test_start_releases_stop_when_ticking_fails(self):
+        s, sh = self.get_service()
+        s.scheduler.tick = Mock(side_effect=RuntimeError("broker gone"))
+        with pytest.raises(RuntimeError, match="broker gone"):
+            s.start()
+        assert s._is_stopped.is_set()
+        assert sh.closed
+
 
 class test_EmbeddedService:
     def test_start_stop_threaded(self):

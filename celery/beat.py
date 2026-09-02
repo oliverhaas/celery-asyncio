@@ -629,28 +629,37 @@ class Service:
 
     def start(self, embedded_process=False):
         info("beat: Starting...")
-        debug("beat: Ticking with max interval->%s", humanize_seconds(self.scheduler.max_interval))
-
-        signals.beat_init.send(sender=self)
-        if embedded_process:
-            signals.beat_embedded_init.send(sender=self)
-            platforms.set_process_title("celery beat")
-
         try:
+            scheduler = self.scheduler
+            debug("beat: Ticking with max interval->%s", humanize_seconds(scheduler.max_interval))
+
+            signals.beat_init.send(sender=self)
+            if embedded_process:
+                signals.beat_embedded_init.send(sender=self)
+                platforms.set_process_title("celery beat")
+
             while not self._is_shutdown.is_set():
-                interval = self.scheduler.tick()
+                interval = scheduler.tick()
                 if interval and interval > 0.0:
                     debug("beat: Waking up %s.", humanize_seconds(interval, prefix="in "))
                     time.sleep(interval)
-                    if self.scheduler.should_sync():
-                        self.scheduler._do_sync()
+                    if scheduler.should_sync():
+                        scheduler._do_sync()
         except KeyboardInterrupt, SystemExit:
-            self._is_shutdown.set()
+            pass
         finally:
-            self.sync()
+            self._is_shutdown.set()
+            try:
+                self.sync()
+            finally:
+                self._is_stopped.set()
 
     def sync(self):
-        self.scheduler.close()
+        # scheduler is a cached_property, and start() may have failed while
+        # building it.  Closing must not build a second one.
+        scheduler = self.__dict__.get("scheduler")
+        if scheduler is not None:
+            scheduler.close()
         self._is_stopped.set()
 
     def stop(self, wait=False):
@@ -685,7 +694,11 @@ class _Threaded(Thread):
 
     def run(self):
         self.app.set_current()
-        self.service.start()
+        try:
+            self.service.start()
+        except Exception as exc:
+            error("beat: Embedded scheduler raised %s: %r", exc.__class__, exc, exc_info=True)
+            raise
 
     def stop(self):
         self.service.stop(wait=True)
