@@ -76,6 +76,7 @@ nav:
       - Architecture: user-guide/architecture.md
       - Async Tasks: user-guide/async-tasks.md
       - Configuration: user-guide/configuration.md
+      - Testing: user-guide/testing.md
       - Django Integration: user-guide/django.md
   - API Reference:
       - Application: reference/app.md
