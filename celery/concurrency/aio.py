@@ -19,6 +19,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as wait_for_futures
 from threading import Lock
 from typing import Any
 
@@ -33,28 +34,71 @@ logger = get_logger("celery.pool")
 
 
 class ApplyResult:
-    """Wrapper around a Future that provides a .get() method."""
+    """Handle for a sync task running in the thread pool."""
 
-    def __init__(self, future: Future | asyncio.Task | None) -> None:
+    def __init__(self, future: Future) -> None:
         self.f = future
 
     def get(self, timeout: float | None = None) -> Any:
-        if isinstance(self.f, Future):
-            return self.f.result(timeout)
-        return None
+        return self.f.result(timeout)
 
     def wait(self, timeout: float | None = None) -> None:
-        if isinstance(self.f, Future):
-            from concurrent.futures import wait
-
-            wait([self.f], timeout)
+        wait_for_futures([self.f], timeout)
 
     def cancel(self) -> None:
-        if self.f is not None:
-            self.f.cancel()
+        self.f.cancel()
 
-    def terminate(self, signal=None) -> None:
+    def terminate(self, signal: Any = None) -> None:
         self.cancel()
+
+
+class AsyncApplyResult:
+    """Handle for an async task dispatched to a loop worker.
+
+    ``terminate()`` may be called from any thread and cancels the asyncio
+    task on the loop that runs it, including before that task exists: a job
+    terminated between dispatch and scheduling is cancelled as soon as it is
+    attached.
+    """
+
+    def __init__(self, worker: LoopWorker, job_id: str, on_done: Callable[[AsyncApplyResult], None]) -> None:
+        self.id = job_id
+        self._worker = worker
+        self._on_done = on_done
+        self._mutex = Lock()
+        self._task: asyncio.Task | None = None
+        self._terminated = False
+
+    def attach(self, task: asyncio.Task) -> None:
+        """Bind the asyncio task running this job (called on the loop thread).
+
+        The done callback is what keeps the handle alive: the request holds
+        only a weak reference to it, and it has to stay resolvable for as
+        long as the job can still be cancelled.
+        """
+        with self._mutex:
+            self._task = task
+            terminated = self._terminated
+        task.add_done_callback(self._release)
+        if terminated:
+            task.cancel()
+
+    def _release(self, task: asyncio.Task) -> None:
+        with self._mutex:
+            self._task = None
+        self._on_done(self)
+
+    def cancel(self) -> None:
+        self.terminate()
+
+    def terminate(self, signal: Any = None) -> None:
+        with self._mutex:
+            if self._terminated:
+                return
+            self._terminated = True
+            task = self._task
+        if task is not None:
+            self._worker.cancel_task(task)
 
 
 class LoopWorker:
@@ -107,7 +151,7 @@ class LoopWorker:
                 self._loop.close()
                 signals.worker_process_shutdown.send(sender=None, pid=os.getpid(), exitcode=exitcode)
 
-    def submit(self, coro_factory: Callable, *args: Any) -> None:
+    def submit(self, coro_factory: Callable, *args: Any, job: AsyncApplyResult | None = None) -> None:
         """Submit a coroutine to this loop worker (thread-safe).
 
         The coroutine will be wrapped with the semaphore to limit
@@ -121,21 +165,37 @@ class LoopWorker:
         # We need to create the coroutine from inside the target loop.
         # call_soon_threadsafe schedules a regular callback, so we
         # use it to create_task the semaphore-wrapped coroutine.
-        loop.call_soon_threadsafe(self._schedule_task, coro_factory, args)
+        loop.call_soon_threadsafe(self._schedule_task, coro_factory, args, job)
 
-    def _schedule_task(self, coro_factory: Callable, args: tuple) -> None:
+    def _schedule_task(self, coro_factory: Callable, args: tuple, job: AsyncApplyResult | None) -> None:
         loop = asyncio.get_running_loop()
         task = loop.create_task(self._run_with_semaphore(coro_factory, args))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        if job is not None:
+            job.attach(task)
 
     async def _run_with_semaphore(self, coro_factory: Callable, args: tuple) -> None:
-        async with self._semaphore:
-            try:
+        try:
+            async with self._semaphore:
                 await coro_factory(*args)
-            finally:
-                with self._active_count_lock:
-                    self._active_count -= 1
+        finally:
+            # Outside the semaphore block: a job cancelled while queued never
+            # enters it, and its slot would be counted as busy forever.
+            with self._active_count_lock:
+                self._active_count -= 1
+
+    def cancel_task(self, task: asyncio.Task) -> None:
+        """Cancel a task running on this loop from any thread."""
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        try:
+            loop.call_soon_threadsafe(task.cancel)
+        except RuntimeError:
+            # The loop closed between the check and the call, which takes
+            # every task on it down anyway.
+            logger.debug("Loop worker %s stopped before a job could be cancelled", self._index)
 
     def cancel_all(self) -> None:
         for task in list(self._tasks):
@@ -262,6 +322,8 @@ class TaskPool(BasePool):
         self._loop_workers: list[LoopWorker] = []
         self._executor: ThreadPoolExecutor | None = None
         self._active_futures: set[Future] = set()
+        self._async_jobs: dict[str, AsyncApplyResult] = {}
+        self._async_jobs_lock = Lock()
         self._stuck_thread_count = 0
         self._stuck_lock = Lock()
         self._accept_content: set | None = None
@@ -288,6 +350,8 @@ class TaskPool(BasePool):
         for w in self._loop_workers:
             w.stop()
         self._loop_workers.clear()
+        with self._async_jobs_lock:
+            self._async_jobs.clear()
         if self._executor:
             self._executor.shutdown(wait=True, cancel_futures=True)
             self._executor = None
@@ -295,6 +359,22 @@ class TaskPool(BasePool):
     def restart(self) -> None:
         self.on_stop()
         self.on_start()
+
+    def terminate_job(self, job_id: str, signal: Any = None) -> None:
+        """Cancel a running async task.
+
+        Sync tasks run in a thread pool and cannot be interrupted, so a job
+        that is not an async one is left to finish.
+        """
+        with self._async_jobs_lock:
+            job = self._async_jobs.get(job_id)
+        if job is not None:
+            job.terminate(signal)
+
+    def _forget_async_job(self, job: AsyncApplyResult) -> None:
+        with self._async_jobs_lock:
+            if self._async_jobs.get(job.id) is job:
+                del self._async_jobs[job.id]
 
     def _is_async_task(self, args: tuple) -> bool:
         if self.app and args:
@@ -321,12 +401,15 @@ class TaskPool(BasePool):
         soft_timeout: float | None = None,
         timeout: float | None = None,
         **options: Any,
-    ) -> ApplyResult:
-        args = args or ()
+    ) -> ApplyResult | AsyncApplyResult:
+        args = tuple(args or ())
         kwargs = kwargs or {}
 
         if self._is_async_task(args) and self._loop_workers:
             worker = self._pick_loop_worker()
+            job = AsyncApplyResult(worker, args[1], self._forget_async_job)
+            with self._async_jobs_lock:
+                self._async_jobs[job.id] = job
             worker.submit(
                 self._run_async_task,
                 args,
@@ -336,8 +419,9 @@ class TaskPool(BasePool):
                 error_callback,
                 soft_timeout,
                 timeout,
+                job=job,
             )
-            return ApplyResult(None)
+            return job
         else:
             return self._apply_sync_task(
                 target,

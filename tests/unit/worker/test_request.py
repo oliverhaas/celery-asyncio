@@ -609,7 +609,7 @@ class test_Request(RequestCase):
             job.time_start = monotonic()
             job.worker_pid = 313
             job.terminate(pool, signal="TERM")
-            pool.terminate_job.assert_called_with(job.worker_pid, signum)
+            pool.terminate_job.assert_called_with(job.id, signum)
 
     def test_cancel__pool_ref(self):
         pool = Mock()
@@ -804,7 +804,7 @@ class test_Request(RequestCase):
             job.terminate(pool, signal="TERM")
             assert not pool.terminate_job.call_count
             job.on_accepted(pid=314, time_accepted=monotonic())
-            pool.terminate_job.assert_called_with(314, signum)
+            pool.terminate_job.assert_called_with(job.id, signum)
 
     def test_on_accepted_time_start(self):
         job = self.xRequest()

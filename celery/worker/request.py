@@ -463,7 +463,7 @@ class Request:
         signal = _signals.signum(signal or TERM_SIGNAME)
         if self.time_start:
             try:
-                pool.terminate_job(self.worker_pid, signal)
+                pool.terminate_job(self.id, signal)
             except NotImplementedError:
                 pass
             self._announce_revoked("terminated", True, signal, False)
@@ -478,7 +478,7 @@ class Request:
         signal = _signals.signum(signal or TERM_SIGNAME)
         if self.time_start:
             try:
-                pool.terminate_job(self.worker_pid, signal)
+                pool.terminate_job(self.id, signal)
             except NotImplementedError:
                 pass
             self._announce_cancelled(emit_retry=emit_retry)

@@ -114,8 +114,8 @@ class BasePool:
     def maintain_pool(self, *args, **kwargs):
         pass
 
-    def terminate_job(self, pid, signal=None):
-        raise NotImplementedError(f"{type(self)} does not implement kill_job")
+    def terminate_job(self, job_id, signal=None):
+        raise NotImplementedError(f"{type(self)} does not implement terminate_job")
 
     def restart(self):
         raise NotImplementedError(f"{type(self)} does not implement restart")

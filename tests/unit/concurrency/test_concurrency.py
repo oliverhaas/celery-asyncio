@@ -12,9 +12,9 @@ import pytest
 
 from celery import concurrency, signals, states
 from celery.app.trace import trace_task_ret
-from celery.concurrency.aio import ApplyResult, LoopWorker, SyncSoftTimeout, TaskPool
+from celery.concurrency.aio import ApplyResult, AsyncApplyResult, LoopWorker, SyncSoftTimeout, TaskPool
 from celery.concurrency.base import BasePool, apply_target
-from celery.exceptions import SoftTimeLimitExceeded, WorkerShutdown, WorkerTerminate
+from celery.exceptions import SoftTimeLimitExceeded, Terminated, WorkerShutdown, WorkerTerminate
 from celery.utils import uuid
 from celery.worker.request import Request
 
@@ -571,6 +571,70 @@ class test_async_task_failures(AioPoolCase):
         assert any("the result backend is gone" in r.getMessage() for r in caplog.records)
 
 
+class test_async_task_termination(AioPoolCase):
+    def _long_task(self, name):
+        """Register an async task that reports how it ended."""
+        marks = {"started": threading.Event(), "cancelled": threading.Event(), "completed": threading.Event()}
+
+        @self.app.task(name=name, shared=False)
+        async def long_one():
+            marks["started"].set()
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                marks["cancelled"].set()
+                raise
+            marks["completed"].set()
+            return "finished"
+
+        return marks
+
+    def test_terminate_job_cancels_the_running_coroutine(self):
+        marks = self._long_task("aio.terminate_me")
+        pool = self.start_pool()
+        rec = Recorder()
+        task_id = self.apply(pool, "aio.terminate_me", rec)
+        assert marks["started"].wait(10)
+
+        pool.terminate_job(task_id)
+
+        assert rec.done.wait(10)
+        assert marks["cancelled"].is_set()
+        assert not marks["completed"].is_set()
+        assert rec.results == []
+        assert isinstance(rec.failure, Terminated)
+
+    def test_revoked_task_is_not_overwritten_by_its_own_result(self):
+        marks = self._long_task("aio.revoke_me")
+        pool = self.start_pool()
+        message = self.TaskMessage("aio.revoke_me", args=(), kwargs={})
+        req = Request(message, app=self.app, on_ack=Mock(), on_reject=Mock())
+        req.execute_using_pool(pool)
+        assert marks["started"].wait(10)
+
+        req.terminate(pool)
+
+        assert marks["cancelled"].wait(10)
+        assert wait_until(lambda: not pool._async_jobs)
+        assert not marks["completed"].is_set()
+        assert self.meta(req.id)["status"] == states.REVOKED
+
+    def test_cancelling_on_connection_loss_stops_the_coroutine(self):
+        marks = self._long_task("aio.cancel_me")
+        pool = self.start_pool()
+        message = self.TaskMessage("aio.cancel_me", args=(), kwargs={})
+        req = Request(message, app=self.app, on_ack=Mock(), on_reject=Mock())
+        req.execute_using_pool(pool)
+        assert marks["started"].wait(10)
+
+        req.cancel(pool)
+
+        assert marks["cancelled"].wait(10)
+        assert wait_until(lambda: not pool._async_jobs)
+        assert not marks["completed"].is_set()
+        assert self.meta(req.id)["status"] == states.RETRY
+
+
 class test_sync_task_time_limits(AioPoolCase):
     def test_a_soft_limit_is_raised_inside_the_task(self):
         @self.app.task(name="sync.soft_limit", shared=False)
@@ -680,6 +744,51 @@ class test_SyncSoftTimeout:
         with pytest.raises(KeyError):
             guarded()
         assert soft.fire(SoftTimeLimitExceeded) is False
+
+
+class test_AsyncApplyResult:
+    def test_terminate_cancels_on_the_owning_loop(self):
+        worker = Mock(name="worker")
+        job = AsyncApplyResult(worker, "job-id", Mock(name="on_done"))
+        task = Mock(name="task")
+        job.attach(task)
+
+        job.terminate()
+
+        worker.cancel_task.assert_called_once_with(task)
+        task.cancel.assert_not_called()
+
+    def test_a_job_terminated_before_it_starts_is_cancelled_on_arrival(self):
+        worker = Mock(name="worker")
+        job = AsyncApplyResult(worker, "job-id", Mock(name="on_done"))
+        job.terminate()
+
+        task = Mock(name="task")
+        job.attach(task)
+
+        task.cancel.assert_called_once_with()
+
+    def test_terminating_twice_cancels_once(self):
+        worker = Mock(name="worker")
+        job = AsyncApplyResult(worker, "job-id", Mock(name="on_done"))
+        task = Mock(name="task")
+        job.attach(task)
+
+        job.terminate()
+        job.cancel()
+
+        assert worker.cancel_task.call_count == 1
+
+    def test_the_finished_task_is_handed_back(self):
+        on_done = Mock(name="on_done")
+        job = AsyncApplyResult(Mock(name="worker"), "job-id", on_done)
+        task = Mock(name="task")
+        job.attach(task)
+
+        task.add_done_callback.call_args[0][0](task)
+
+        on_done.assert_called_once_with(job)
+        assert job._task is None
 
 
 class test_process_signals:
