@@ -950,21 +950,24 @@ class Channel:
 
         now = time()
 
-        # Native delayed delivery (only for delays > requeue interval)
-        eta_timestamp: float | None = props.get("eta")
-        is_native_delayed = eta_timestamp is not None and (float(eta_timestamp) - now) > self._requeue_check_interval
-        if is_native_delayed:
-            eta_timestamp = float(eta_timestamp)  # type: ignore[arg-type]
-        visible_at = eta_timestamp if is_native_delayed else now
+        raw_eta = props.get("eta")
+        eta_timestamp = None if raw_eta is None else float(raw_eta)
 
-        queue_score = _queue_score(priority, visible_at)
         # queue_at is when the sweep picks this message up. Its threshold
         # reaches one check interval into the future so that nothing falls due
         # between two runs, so both branches carry that same margin. Without it
         # on the delayed branch the message is enqueued, and delivered, up to a
         # full check interval before its eta.
-        visible_from = eta_timestamp if is_native_delayed else now + self._visibility_timeout
-        queue_at = visible_from + self._requeue_check_interval  # type: ignore[operator]
+        if eta_timestamp is not None and eta_timestamp - now > self._requeue_check_interval:
+            # Native delayed delivery, for delays longer than the sweep interval.
+            is_native_delayed = True
+            visible_at = visible_from = eta_timestamp
+        else:
+            is_native_delayed = False
+            visible_at = now
+            visible_from = now + self._visibility_timeout
+        queue_score = _queue_score(priority, visible_at)
+        queue_at = visible_from + self._requeue_check_interval
 
         message_key = self._message_key(delivery_tag)
         index_key = self._messages_index_key(queue)
