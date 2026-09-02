@@ -235,9 +235,8 @@ def pydantic_wrapper(
         # Fall back to raw annotations from inspect if get_type_hints fails
         type_hints = None
 
-    @functools.wraps(task_fun)
-    def wrapper(*task_args, **task_kwargs):
-        # Validate task parameters if type hinted as BaseModel
+    def validate(task_args, task_kwargs):
+        """Convert the arguments type hinted as a BaseModel into one."""
         bound_args = task_signature.bind(*task_args, **task_kwargs)
         for arg_name, arg_value in bound_args.arguments.items():
             if type_hints and arg_name in type_hints:
@@ -255,12 +254,10 @@ def pydantic_wrapper(
                     strict=strict,
                     context={**context, "celery_app": app, "celery_task_name": task_name},
                 )
+        return bound_args
 
-        # Call the task with (potentially) converted arguments
-        returned_value = task_fun(*bound_args.args, **bound_args.kwargs)
-
-        # Dump Pydantic model if the returned value is an instance of pydantic.BaseModel *and* its
-        # class matches the typehint
+    def dump(returned_value):
+        """Dump the returned model if its class matches the type hint."""
         if type_hints and "return" in type_hints:
             return_annotation = type_hints["return"]
         else:
@@ -278,6 +275,22 @@ def pydantic_wrapper(
             return returned_value.model_dump(**dump_kwargs)
 
         return returned_value
+
+    if inspect.iscoroutinefunction(task_fun):
+        # A sync wrapper around an async body would hand `arun` a plain
+        # function returning a coroutine, and the un-awaited coroutine would be
+        # stored as the task result.
+        @functools.wraps(task_fun)
+        async def wrapper(*task_args, **task_kwargs):
+            bound_args = validate(task_args, task_kwargs)
+            return dump(await task_fun(*bound_args.args, **bound_args.kwargs))
+
+    else:
+
+        @functools.wraps(task_fun)
+        def wrapper(*task_args, **task_kwargs):
+            bound_args = validate(task_args, task_kwargs)
+            return dump(task_fun(*bound_args.args, **bound_args.kwargs))
 
     return wrapper
 

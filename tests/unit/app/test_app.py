@@ -9,7 +9,7 @@ import uuid
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pickle import dumps, loads
-from unittest.mock import DEFAULT, Mock, patch
+from unittest.mock import DEFAULT, Mock, call, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -754,6 +754,27 @@ class test_App:
 
             assert task({"value": 1}) == {"value": datetime(2024, 5, 14, tzinfo=timezone.utc)}
             check.assert_called_once_with(ArgModel(value=1))
+
+    async def test_task_with_pydantic_with_async_task(self):
+        """An async pydantic task validates and dumps around the awaited body."""
+
+        class ArgModel(BaseModel):
+            value: int
+
+        class RetModel(BaseModel):
+            value: int
+
+        with self.Celery() as app:
+            check = Mock()
+
+            @app.task(pydantic=True)
+            async def task(arg: ArgModel) -> RetModel:
+                check(arg)
+                return RetModel(value=arg.value + 1)
+
+            assert await task.arun({"value": 1}) == {"value": 2}
+            assert await task({"value": 2}) == {"value": 3}
+            assert check.call_args_list == [call(ArgModel(value=1)), call(ArgModel(value=2))]
 
     def test_task_with_pydantic_with_pydantic_not_installed(self):
         """Test configuring a task with Pydantic when pydantic is not installed."""
