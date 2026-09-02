@@ -30,6 +30,7 @@ def apply_target(
     getpid=os.getpid,
     propagate=(),
     monotonic=time.monotonic,
+    error_callback=None,
     **_,
 ):
     """Apply function within pool context."""
@@ -48,7 +49,10 @@ def apply_target(
         try:
             reraise(WorkerLostError, WorkerLostError(repr(exc)), sys.exc_info()[2])
         except WorkerLostError:
-            callback(ExceptionInfo())
+            # A task that killed its worker never reached the tracer's own
+            # error handling, so it goes to the failure callback rather than
+            # to the one expecting a traced result.
+            (error_callback or callback)(ExceptionInfo())
     else:
         callback(ret)
 
@@ -73,7 +77,7 @@ class BasePool:
     task_join_will_block = True
     body_can_be_buffer = False
 
-    def __init__(self, limit=None, putlocks=True, callbacks_propagate=(), app=None, **options):
+    def __init__(self, limit=None, putlocks=True, callbacks_propagate=(), app: Any = None, **options):
         self.limit = limit
         self.putlocks = putlocks
         self.options = options

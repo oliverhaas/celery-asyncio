@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import threading
 import time
@@ -15,6 +16,19 @@ from celery.concurrency.aio import ApplyResult, LoopWorker, SyncSoftTimeout, Tas
 from celery.concurrency.base import BasePool, apply_target
 from celery.exceptions import SoftTimeLimitExceeded, WorkerShutdown, WorkerTerminate
 from celery.utils import uuid
+from celery.worker.request import Request
+
+
+def report_when_done(handler, done):
+    """Wrap a request handler so a test can wait for it to have run."""
+
+    def wrapper(*args, **kwargs):
+        try:
+            return handler(*args, **kwargs)
+        finally:
+            done.set()
+
+    return wrapper
 
 
 def wait_until(predicate, timeout=10.0):
@@ -511,6 +525,50 @@ class test_TaskPool:
         assert info["loop-concurrency"] == 5
         assert info["sync-workers"] == 3
         assert info["loop-active"] == [1, 2]
+
+
+class test_async_task_failures(AioPoolCase):
+    def test_an_error_outside_the_tracer_goes_to_the_error_callback(self):
+        @self.app.task(name="aio.escaping", shared=False)
+        async def escaping():
+            return 1
+
+        async def broken_tracer(*args, **kwargs):
+            raise RuntimeError("the result backend is gone")
+
+        escaping.__async_trace__ = broken_tracer
+
+        pool = self.start_pool()
+        rec = Recorder()
+        self.apply(pool, "aio.escaping", rec)
+        assert rec.done.wait(10)
+        assert rec.results == []
+        assert isinstance(rec.failure, RuntimeError)
+
+    def test_an_error_outside_the_tracer_fails_the_request(self, caplog):
+        @self.app.task(name="aio.escaping_request", shared=False)
+        async def escaping():
+            return 1
+
+        async def broken_tracer(*args, **kwargs):
+            raise RuntimeError("the result backend is gone")
+
+        escaping.__async_trace__ = broken_tracer
+
+        pool = self.start_pool()
+        message = self.TaskMessage("aio.escaping_request", args=(), kwargs={})
+        req = Request(message, app=self.app, on_ack=Mock(), on_reject=Mock())
+        reported = threading.Event()
+        req.on_failure = report_when_done(req.on_failure, reported)
+        with caplog.at_level(logging.ERROR):
+            with collect_signal(signals.task_failure) as failures:
+                req.execute_using_pool(pool)
+                assert reported.wait(10)
+
+        assert self.meta(req.id)["status"] == states.FAILURE
+        assert isinstance(self.meta(req.id)["result"], RuntimeError)
+        assert [f["task_id"] for f in failures] == [req.id]
+        assert any("the result backend is gone" in r.getMessage() for r in caplog.records)
 
 
 class test_sync_task_time_limits(AioPoolCase):

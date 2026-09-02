@@ -317,6 +317,7 @@ class TaskPool(BasePool):
         callback: Callable | None = None,
         accept_callback: Callable | None = None,
         timeout_callback: Callable | None = None,
+        error_callback: Callable | None = None,
         soft_timeout: float | None = None,
         timeout: float | None = None,
         **options: Any,
@@ -328,12 +329,11 @@ class TaskPool(BasePool):
             worker = self._pick_loop_worker()
             worker.submit(
                 self._run_async_task,
-                target,
                 args,
-                kwargs,
                 callback,
                 accept_callback,
                 timeout_callback,
+                error_callback,
                 soft_timeout,
                 timeout,
             )
@@ -345,6 +345,7 @@ class TaskPool(BasePool):
                 kwargs,
                 callback,
                 accept_callback,
+                error_callback=error_callback,
                 timeout_callback=timeout_callback,
                 soft_timeout=soft_timeout,
                 timeout=timeout,
@@ -353,12 +354,11 @@ class TaskPool(BasePool):
 
     async def _run_async_task(
         self,
-        target: Callable,
         args: tuple,
-        kwargs: dict,
         callback: Callable | None,
         accept_callback: Callable | None,
         timeout_callback: Callable | None = None,
+        error_callback: Callable | None = None,
         soft_timeout: float | None = None,
         timeout: float | None = None,
     ) -> None:
@@ -380,7 +380,7 @@ class TaskPool(BasePool):
             if content_type:
                 accept = self._accept_content
                 if accept is None:
-                    accept = self._accept_content = prepare_accept_content(app.conf.accept_content)  # ty: ignore[unresolved-attribute]
+                    accept = self._accept_content = prepare_accept_content(app.conf.accept_content)
                 task_args, task_kwargs, embed = loads_message(
                     body,
                     content_type,
@@ -400,7 +400,7 @@ class TaskPool(BasePool):
                 **(embed or {}),
             )
 
-            task_obj = app.tasks[task_name]  # ty: ignore[unresolved-attribute]
+            task_obj = app.tasks[task_name]
 
             # The async tracer is built once per task type at consumer startup
             # (see update_strategies). Fall back to building it lazily for paths
@@ -425,7 +425,7 @@ class TaskPool(BasePool):
             )
 
             # The tracer always returns a 4-tuple, so None means the hard
-            # timeout fired -- on_timeout has already reported the failure.
+            # timeout fired and on_timeout has already reported it.
             if tracer_result is None:
                 return
 
@@ -437,17 +437,39 @@ class TaskPool(BasePool):
         except asyncio.CancelledError:
             from celery.exceptions import ExceptionInfo, Terminated
 
-            if callback:
-                exc = Terminated("cancelled")
-                callback((1, ExceptionInfo((type(exc), exc, None)), 0))
+            exc = Terminated("cancelled")
+            self._report_failure(uuid, error_callback, ExceptionInfo((type(exc), exc, None)))
             # Report, then let the cancellation carry on outwards: swallowing it
             # here leaves the task looking like it completed and stalls shutdown.
             raise
         except Exception:
             from celery.exceptions import ExceptionInfo
 
-            if callback:
-                callback((1, ExceptionInfo(), 0))
+            self._report_failure(uuid, error_callback, ExceptionInfo())
+
+    def _report_failure(self, uuid: str | None, error_callback: Callable | None, exc_info: Any) -> None:
+        """Report a failure the tracer did not report itself.
+
+        The tracer stores, logs and signals everything the task body raises,
+        so whatever arrives here escaped it and is an internal error. The
+        error callback is the request's ``on_failure``, which records
+        FAILURE, sends ``task_failure`` and logs the traceback.
+        """
+        if error_callback is None:
+            logger.error(
+                "Task %s raised %r outside the tracer",
+                uuid,
+                exc_info.exception,
+                exc_info=exc_info.exc_info,
+            )
+            return
+        try:
+            error_callback(exc_info)
+        except Exception:
+            # This is the last place that can say anything about the task;
+            # an error raised here would otherwise be left in a result
+            # nobody reads.
+            logger.exception("Failed to report the failure of task %s", uuid)
 
     async def _run_tracer_with_timeouts(
         self,
@@ -520,13 +542,12 @@ class TaskPool(BasePool):
         kwargs: dict,
         callback: Callable | None,
         accept_callback: Callable | None,
+        error_callback: Callable | None = None,
         timeout_callback: Callable | None = None,
         soft_timeout: float | None = None,
         timeout: float | None = None,
         **options: Any,
     ) -> ApplyResult:
-        app = self.app
-
         # Shared state so the soft timeout timer can find the thread.
         soft_state = SyncSoftTimeout() if soft_timeout else None
 
@@ -534,12 +555,12 @@ class TaskPool(BasePool):
             raise RuntimeError("pool has not been started")
         f = self._executor.submit(
             self._run_in_thread,
-            app,
             target,
             args,
             kwargs,
             callback,
             accept_callback,
+            error_callback,
             soft_state,
         )
         self._active_futures.add(f)
@@ -600,22 +621,30 @@ class TaskPool(BasePool):
         # after the task has already finished.
         future.add_done_callback(lambda _: timer.cancel())
 
-    @staticmethod
     def _run_in_thread(
-        app: Any,
+        self,
         target: Callable,
         args: tuple,
         kwargs: dict,
         callback: Callable | None,
         accept_callback: Callable | None,
+        error_callback: Callable | None = None,
         soft_state: SyncSoftTimeout | None = None,
     ) -> Any:
-        app.set_current()
+        from celery.exceptions import ExceptionInfo
+
+        self.app.set_current()
         if soft_state is not None:
             soft_state.start(threading.get_ident())
             target = soft_state.guard(target)
+        uuid = args[1] if len(args) > 1 else None
         try:
-            return apply_target(target, args, kwargs, callback, accept_callback)
+            return apply_target(target, args, kwargs, callback, accept_callback, error_callback=error_callback)
+        except Exception:
+            # Nothing reads the future, so an exception that escapes the
+            # tracer is only reported if it is reported from here.
+            self._report_failure(uuid, error_callback, ExceptionInfo())
+            return None
         finally:
             if soft_state is not None:
                 soft_state.finish()
