@@ -1449,8 +1449,25 @@ class EagerResult(AsyncResult):
     def forget(self):
         pass
 
+    async def aforget(self):
+        """Async version of :meth:`forget`.
+
+        An eager result was never stored in a backend, so there is nothing to
+        remove. Without this override :meth:`AsyncResult.aforget` would try to
+        clear the read-only ``_cache`` property and talk to a backend that is
+        not there.
+        """
+
     def revoke(self, *args, **kwargs):
         self._state = states.REVOKED
+
+    async def arevoke(self, *args, **kwargs):
+        """Async version of :meth:`revoke`.
+
+        The task already ran in this process, so the state is flipped locally
+        instead of broadcasting a revoke to workers.
+        """
+        self.revoke(*args, **kwargs)
 
     def __repr__(self):
         return f"<EagerResult: {self.id}>"

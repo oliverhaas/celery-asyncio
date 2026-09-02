@@ -997,12 +997,30 @@ class test_EagerResult:
         assert await res.aget() == 42
 
     def test_forget(self):
-        res = EagerResult("x", "x", states.RETRY)
+        res = EagerResult("x", "x", states.SUCCESS)
         res.forget()
+        assert res.get() == "x"
+
+    async def test_aforget_keeps_the_result_readable(self):
+        res = EagerResult("x", 42, states.SUCCESS)
+
+        await res.aforget()
+
+        assert await res.aget() == 42
 
     def test_revoke(self):
         res = self.raising.apply(args=[3, 3])
         assert not res.revoke()
+        assert res.state == states.REVOKED
+
+    async def test_arevoke_marks_the_result_revoked_without_asking_workers(self):
+        res = self.raising.apply(args=[3, 3])
+
+        with patch.object(self.app, "control") as control:
+            await res.arevoke()
+
+        control.revoke.assert_not_called()
+        assert res.state == states.REVOKED
 
     @patch("celery.result.task_join_will_block")
     def test_get_sync_subtask_option(self, task_join_will_block):
