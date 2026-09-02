@@ -178,6 +178,7 @@ class ConsumerMixin:
         consuming messages and handling connection errors.
         """
         restart_limit = self.restart_limit
+        errors = self.connection.connection_errors + self.connection.channel_errors
 
         while not self.should_stop:
             try:
@@ -186,9 +187,10 @@ class ConsumerMixin:
                         pass
                 else:
                     await asyncio.sleep(restart_limit.expected_time(_tokens))
-            except Exception:
+            except errors:
+                # Only the broker going away is worth starting over for. The
+                # rate limiter above is what keeps that from spinning.
                 warn(W_CONN_LOST, exc_info=1)
-                await asyncio.sleep(1.0)  # Brief pause before retry
 
     @asynccontextmanager
     async def consumer_context(self, **kwargs: Any):
@@ -273,6 +275,7 @@ class ConsumerMixin:
                 Consumer,
                 conn,
                 channel=channel,
+                on_decode_error=self.on_decode_error,
             )
 
             consumers = self.get_consumers(ConsumerFactory, channel)
