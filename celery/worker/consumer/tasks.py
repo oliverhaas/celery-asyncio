@@ -49,7 +49,9 @@ class Tasks(bootsteps.StartStopStep):
             debug("Canceling task consumer...")
             try:
                 await c.task_consumer.cancel()
-            except Exception:
+            except (OSError, *c.connection_errors, *c.channel_errors):
+                # A broker that is already gone cannot be told to stop
+                # sending, which is what stopping the consumer is for.
                 logger.debug("Error cancelling task consumer", exc_info=True)
 
     async def shutdown(self, c):
@@ -59,7 +61,7 @@ class Tasks(bootsteps.StartStopStep):
             debug("Closing consumer channel...")
             try:
                 await c.task_consumer.close()
-            except Exception:
+            except (OSError, *c.connection_errors, *c.channel_errors):
                 logger.debug("Error closing task consumer", exc_info=True)
             c.task_consumer = None
 

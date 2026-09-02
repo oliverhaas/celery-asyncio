@@ -5,6 +5,7 @@ The old Hub-based asynloop and blocking synloop are removed.
 """
 
 import asyncio
+import sys
 import time
 
 from celery.bootsteps import RUN
@@ -28,12 +29,9 @@ _restart_registered = False
 
 
 def _get_rss_kib() -> int:
-    """Return current process RSS in KiB (best effort).
-
-    Uses /proc/self/status on Linux (accurate current RSS).
-    Falls back to resource.getrusage ru_maxrss which is *peak* RSS
-    (high-water mark), so the fallback may over-estimate.
-    """
+    """Return the current process RSS in KiB, or 0 where it cannot be read."""
+    # /proc/self/status is the current RSS. The getrusage fallback below is
+    # the high-water mark, so off procfs this over-estimates.
     try:
         with open("/proc/self/status") as f:
             for line in f:
@@ -43,14 +41,12 @@ def _get_rss_kib() -> int:
         pass
     try:
         import resource
-        import sys
-
-        rusage = resource.getrusage(resource.RUSAGE_SELF)
-        if sys.platform == "darwin":
-            return rusage.ru_maxrss // 1024  # bytes -> KiB (peak RSS)
-        return rusage.ru_maxrss  # KiB on Linux (peak RSS)
-    except Exception:
+    except ImportError:
         return 0
+    rusage = resource.getrusage(resource.RUSAGE_SELF)
+    if sys.platform == "darwin":
+        return rusage.ru_maxrss // 1024  # bytes -> KiB
+    return rusage.ru_maxrss  # KiB on Linux
 
 
 def _trigger_restart(reason: str) -> None:

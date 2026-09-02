@@ -72,6 +72,29 @@ class test_Pidbox:
         await pbox.stop(parent)
         pconsumer.cancel.assert_awaited_once()
 
+    async def test_stop_lets_go_of_a_consumer_on_a_dead_channel(self):
+        parent = Mock()
+        parent.connection_errors = (OSError,)
+        parent.channel_errors = (ValueError,)
+        pbox = Pidbox(parent)
+        pbox.consumer = AsyncMock()
+        pbox.consumer.cancel.side_effect = ConnectionResetError("broker went away")
+
+        await pbox.stop(parent)
+
+        assert pbox.consumer is None
+
+    async def test_stop_does_not_hide_an_unexpected_error(self):
+        parent = Mock()
+        parent.connection_errors = (OSError,)
+        parent.channel_errors = ()
+        pbox = Pidbox(parent)
+        pbox.consumer = AsyncMock()
+        pbox.consumer.cancel.side_effect = TypeError("bug")
+
+        with pytest.raises(TypeError):
+            await pbox.stop(parent)
+
 
 class test_ControlPanel:
     def setup_method(self):

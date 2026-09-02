@@ -698,20 +698,57 @@ class test_Tasks:
         self.c = Mock()
         self.c.app.conf.worker_detect_quorum_queues = True
         self.c.connection.qos_semantics_matches_spec = False
+        self.c.connection_errors = (socket.error, OSError)
+        self.c.channel_errors = (ChannelError,)
 
-    def test_stop(self):
+    async def test_stop_cancels_the_task_consumer(self):
         c = self.c
         tasks = Tasks(c)
         assert c.task_consumer is None
         assert c.qos is None
-
         c.task_consumer = Mock()
-        tasks.stop(c)
+        c.task_consumer.cancel = AsyncMock()
 
-    def test_stop_already_stopped(self):
+        await tasks.stop(c)
+
+        c.task_consumer.cancel.assert_awaited_once_with()
+
+    async def test_stop_without_a_consumer_does_nothing(self):
+        c = self.c
+        await Tasks(c).stop(c)
+
+        assert c.task_consumer is None
+
+    async def test_stop_survives_a_broker_that_already_went_away(self):
         c = self.c
         tasks = Tasks(c)
-        tasks.stop(c)
+        c.task_consumer = Mock()
+        c.task_consumer.cancel = AsyncMock(side_effect=ConnectionResetError("broker went away"))
+
+        await tasks.stop(c)
+
+        c.task_consumer.cancel.assert_awaited_once_with()
+
+    async def test_stop_does_not_hide_an_unexpected_error(self):
+        c = self.c
+        tasks = Tasks(c)
+        c.task_consumer = Mock()
+        c.task_consumer.cancel = AsyncMock(side_effect=ValueError("bug"))
+
+        with pytest.raises(ValueError):
+            await tasks.stop(c)
+
+    async def test_shutdown_closes_the_consumer_and_drops_it(self):
+        c = self.c
+        tasks = Tasks(c)
+        c.task_consumer = consumer = Mock()
+        consumer.cancel = AsyncMock()
+        consumer.close = AsyncMock()
+
+        await tasks.shutdown(c)
+
+        consumer.close.assert_awaited_once_with()
+        assert c.task_consumer is None
 
     def test_detect_quorum_queues_positive(self):
         c = self.c
@@ -1206,6 +1243,35 @@ class test_Connection:
         c.connection = None
 
         assert Connection(c).info(c) == {"broker": "N/A"}
+
+    async def test_shutdown_releases_the_connection(self):
+        step, c = self._step_and_consumer({})
+        c.connection.close = AsyncMock()
+        connection = c.connection
+
+        await step.shutdown(c)
+
+        connection.close.assert_awaited_once_with()
+        assert c.connection is None
+
+    async def test_shutdown_lets_go_of_a_connection_that_will_not_close(self):
+        step, c = self._step_and_consumer({})
+        c.connection_errors = (socket.error, OSError)
+        c.channel_errors = (ChannelError,)
+        c.connection.close = AsyncMock(side_effect=ConnectionResetError("broker went away"))
+
+        await step.shutdown(c)
+
+        assert c.connection is None
+
+    async def test_shutdown_does_not_hide_an_unexpected_error(self):
+        step, c = self._step_and_consumer({})
+        c.connection_errors = (socket.error, OSError)
+        c.channel_errors = (ChannelError,)
+        c.connection.close = AsyncMock(side_effect=ValueError("bug"))
+
+        with pytest.raises(ValueError):
+            await step.shutdown(c)
 
 
 class test_Consumer_TaskQueues(ConsumerTestCase):

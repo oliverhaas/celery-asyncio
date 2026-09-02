@@ -68,8 +68,10 @@ class Pidbox:
             debug("Canceling broadcast consumer...")
             try:
                 await self.consumer.cancel()
-            except Exception:
-                pass
+            except (OSError, *c.connection_errors, *c.channel_errors):
+                # The channel this consumer sits on is the shared one, and it
+                # is gone whenever this fails, so there is nothing to cancel.
+                debug("Error cancelling broadcast consumer", exc_info=True)
             # Drop the reference too. Otherwise a cancelled consumer that
             # start() then failed to replace stays around and gets cancelled
             # again on every later reset cycle (upstream 201573a11).

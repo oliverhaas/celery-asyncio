@@ -29,8 +29,10 @@ class Connection(bootsteps.StartStopStep):
         if connection:
             try:
                 await connection.close()
-            except Exception:
-                pass
+            except (OSError, *c.connection_errors, *c.channel_errors):
+                # The worker is on its way out and the socket is already
+                # broken; releasing it is all that was left to do.
+                logger.warning("Failed to close the broker connection", exc_info=True)
 
     def info(self, c):
         params = "N/A"
