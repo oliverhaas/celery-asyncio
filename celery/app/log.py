@@ -15,8 +15,6 @@ import sys
 import warnings
 from logging.handlers import WatchedFileHandler
 
-from kombu.utils.encoding import set_default_encoding_file
-
 from celery import signals
 from celery._state import get_current_task
 from celery.exceptions import CDeprecationWarning, CPendingDeprecationWarning
@@ -143,13 +141,6 @@ class Logging:
 
             # then setup the root task logger.
             self.setup_task_loggers(loglevel, logfile, colorize=colorize)
-
-        try:
-            stream = logging.getLogger().handlers[0].stream
-        except AttributeError, IndexError:
-            pass
-        else:
-            set_default_encoding_file(stream)
 
         return receivers
 

@@ -7,7 +7,7 @@ from time import monotonic, time
 from unittest.mock import ANY, Mock, patch
 
 import pytest
-from kombu.utils.encoding import from_utf8, safe_repr, safe_str
+from kombu.utils.encoding import safe_repr, safe_str
 from kombu.utils.uuid import uuid
 
 from celery import states
@@ -1471,9 +1471,6 @@ class test_Request(RequestCase):
 
     def test_on_failure__unicode_exception(self):
         self._test_on_failure(Exception("Бобры атакуют"))
-
-    def test_on_failure__utf8_exception(self):
-        self._test_on_failure(Exception(from_utf8("Бобры атакуют")))
 
     def test_on_failure__WorkerLostError(self):
         exc = WorkerLostError()
