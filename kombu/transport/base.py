@@ -4,10 +4,14 @@ All transports inherit from these base classes and implement
 the async methods for their specific backend.
 """
 
+import base64
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from kombu.exceptions import ChannelError, ConnectionError
+from kombu.log import get_logger
+from kombu.utils.json import dumps as json_dumps
+from kombu.utils.json import loads as json_loads
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -16,7 +20,71 @@ if TYPE_CHECKING:
     from kombu.entity import Exchange, Queue
     from kombu.message import Message
 
-__all__ = ("Channel", "Transport")
+__all__ = ("Channel", "Envelope", "Transport", "decode_envelope")
+
+logger = get_logger(__name__)
+
+
+class Envelope(NamedTuple):
+    """The fields a stored payload contributes to a :class:`~kombu.Message`."""
+
+    body: bytes
+    content_type: str
+    content_encoding: str
+    properties: dict
+    headers: dict
+
+
+def _opaque(data: bytes) -> Envelope:
+    """Wrap a payload that is not a kombu envelope."""
+    return Envelope(data, "application/data", "binary", {}, {})
+
+
+def decode_envelope(data: bytes, queue: str) -> Envelope:
+    """Split a stored payload into the fields a message is built from.
+
+    A payload that is not a kombu envelope, or an envelope whose body does not
+    decode, is handed on as opaque ``application/data`` bytes and logged, so
+    the consumer can reject it rather than the message disappearing.
+    """
+    try:
+        payload = json_loads(data)
+    except ValueError:
+        # Not JSON at all: a raw body published by something else.
+        return _opaque(data)
+
+    if not isinstance(payload, dict):
+        logger.error(
+            "Message on queue %r is not an envelope but a JSON %s; delivering the payload as raw bytes",
+            queue,
+            type(payload).__name__,
+        )
+        return _opaque(data)
+
+    content_type = payload.get("content-type", "application/json")
+    content_encoding = payload.get("content-encoding", "utf-8")
+    properties = payload.get("properties", {})
+    headers = payload.get("headers", {})
+    body = payload.get("body", data)
+
+    try:
+        if isinstance(body, str):
+            if headers.get("body_encoding") == "base64":
+                body = base64.b64decode(body)
+            elif content_encoding in ("binary", "ascii-8bit"):
+                body = body.encode("utf-8")
+            else:
+                body = body.encode(content_encoding)
+        elif isinstance(body, dict | list):
+            body = json_dumps(body).encode("utf-8")
+    except ValueError, TypeError, LookupError:
+        logger.exception(
+            "Cannot decode the body of a message on queue %r; delivering the payload as raw bytes",
+            queue,
+        )
+        return _opaque(data)
+
+    return Envelope(body, content_type, content_encoding, properties, headers)
 
 
 class Channel(ABC):
@@ -150,7 +218,10 @@ class Channel(ABC):
     async def drain_events(self, timeout: float | None = None) -> bool:
         """Wait for and deliver messages to consumers.
 
-        Returns True if a message was delivered, False on timeout.
+        `timeout` of 0 polls: deliver what is ready and return without
+        blocking. A positive timeout returns within that many seconds, and
+        None waits indefinitely. Returns True if a message was delivered,
+        False on timeout.
         """
         ...
 
