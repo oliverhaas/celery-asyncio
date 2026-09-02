@@ -19,14 +19,21 @@ Transport Options
   NOT_IMPLEMENTED, so a consumer that sets no prefetch is sent the whole queue.
 * ``publisher_confirms``: Enable publisher confirms (default: True)
 * ``heartbeat``: AMQP heartbeat interval in seconds
+* ``connection_timeout``: seconds to wait for the connection and for the
+  broker's answers to it
+* ``ssl``: an :class:`ssl.SSLContext`, or a mapping of ``ca_certs``,
+  ``certfile``, ``keyfile`` and ``cert_reqs`` as kombu spells them. Either one
+  makes the connection TLS, whichever scheme the URL names.
 """
 
 import asyncio
 import base64
+import ssl
 import uuid
 import weakref
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 if TYPE_CHECKING:
     import aio_pika
@@ -48,7 +55,7 @@ from kombu.utils.json import loads as json_loads
 from kombu.utils.url import maybe_sanitize_url
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from collections.abc import Set as AbstractSet
 
     from kombu.entity import Exchange, Queue
@@ -111,6 +118,29 @@ def _as_connection_error(exc: BaseException | None) -> Exception:
     if isinstance(exc, _amqp_connection_errors):
         return exc
     return aiormq_exc.ConnectionClosed(exc if exc is not None else "connection closed")
+
+
+#: kombu's TLS option names mapped onto the query parameters aiormq reads.
+_SSL_QUERY_PARAMETERS = {
+    "ca_certs": "cafile",
+    "cafile": "cafile",
+    "capath": "capath",
+    "cadata": "cadata",
+    "certfile": "certfile",
+    "keyfile": "keyfile",
+}
+
+
+def _ssl_query(options: Mapping[str, Any]) -> dict[str, str]:
+    """Translate kombu's ``ssl`` mapping into URL query parameters."""
+    query = {
+        _SSL_QUERY_PARAMETERS[name]: str(value)
+        for name, value in options.items()
+        if name in _SSL_QUERY_PARAMETERS and value is not None
+    }
+    if options.get("cert_reqs") == ssl.CERT_NONE:
+        query["no_verify_ssl"] = "1"
+    return query
 
 
 #: How many messages to buffer for a consumer that set no prefetch count.
@@ -598,10 +628,19 @@ class Channel:
 
         async def _on_incoming(incoming: aio_pika.abc.AbstractIncomingMessage) -> None:
             tag = str(incoming.delivery_tag)
-            if not no_ack:
-                self._delivery_tag_map[tag] = incoming
-            msg = self._convert_message(incoming, queue, tag, consumer_tag=consumer_tag)
-            await self._message_queue.put((queue, msg))
+            try:
+                if not no_ack:
+                    self._delivery_tag_map[tag] = incoming
+                msg = self._convert_message(incoming, queue, tag, consumer_tag=consumer_tag)
+                await self._message_queue.put((queue, msg))
+            except Exception:
+                # aiormq runs this in a task per delivery and never looks at
+                # the result, so an error raised here reaches nobody and the
+                # message disappears. Hand it back to the broker instead.
+                logger.exception("Failed to accept delivery %s on queue %s", tag, queue)
+                self._delivery_tag_map.pop(tag, None)
+                if not no_ack:
+                    await incoming.nack(requeue=True)
 
         await aio_queue.consume(
             callback=_on_incoming,
@@ -672,6 +711,14 @@ class Channel:
                 try:
                     body = message.decode()
                 except Exception:
+                    # The callback still gets the message, which is what
+                    # celery works from, but a payload that cannot be read
+                    # must not pass for a normal one without a word.
+                    logger.exception(
+                        "Failed to decode message %s from queue %s, delivering it undecoded",
+                        message.delivery_tag,
+                        queue,
+                    )
                     body = message.body
 
                 result = callback(body, message)
@@ -733,22 +780,17 @@ class Channel:
     async def basic_recover(self, requeue: bool = True) -> None:
         """Request the broker to redeliver all unacknowledged messages.
 
-        aio-pika doesn't expose basic.recover directly, so we use the
-        underlying aiormq channel's basic_recover method.
+        aio-pika has no wrapper for basic.recover, so the frame goes out
+        through the aiormq channel underneath.
 
         Args:
             requeue: If True (default), the broker requeues messages so
                 they may be delivered to other consumers. If False, they
                 are redelivered to this consumer.
         """
-        underlying = getattr(self._aio_channel, "channel", None)
-        if underlying is None:
-            logger.warning("Cannot recover: no underlying aiormq channel available")
-            return
-        if not hasattr(underlying, "basic_recover"):
-            logger.warning("Cannot recover: aiormq channel does not support basic_recover")
-            return
-        await underlying.basic_recover(requeue=requeue)
+        await self._ensure_open()
+        underlay = await self._aio_channel.get_underlay_channel()
+        await underlay.basic_recover(requeue=requeue)
 
     # ---- message conversion ------------------------------------------------
 
@@ -881,14 +923,42 @@ class Transport(BaseTransport):
         if self._connection is not None:
             self._discard_connection()
 
-        kwargs: dict[str, Any] = {}
-        if "heartbeat" in self._options:
-            kwargs["heartbeat"] = self._options["heartbeat"]
-
-        connection = await aio_pika.connect(self._url, **kwargs)
+        url, kwargs = self._connect_arguments()
+        connection = await aio_pika.connect(url, **kwargs)
         self._connection = connection
         connection.close_callbacks.add(self._on_connection_closed)
         logger.debug("Connected to AMQP broker at %s", maybe_sanitize_url(self._url))
+
+    def _connect_arguments(self) -> tuple[str, dict[str, Any]]:
+        """Return the URL and the keyword arguments to connect with.
+
+        aio-pika builds a URL out of its keyword arguments only when it is not
+        given one, and ignores them otherwise, while aiormq reads the
+        heartbeat, the timeout and the TLS files from the URL query alone. An
+        option that arrives as a transport option therefore has to be folded
+        into the URL; passing it alongside would drop it without a word.
+        """
+        url = urlsplit(self._url)
+        query = dict(parse_qsl(url.query))
+        scheme = url.scheme
+        kwargs: dict[str, Any] = {}
+
+        if "heartbeat" in self._options:
+            query["heartbeat"] = str(self._options["heartbeat"])
+        if "connection_timeout" in self._options:
+            timeout = self._options["connection_timeout"]
+            query["timeout"] = str(timeout)
+            kwargs["timeout"] = float(timeout)
+
+        ssl_options = self._options.get("ssl")
+        if ssl_options:
+            scheme = "amqps"
+            if isinstance(ssl_options, ssl.SSLContext):
+                kwargs["ssl_context"] = ssl_options
+            else:
+                query.update(_ssl_query(ssl_options))
+
+        return urlunsplit(url._replace(scheme=scheme, query=urlencode(query))), kwargs
 
     def _on_connection_closed(self, connection: Any, exc: BaseException | None = None) -> None:
         """aio-pika callback: this connection is gone."""

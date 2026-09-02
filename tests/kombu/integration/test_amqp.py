@@ -405,8 +405,32 @@ def close_connection_server_side(name: str) -> None:
     raise AssertionError(f"connection {name} not found on the broker")
 
 
+def rabbitmqctl_columns(*columns: str, match: str) -> str:
+    """Return the last column of the connection listing row naming ``match``."""
+    listing = subprocess.run(
+        ["docker", "exec", RABBITMQ_CONTAINER, "rabbitmqctl", "list_connections", *columns],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    for line in listing.splitlines():
+        if match in line:
+            return line.split("\t")[-1].strip()
+    raise AssertionError(f"connection {match} not found on the broker")
+
+
 @pytest.fixture
-def rabbitmqctl():
+def rabbitmqctl_listing(_rabbitmqctl):
+    return rabbitmqctl_columns
+
+
+@pytest.fixture
+def rabbitmqctl(_rabbitmqctl):
+    return close_connection_server_side
+
+
+@pytest.fixture
+def _rabbitmqctl():
     if shutil.which("docker") is None:
         pytest.skip("docker is needed to close a connection from the broker side")
     probe = subprocess.run(
@@ -416,7 +440,36 @@ def rabbitmqctl():
     )
     if probe.returncode != 0:
         pytest.skip(f"rabbitmqctl is not reachable in container {RABBITMQ_CONTAINER}")
-    return close_connection_server_side
+
+
+class TestTransportOptions:
+    async def test_the_heartbeat_reaches_the_broker(self, rabbitmqctl_listing):
+        """aio-pika drops its keyword arguments once it is handed a URL.
+
+        The heartbeat has to travel in the URL query, and the broker's timeout
+        column is where it shows up.
+        """
+        name = f"kombu-it-{uuid.uuid4().hex}"
+        conn = Connection(f"{AMQP_URL}?name={name}", transport_options={"heartbeat": 7})
+        await conn.connect()
+        try:
+            assert rabbitmqctl_listing("client_properties", "timeout", match=name) == "7"
+        finally:
+            await conn.close()
+
+
+class TestRecover:
+    async def test_recover_redelivers_what_was_not_acknowledged(self, channel, queue):
+        await channel.publish(envelope({"v": "unacked"}), exchange="", routing_key=queue)
+
+        first = await channel.get(queue, no_ack=False)
+        assert first is not None
+
+        await channel.basic_recover(requeue=True)
+
+        again = await channel.get(queue, no_ack=True)
+        assert again is not None
+        assert again.payload == {"v": "unacked"}
 
 
 class TestConnectionLoss:

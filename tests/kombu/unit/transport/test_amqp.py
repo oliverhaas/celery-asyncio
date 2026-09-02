@@ -7,9 +7,11 @@ import asyncio
 import base64
 import json
 import pickle
+import ssl
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 
@@ -995,6 +997,39 @@ class TestChannelDrainEvents:
         # delivery_tag_map should track it for ack
         assert "99" in channel._delivery_tag_map
 
+    async def test_a_delivery_that_cannot_be_accepted_goes_back_to_the_broker(self, channel, caplog):
+        """aiormq never looks at the delivery task, so nothing here may be lost."""
+        aio_q = _make_aio_queue("q1")
+        channel._declared_queues["q1"] = aio_q
+        await channel.basic_consume("q1", MagicMock(), consumer_tag="tag1")
+        internal_callback = aio_q.consume.call_args[1]["callback"]
+
+        incoming = _make_incoming_message(delivery_tag=99)
+        incoming.nack = AsyncMock()
+        with patch.object(channel, "_convert_message", side_effect=ValueError("unreadable properties")):
+            with caplog.at_level("ERROR", logger="kombu.transport.amqp"):
+                await internal_callback(incoming)
+
+        incoming.nack.assert_awaited_once_with(requeue=True)
+        assert channel._message_queue.empty()
+        assert "99" not in channel._delivery_tag_map
+        assert "Failed to accept delivery 99 on queue q1" in caplog.text
+
+    async def test_a_delivery_a_no_ack_consumer_cannot_accept_is_only_reported(self, channel, caplog):
+        aio_q = _make_aio_queue("q1")
+        channel._declared_queues["q1"] = aio_q
+        await channel.basic_consume("q1", MagicMock(), consumer_tag="tag1", no_ack=True)
+        internal_callback = aio_q.consume.call_args[1]["callback"]
+
+        incoming = _make_incoming_message(delivery_tag=99)
+        incoming.nack = AsyncMock()
+        with patch.object(channel, "_convert_message", side_effect=ValueError("unreadable properties")):
+            with caplog.at_level("ERROR", logger="kombu.transport.amqp"):
+                await internal_callback(incoming)
+
+        incoming.nack.assert_not_awaited()
+        assert "Failed to accept delivery 99 on queue q1" in caplog.text
+
     async def test_on_incoming_includes_consumer_tag(self, channel):
         """Internal callback passes consumer_tag to _convert_message."""
         aio_q = _make_aio_queue("q1")
@@ -1051,23 +1086,23 @@ class TestChannelDrainEvents:
         result = await channel.drain_events(timeout=1.0)
         assert result is True  # message was pulled from queue, just not delivered
 
-    async def test_drain_events_decode_failure_falls_back_to_body(self, channel):
-        """If message.decode() raises, raw body is passed to callback."""
+    async def test_drain_events_reports_a_body_it_cannot_decode(self, channel, caplog):
+        """The callback still gets the message, but the reason is not lost."""
         msg = MagicMock(spec=Message)
         msg.body = b"raw bytes"
-        msg.decode.side_effect = ValueError("bad encoding")
+        msg.delivery_tag = "7"
+        msg.decode.side_effect = ContentDisallowed("refusing to deserialize")
 
         received = []
-
-        def callback(body, message):
-            received.append(body)
-
-        channel._consumers["tag1"] = ("q1", callback, False)
+        channel._consumers["tag1"] = ("q1", lambda body, message: received.append(body), False)
         await channel._message_queue.put(("q1", msg))
 
-        await channel.drain_events(timeout=1.0)
+        with caplog.at_level("ERROR", logger="kombu.transport.amqp"):
+            await channel.drain_events(timeout=1.0)
 
         assert received == [b"raw bytes"]
+        assert "Failed to decode message 7 from queue q1" in caplog.text
+        assert "ContentDisallowed" in caplog.text
 
     async def test_drain_events_multiple_sequential(self, channel):
         """Multiple sequential drain_events calls deliver messages in order."""
@@ -1156,36 +1191,23 @@ class TestChannelAckReject:
     async def test_basic_reject_unknown_tag(self, channel):
         await channel.basic_reject("nonexistent")
 
-    async def test_basic_recover_with_underlying_channel(self, channel, aio_channel):
-        underlying = MagicMock()
-        underlying.basic_recover = AsyncMock()
-        aio_channel.channel = underlying
+    @pytest.mark.parametrize("requeue", [True, False])
+    async def test_basic_recover(self, channel, aio_channel, requeue):
+        underlay = MagicMock()
+        underlay.basic_recover = AsyncMock()
+        aio_channel.get_underlay_channel = AsyncMock(return_value=underlay)
 
-        await channel.basic_recover(requeue=True)
+        await channel.basic_recover(requeue=requeue)
 
-        underlying.basic_recover.assert_awaited_once_with(requeue=True)
+        underlay.basic_recover.assert_awaited_once_with(requeue=requeue)
 
-    async def test_basic_recover_without_underlying(self, channel, aio_channel):
-        # No underlying channel attribute — should not raise
-        del aio_channel.channel
-        await channel.basic_recover(requeue=True)
+    async def test_basic_recover_reports_a_channel_that_is_not_open(self, channel, aio_channel):
+        aio_channel.get_underlay_channel = AsyncMock(
+            side_effect=aiormq_exc.ChannelInvalidStateError("Channel was not opened"),
+        )
 
-    async def test_basic_recover_requeue_false(self, channel, aio_channel):
-        underlying = MagicMock()
-        underlying.basic_recover = AsyncMock()
-        aio_channel.channel = underlying
-
-        await channel.basic_recover(requeue=False)
-
-        underlying.basic_recover.assert_awaited_once_with(requeue=False)
-
-    async def test_basic_recover_no_basic_recover_method(self, channel, aio_channel):
-        """Underlying channel exists but has no basic_recover method."""
-        underlying = MagicMock(spec=[])  # empty spec — no basic_recover
-        aio_channel.channel = underlying
-
-        # Should not raise
-        await channel.basic_recover(requeue=True)
+        with pytest.raises(Transport.channel_errors):
+            await channel.basic_recover()
 
     async def test_basic_qos(self, channel, aio_channel):
         await channel.basic_qos(prefetch_count=10)
@@ -1604,7 +1626,58 @@ class TestTransport:
         t = Transport(url="amqp://localhost/", heartbeat=60)
         await t.connect()
 
-        mock_aio_pika.connect.assert_awaited_once_with("amqp://localhost/", heartbeat=60)
+        # aio-pika ignores its keyword arguments once it is handed a URL, and
+        # aiormq reads the heartbeat from the query string only.
+        mock_aio_pika.connect.assert_awaited_once_with("amqp://localhost/?heartbeat=60")
+
+    @patch("kombu.transport.amqp.aio_pika")
+    async def test_connect_with_a_connection_timeout(self, mock_aio_pika):
+        mock_aio_pika.connect = AsyncMock(return_value=_make_aio_connection())
+
+        t = Transport(url="amqp://localhost/", connection_timeout=5)
+        await t.connect()
+
+        mock_aio_pika.connect.assert_awaited_once_with("amqp://localhost/?timeout=5", timeout=5.0)
+
+    @patch("kombu.transport.amqp.aio_pika")
+    async def test_connect_with_tls_files(self, mock_aio_pika):
+        mock_aio_pika.connect = AsyncMock(return_value=_make_aio_connection())
+
+        t = Transport(
+            url="amqp://localhost/",
+            ssl={"ca_certs": "/ca.pem", "certfile": "/c.pem", "keyfile": "/k.pem", "cert_reqs": ssl.CERT_NONE},
+        )
+        await t.connect()
+
+        url = mock_aio_pika.connect.await_args.args[0]
+        assert url.startswith("amqps://localhost/?")
+        assert dict(parse_qsl(urlsplit(url).query)) == {
+            "cafile": "/ca.pem",
+            "certfile": "/c.pem",
+            "keyfile": "/k.pem",
+            "no_verify_ssl": "1",
+        }
+
+    @patch("kombu.transport.amqp.aio_pika")
+    async def test_connect_with_an_ssl_context(self, mock_aio_pika):
+        mock_aio_pika.connect = AsyncMock(return_value=_make_aio_connection())
+        context = ssl.create_default_context()
+
+        t = Transport(url="amqp://localhost/", ssl=context)
+        await t.connect()
+
+        mock_aio_pika.connect.assert_awaited_once_with("amqps://localhost/", ssl_context=context)
+
+    @patch("kombu.transport.amqp.aio_pika")
+    async def test_connect_keeps_what_the_url_already_says(self, mock_aio_pika):
+        mock_aio_pika.connect = AsyncMock(return_value=_make_aio_connection())
+
+        t = Transport(url="amqp://guest:guest@localhost:5672//?name=worker-1", heartbeat=60)
+        await t.connect()
+
+        url = mock_aio_pika.connect.await_args.args[0]
+        assert url.startswith("amqp://guest:guest@localhost:5672//?")
+        assert dict(parse_qsl(urlsplit(url).query)) == {"name": "worker-1", "heartbeat": "60"}
 
     @patch("kombu.transport.amqp.aio_pika")
     async def test_close(self, mock_aio_pika):
