@@ -190,10 +190,10 @@ class EventDispatcher:
             )
         except Exception as exc:
             self._publish_failed(event, routing_key, exc)
-            return
+            return None
 
         if not asyncio.iscoroutine(coro):
-            return
+            return None
 
         # `producer.publish()` is a coroutine, so nothing can have failed yet;
         # a broker that is down surfaces on the task, hence the done callback.
@@ -205,7 +205,7 @@ class EventDispatcher:
         elif loop.is_closed():
             coro.close()
             self._publish_failed(event, routing_key, RuntimeError("the loop this dispatcher publishes on is closed"))
-            return
+            return None
 
         done = partial(self._on_publish_done, event, routing_key)
         try:
