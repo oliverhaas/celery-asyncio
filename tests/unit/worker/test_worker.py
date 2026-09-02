@@ -24,6 +24,13 @@ def MockStep(step=None):
     return step
 
 
+def mock_consumer():
+    consumer = AsyncMock(name="consumer")
+    # on_stopped calls this one straight, so it must not hand back a coroutine.
+    consumer.perform_pending_operations = Mock(name="perform_pending_operations")
+    return consumer
+
+
 class ConsumerCase:
     def create_task_message(self, channel, *args, **kwargs):
         m = self.TaskMessage(*args, **kwargs)
@@ -93,7 +100,7 @@ class test_WorkController(ConsumerCase):
         worker.steps = []
         await worker.start()
         create_pidlock.assert_called()
-        worker.consumer = AsyncMock()
+        worker.consumer = mock_consumer()
         await worker.stop()
         worker.pidlock.release.assert_called()
 
@@ -219,7 +226,7 @@ class test_WorkController(ConsumerCase):
 
     async def test_signal_consumer_close(self):
         worker = self.worker
-        worker.consumer = AsyncMock()
+        worker.consumer = mock_consumer()
 
         await worker.signal_consumer_close()
 
@@ -235,7 +242,7 @@ class test_WorkController(ConsumerCase):
         # The AttributeError this used to catch was meant for a worker with no
         # consumer yet, and hid every one raised inside close() as well.
         worker = self.worker
-        worker.consumer = AsyncMock()
+        worker.consumer = mock_consumer()
         worker.consumer.close.side_effect = AttributeError("close is broken")
 
         with pytest.raises(AttributeError):
@@ -273,7 +280,7 @@ class test_WorkController(ConsumerCase):
         await worker.start()
         for w in worker.steps:
             w.start.assert_called()
-        worker.consumer = AsyncMock()
+        worker.consumer = mock_consumer()
         await worker.stop(exitcode=3)
         for stopstep in worker.steps:
             stopstep.close.assert_called()
@@ -282,13 +289,13 @@ class test_WorkController(ConsumerCase):
         # Doesn't close pool if no pool.
         await worker.start()
         worker.pool = None
-        worker.consumer = AsyncMock()
+        worker.consumer = mock_consumer()
         await worker.stop()
 
         # test that stop of None is not attempted
         worker.steps[-1] = None
         await worker.start()
-        worker.consumer = AsyncMock()
+        worker.consumer = mock_consumer()
         await worker.stop()
 
     async def test_start__KeyboardInterrupt(self):
@@ -327,7 +334,7 @@ class test_WorkController(ConsumerCase):
             w.start.assert_called()
         assert worker.blueprint.started == len(worker.steps)
         assert worker.blueprint.state == RUN
-        worker.consumer = AsyncMock()
+        worker.consumer = mock_consumer()
         await worker.terminate()
         for step in worker.steps:
             step.terminate.assert_called()
