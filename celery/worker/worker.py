@@ -325,10 +325,6 @@ class WorkController:
         task_events=None,
         pool=None,
         consumer_cls=None,
-        timer_cls=None,
-        timer_precision=None,
-        pool_putlocks=None,
-        pool_restarts=None,
         optimization=None,
         O=None,
         statedb=None,
@@ -344,7 +340,6 @@ class WorkController:
         max_tasks_per_child=None,
         prefetch_multiplier=None,
         disable_rate_limits=None,
-        worker_lost_wait=None,
         max_memory_per_child=None,
         loop_workers=None,
         loop_concurrency=None,
@@ -359,14 +354,7 @@ class WorkController:
         self.task_events = either("worker_send_task_events", task_events)
         self.pool_cls = either("worker_pool", pool, pool_cls)
         self.consumer_cls = either("worker_consumer", consumer_cls)
-        self.timer_cls = either("worker_timer", timer_cls)
-        self.timer_precision = either(
-            "worker_timer_precision",
-            timer_precision,
-        )
         self.optimization = optimization or O
-        self.pool_putlocks = either("worker_pool_putlocks", pool_putlocks)
-        self.pool_restarts = either("worker_pool_restarts", pool_restarts)
         self.statedb = either("worker_state_db", statedb, state_db)
         self.schedule_filename = either(
             "beat_schedule_filename",
@@ -397,7 +385,6 @@ class WorkController:
             "worker_disable_rate_limits",
             disable_rate_limits,
         )
-        self.worker_lost_wait = either("worker_lost_wait", worker_lost_wait)
         self.loop_workers = either("worker_loop_workers", loop_workers)
         self.loop_concurrency = either("worker_loop_concurrency", loop_concurrency)
         self.sync_workers = either("worker_sync_workers", sync_workers)
