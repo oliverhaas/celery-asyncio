@@ -11,6 +11,7 @@ from celery import Celery
 from celery.contrib.testing.worker import TestWorkController, start_worker
 
 
+@pytest.mark.usefixtures("restore_logging")
 class test_worker:
     def setup_method(self):
         self.app = Celery("celerytest", backend="cache+memory://", broker="memory://")

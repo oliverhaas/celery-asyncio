@@ -73,6 +73,7 @@ class test_backends:
         with pytest.raises(ImproperlyConfigured):
             backends.by_name(pytest, app.loader)
 
+    @pytest.mark.usefixtures("restore_logging")
     @pytest.mark.celery(
         result_backend=f"{CachedBackendWithTreadTrucking.__module__}."
         f"{CachedBackendWithTreadTrucking.__qualname__}"
