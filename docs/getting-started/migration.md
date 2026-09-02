@@ -80,8 +80,17 @@ result_backend = 'valkey://localhost:6379/1'  # or redis://
 These settings no longer apply:
 
 - `worker_pool` choices: `prefork`, `eventlet`, `gevent`, `solo` (only `asyncio`)
-- `worker_prefetch_multiplier` (asyncio pool uses semaphore-based concurrency)
 - Eventlet/gevent-specific settings
+
+### Settings that mean something different
+
+`worker_prefetch_multiplier` still applies. The worker multiplies it by the
+concurrency to get the initial prefetch count and passes that to the transport,
+same as upstream. What the count then means depends on the broker: on AMQP it is
+the broker's cap on unacknowledged messages, while Valkey and Redis cannot push,
+so there it is the batch size one consume round-trip claims into a local buffer.
+On those brokers it bounds the buffer rather than the number of unacknowledged
+messages. The default is 4.
 
 ## Worker startup
 

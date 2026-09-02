@@ -10,8 +10,8 @@ This project is **exploratory**. It is not affiliated with or endorsed by the Ce
 - **`async def` tasks** run directly on the event loop, no thread overhead
 - **Sync tasks** run in a thread pool alongside async tasks in the same worker
 - **Valkey/Redis and AMQP transports** via the bundled asyncio `kombu` package
-- **Full CLI compatibility** with upstream Celery (`celery -A app worker`, `celery inspect`, etc.)
-- **Celery Flower** works out of the box for monitoring
+- **Familiar CLI** (`celery -A app worker`, `celery inspect`, `celery beat`), minus the flags that only applied to the prefork pool
+- **Celery Flower** for monitoring, installed with `--no-deps` alongside the `flower` extra ([how](getting-started/quickstart.md))
 - **Django 6.0 Tasks** support via [django-tasks-celery](https://github.com/oliverhaas/django-tasks-celery)
 - **Targeting Python 3.14t** free-threading for true parallelism
 
