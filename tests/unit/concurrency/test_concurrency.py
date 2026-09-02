@@ -57,8 +57,6 @@ def collect_signal(signal):
     def receiver(**kwargs):
         received.append(kwargs)
 
-    # Receivers are held weakly, and a local function would be collected
-    # before the signal fires.
     signal.connect(receiver, weak=False)
     try:
         yield received
@@ -448,7 +446,6 @@ class test_TaskPool:
         w1._active_count = 7
         assert pool._pick_loop_worker() is w0
 
-        # All equal, so the stable min keeps the first
         w0._active_count = 3
         w1._active_count = 3
         w2._active_count = 3
