@@ -1,12 +1,12 @@
 # Originally from Kombu by Ask Solem & contributors (BSD-3-Clause)
 # https://github.com/celery/kombu
 """URL Utilities."""
-# ruff: noqa: TID252, SIM118, ARG001
+# ruff: noqa: TID252, SIM118
 
 import ssl
 from functools import partial
 from typing import Any, NamedTuple
-from urllib.parse import parse_qsl, quote, unquote, urlparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse
 
 from ..log import get_logger
 
@@ -98,6 +98,9 @@ def as_url(
     if port:
         parts.extend([":", port])
     parts.extend(["/", path])
+    if query:
+        # safe="/" keeps file paths in values such as ssl_ca_certs readable.
+        parts.extend(["?", query if isinstance(query, str) else urlencode(query, safe="/", quote_via=quote)])
     return "".join(str(part) for part in parts if part)
 
 
