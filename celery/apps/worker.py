@@ -9,6 +9,7 @@ as an actual application, like installing signal handlers,
 platform tweaks, and so on.
 """
 
+import asyncio
 import logging
 import os
 import platform as _platform
@@ -17,6 +18,7 @@ from datetime import datetime
 from functools import partial
 
 from kombu.utils.encoding import safe_str
+from kombu.utils.eventloop import current_loop
 
 # Signal constants - in asyncio mode we use threads not processes
 REMAP_SIGTERM = os.environ.get("REMAP_SIGTERM")
@@ -32,6 +34,7 @@ from celery.utils.imports import qualname
 from celery.utils.log import get_logger, in_sighandler, set_in_sighandler
 from celery.utils.text import pluralize
 from celery.worker import WorkController
+from celery.worker.components import stop_pool
 
 __all__ = ("Worker",)
 
@@ -72,12 +75,6 @@ EXTRA_INFO_FMT = """
 [tasks]
 {tasks}
 """
-
-
-def active_thread_count():
-    from threading import enumerate
-
-    return sum(1 for t in enumerate() if not t.name.startswith("Dummy-"))
 
 
 def safe_say(msg, f=sys.__stderr__):
@@ -387,9 +384,27 @@ def on_cold_shutdown(worker: Worker):
     if hasattr(worker, "consumer") and worker.consumer:
         worker.consumer.cancel_active_requests()
 
-    # Stop the pool to allow successful tasks to call on_success()
+    # Stop the pool so that successful tasks still get to call on_success().
+    # This handler runs on the worker's event loop, and the pool brings its
+    # threads down with a join of up to ten seconds each, so the stop goes to
+    # a helper thread and the loop is told to wait for it.
     if hasattr(worker, "consumer") and worker.consumer and worker.consumer.pool:
-        worker.consumer.pool.stop()
+        _stop_pool_off_the_loop(worker.consumer.pool)
+
+
+#: Strong references to the pool stops scheduled from a signal handler,
+#: so the loop does not collect one mid-flight.
+_pending_pool_stops: set[asyncio.Task] = set()
+
+
+def _stop_pool_off_the_loop(pool):
+    loop = current_loop()
+    if loop is None:
+        pool.stop()
+        return
+    task = loop.create_task(stop_pool(pool))
+    _pending_pool_stops.add(task)
+    task.add_done_callback(_pending_pool_stops.discard)
 
 
 # Allow SIGTERM to be remapped to SIGQUIT to initiate cold shutdown instead of warm shutdown using SIGTERM

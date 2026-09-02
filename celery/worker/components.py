@@ -5,7 +5,10 @@
 Simplified for asyncio - no Hub, no prefork/eventlet/gevent pools.
 """
 
+import asyncio
 import atexit
+import threading
+import time
 
 from celery import bootsteps
 from celery._state import _set_task_join_will_block
@@ -13,7 +16,36 @@ from celery.utils.log import get_logger
 
 logger = get_logger(__name__)
 
-__all__ = ("Timer", "Pool", "Beat", "StateDB", "Consumer")
+__all__ = ("Timer", "Pool", "Beat", "StateDB", "Consumer", "stop_pool")
+
+#: Longest the worker waits for the pool to bring its threads down.
+POOL_STOP_TIMEOUT = 30.0
+
+
+async def stop_pool(pool, timeout=POOL_STOP_TIMEOUT):
+    """Stop `pool` on a helper thread, waiting at most `timeout` seconds.
+
+    Returns whether it finished in time. The pool joins each of its threads
+    with a timeout of its own, and doing that on the event loop thread stalls
+    everything else the worker has left to do, up to ten seconds per thread.
+    """
+    stopped = threading.Event()
+
+    def stop():
+        try:
+            pool.stop()
+        finally:
+            stopped.set()
+
+    threading.Thread(target=stop, name="celery-pool-stop", daemon=True).start()
+
+    deadline = time.monotonic() + timeout
+    while not stopped.is_set():
+        if time.monotonic() >= deadline:
+            logger.warning("Pool did not stop within %ss, leaving its threads behind", timeout)
+            return False
+        await asyncio.sleep(0.05)
+    return True
 
 
 class Timer(bootsteps.Step):
@@ -47,9 +79,14 @@ class Pool(bootsteps.StartStopStep):
         if w.pool:
             w.pool.close()
 
+    async def stop(self, w):
+        if w.pool:
+            await stop_pool(w.pool)
+
     async def terminate(self, w):
         if w.pool:
             w.pool.terminate()
+            await stop_pool(w.pool)
 
     def create(self, w):
         procs = w.concurrency
