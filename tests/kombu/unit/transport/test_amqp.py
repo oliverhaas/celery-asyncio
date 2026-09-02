@@ -144,7 +144,6 @@ def _make_aio_connection(**overrides) -> MagicMock:
     conn.close = AsyncMock()
     conn.channel = AsyncMock(side_effect=lambda **_: _make_aio_channel())
     conn.close_callbacks = _CloseCallbacks()
-    # aio-pika clears this event when the peer closes the connection.
     conn.connected = asyncio.Event()
     conn.connected.set()
     for k, v in overrides.items():
@@ -347,7 +346,6 @@ class TestChannelExchange:
     async def test_exchange_delete_not_in_cache(self, channel, aio_channel):
         await channel.exchange_delete("uncached")
         aio_channel.exchange_delete.assert_awaited_once_with("uncached")
-        # No KeyError: pop(default=None) handles it
 
 
 class TestChannelQueue:
@@ -422,7 +420,6 @@ class TestChannelQueue:
 
     async def test_queue_bind_default_exchange_skipped(self, channel):
         await channel.queue_bind("q1", "", routing_key="rk")
-        # No error and no action: bindings to the default exchange are implicit
 
     async def test_queue_bind_asks_the_broker_about_an_undeclared_queue(self, channel, aio_channel):
         aio_q = _make_aio_queue("elsewhere")
@@ -581,7 +578,6 @@ class TestChannelPublish:
         aio_msg = aio_channel.default_exchange.publish.call_args[0][0]
         assert aio_msg.body == raw
         assert aio_msg.content_encoding == "binary"
-        # body_encoding described the envelope, not the AMQP body.
         assert aio_msg.headers == {"task": "add"}
 
     async def test_publish_base64_body_without_binary_encoding(self, channel, aio_channel):
@@ -1113,7 +1109,6 @@ class TestChannelDrainEvents:
         await channel._message_queue.put(("other_queue", msg))
 
         assert await channel.drain_events(timeout=1.0) is True
-        # Nobody wanted it, so the broker gets it back instead of losing it.
         incoming.reject.assert_awaited_once_with(requeue=True)
 
     async def test_drain_events_reports_a_body_it_cannot_decode(self, channel, caplog):
@@ -1183,7 +1178,6 @@ class TestChannelAckReject:
 
         await channel.basic_ack("10", multiple=True)
 
-        # 8 and 9 are acknowledged by the broker along with 10; 11 is not.
         assert sorted(channel._delivery_tag_map) == ["11"]
 
     async def test_ack_of_a_tag_below_a_multiple_ack_is_not_resent(self, channel):
@@ -1194,7 +1188,6 @@ class TestChannelAckReject:
         await channel.basic_ack("10", multiple=True)
         await channel.basic_ack("8")
 
-        # Re-sending tag 8 would earn a PRECONDITION_FAILED and a closed channel.
         lower.ack.assert_not_awaited()
 
     async def test_basic_ack_unknown_tag(self, channel):
@@ -1715,8 +1708,6 @@ class TestTransport:
         t = Transport(url="amqp://localhost/", heartbeat=60)
         await t.connect()
 
-        # aio-pika ignores its keyword arguments once it is handed a URL, and
-        # aiormq reads the heartbeat from the query string only.
         mock_aio_pika.connect.assert_awaited_once_with("amqp://localhost/?heartbeat=60")
 
     @patch("kombu.transport.amqp.aio_pika")
@@ -1836,7 +1827,6 @@ class TestTransport:
         channel = await t.create_channel()
 
         mock_aio_ch.set_qos.assert_awaited_once_with(prefetch_count=10)
-        # The buffer never has to hold more than the broker will send.
         assert channel._message_queue.maxsize == 10
 
     @patch("kombu.transport.amqp.aio_pika")
@@ -1905,7 +1895,6 @@ class TestTransport:
         mock_conn.is_closed = True
         await t.close()
 
-        # The connection is already closed, so close() must not be called
         mock_conn.close.assert_not_awaited()
 
     @patch("kombu.transport.amqp.aio_pika")
@@ -1962,7 +1951,6 @@ class TestTransport:
 
         t = Transport(url="amqp://localhost/")
         await t.connect()
-        # aio-pika leaves is_closed False for a close it did not ask for.
         mock_conn.connected.clear()
 
         assert mock_conn.is_closed is False

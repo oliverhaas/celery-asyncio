@@ -223,8 +223,6 @@ class TestAcknowledgement:
 
         aio_channel = channel._aio_channel
         await messages[-1].ack(multiple=True)
-        # The broker has forgotten the tags below it. Sending one of them
-        # anyway answers PRECONDITION_FAILED and takes the channel down.
         await messages[0].ack()
         await asyncio.sleep(0.3)
 
@@ -334,8 +332,6 @@ class TestConsume:
             while len(first) + len(second) < 6:
                 await channel.drain_events(timeout=1)
 
-        # The broker round-robins between the two consumers, so both callbacks
-        # must have run rather than one taking everything.
         assert first
         assert second
         assert sorted(m["i"] for m in first + second) == list(range(6))
@@ -382,8 +378,6 @@ class TestPrefetch:
             await channel.basic_consume(name, callback=lambda body, message: None, no_ack=False)
             await asyncio.sleep(1.0)
 
-            # Every delivery is tracked for acknowledgement until it is acked,
-            # so this is what the broker has outstanding.
             assert len(channel._delivery_tag_map) == 2
 
             for tag in list(channel._delivery_tag_map):
@@ -511,8 +505,6 @@ class TestConnectionLoss:
 
     @pytest.fixture
     async def named_connection(self):
-        # aiormq reads the connection name from the URL query, and it is what
-        # identifies this connection in rabbitmqctl's listing.
         name = f"kombu-it-{uuid.uuid4().hex}"
         conn = Connection(f"{AMQP_URL}?name={name}")
         await conn.connect()
@@ -543,8 +535,6 @@ class TestConnectionLoss:
         await conn.ensure_connection(max_retries=3)
         assert conn.is_connected
 
-        # The same channel, its queue and its consumer come back on the new
-        # connection, so a caller holding one keeps working.
         await channel.publish(envelope({"v": "after"}), exchange="", routing_key=name)
         async with asyncio.timeout(10):
             while len(received) < 2:
