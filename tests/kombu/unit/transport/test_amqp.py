@@ -3,6 +3,9 @@
 All aio-pika objects are mocked — no RabbitMQ broker required.
 """
 
+import base64
+import json
+import pickle
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -494,6 +497,46 @@ class TestChannelPublish:
 
         aio_channel.get_exchange.assert_awaited_once_with("remote_ex", ensure=False)
         fetched_ex.publish.assert_awaited_once()
+
+    async def test_publish_binary_body_travels_as_bytes(self, channel, aio_channel):
+        # A pickle payload the producer had to base64-wrap to fit the JSON
+        # envelope; content_encoding "binary" is not a Python codec, so
+        # encoding the string with it used to raise LookupError.
+        raw = pickle.dumps({"task": "add", "args": (1, 2)})
+        envelope = json.dumps(
+            {
+                "body": base64.b64encode(raw).decode("ascii"),
+                "content-type": "application/x-python-serialize",
+                "content-encoding": "binary",
+                "properties": {},
+                "headers": {"body_encoding": "base64", "task": "add"},
+            },
+        ).encode()
+
+        await channel.publish(envelope, exchange="", routing_key="q")
+
+        aio_msg = aio_channel.default_exchange.publish.call_args[0][0]
+        assert aio_msg.body == raw
+        assert aio_msg.content_encoding == "binary"
+        # body_encoding described the envelope, not the AMQP body.
+        assert aio_msg.headers == {"task": "add"}
+
+    async def test_publish_base64_body_without_binary_encoding(self, channel, aio_channel):
+        raw = b"\xff\xfe\x00 not text"
+        envelope = json.dumps(
+            {
+                "body": base64.b64encode(raw).decode("ascii"),
+                "content-type": "application/data",
+                "content-encoding": "utf-8",
+                "properties": {},
+                "headers": {"body_encoding": "base64"},
+            },
+        ).encode()
+
+        await channel.publish(envelope, exchange="", routing_key="q")
+
+        aio_msg = aio_channel.default_exchange.publish.call_args[0][0]
+        assert aio_msg.body == raw
 
     async def test_publish_with_priority(self, channel, aio_channel):
         envelope = (
@@ -1060,6 +1103,28 @@ class TestChannelAckReject:
 
 
 class TestChannelConvertMessage:
+    def test_base64_body_is_decoded(self, channel):
+        raw = b"\x80\x05\x95 binary"
+        incoming = _make_incoming_message(
+            body=base64.b64encode(raw),
+            content_type="application/x-python-serialize",
+            content_encoding="binary",
+            headers={"body_encoding": "base64", "task": "add"},
+        )
+
+        msg = channel._convert_message(incoming, "q1", "1")
+
+        assert msg.body == raw
+        assert msg.headers == {"task": "add"}
+
+    def test_body_is_left_alone_without_a_body_encoding_header(self, channel):
+        raw = b"\x80\x05\x95 binary"
+        incoming = _make_incoming_message(body=raw, content_encoding="binary")
+
+        msg = channel._convert_message(incoming, "q1", "1")
+
+        assert msg.body == raw
+
     def test_basic_conversion(self, channel):
         incoming = _make_incoming_message(
             body=b"test body",

@@ -3,12 +3,14 @@
 import asyncio
 import json
 import os
+import pickle
 import uuid
 from typing import Any
 
 import pytest
 
 from kombu import Connection, Exchange, Queue
+from kombu.serialization import disable_insecure_serializers, enable_insecure_serializers
 
 pytestmark = pytest.mark.asyncio(loop_scope="function")
 
@@ -103,6 +105,45 @@ class TestPublishGet:
         assert msg.delivery_info["routing_key"] == queue
         assert msg.delivery_info["exchange"] == ""
         assert msg.delivery_info["redelivered"] is False
+
+
+class TestBinarySerializers:
+    """Binary payloads have to reach the broker as bytes, byte for byte.
+
+    The producer base64-wraps them to fit the JSON envelope and labels the
+    content encoding "binary", which is not a Python codec: encoding the
+    envelope body with it raised LookupError on every apply_async.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _allow_insecure_serializers(self):
+        enable_insecure_serializers()
+        yield
+        disable_insecure_serializers()
+
+    @pytest.mark.parametrize("serializer", ["pickle", "msgpack", "json"])
+    async def test_round_trip(self, connection, channel, queue, serializer):
+        payload = {"task": "add", "args": [1, 2], "blob": b"\xff\xfe\x00"}
+        producer = connection.Producer(channel=channel)
+
+        await producer.publish(payload, serializer=serializer, routing_key=queue)
+        await asyncio.sleep(0.2)
+
+        msg = await channel.get(queue, no_ack=True)
+        assert msg is not None
+        assert msg.payload == payload
+
+    async def test_pickle_body_is_not_base64_on_the_wire(self, connection, channel, queue):
+        payload = {"task": "add"}
+        producer = connection.Producer(channel=channel)
+
+        await producer.publish(payload, serializer="pickle", routing_key=queue)
+        await asyncio.sleep(0.2)
+
+        msg = await channel.get(queue, no_ack=True)
+        assert msg.body == pickle.dumps(payload)
+        assert msg.content_encoding == "binary"
+        assert "body_encoding" not in msg.headers
 
 
 class TestAcknowledgement:

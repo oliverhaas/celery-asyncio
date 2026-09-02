@@ -19,6 +19,7 @@ Transport Options
 """
 
 import asyncio
+import base64
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -87,6 +88,35 @@ def _get_exchange_type(type_name: str) -> aio_pika.ExchangeType:
         "topic": aio_pika.ExchangeType.TOPIC,
         "headers": aio_pika.ExchangeType.HEADERS,
     }.get(type_name, aio_pika.ExchangeType.DIRECT)
+
+
+#: Content encodings that name a byte stream rather than a Python text codec.
+_BINARY_CONTENT_ENCODINGS = frozenset({"binary", "ascii-8bit"})
+
+
+def _envelope_body_to_bytes(
+    body: Any,
+    content_encoding: str,
+    headers: dict[str, Any],
+) -> bytes:
+    """Return the bytes an envelope body puts on the wire.
+
+    AMQP bodies are bytes, so a binary serializer's payload travels exactly as
+    it was produced. The producer base64-wraps such a payload only to fit it
+    into the JSON envelope and records that with a ``body_encoding`` header;
+    the header describes the envelope, not the AMQP message, so it is consumed
+    here rather than published.
+    """
+    if isinstance(body, bytes):
+        return body
+    if not isinstance(body, str):
+        body = str(body)
+    if headers.get("body_encoding") == "base64":
+        del headers["body_encoding"]
+        return base64.b64decode(body)
+    if content_encoding in _BINARY_CONTENT_ENCODINGS:
+        return body.encode("utf-8")
+    return body.encode(content_encoding)
 
 
 def _expiration_to_millis(expiration: float | timedelta | datetime) -> int:
@@ -264,19 +294,12 @@ class Channel:
         # Parse kombu JSON envelope
         envelope = json_loads(message)
 
-        body_str = envelope.get("body", "")
         content_type = envelope.get("content-type", "application/json")
         content_encoding = envelope.get("content-encoding", "utf-8")
         properties = envelope.get("properties", {})
         headers = envelope.get("headers", {})
 
-        # Encode body back to bytes
-        if isinstance(body_str, str):
-            body_bytes = body_str.encode(content_encoding)
-        elif isinstance(body_str, bytes):
-            body_bytes = body_str
-        else:
-            body_bytes = str(body_str).encode(content_encoding)
+        body_bytes = _envelope_body_to_bytes(envelope.get("body", ""), content_encoding, headers)
 
         # Build aio-pika Message
         msg_kwargs: dict[str, Any] = {
@@ -528,8 +551,14 @@ class Channel:
         if incoming.type:
             properties["type"] = incoming.type
 
+        headers = dict(incoming.headers) if incoming.headers else {}
+        body = incoming.body
+        if headers.get("body_encoding") == "base64":
+            del headers["body_encoding"]
+            body = base64.b64decode(body)
+
         return Message(
-            body=incoming.body,
+            body=body,
             delivery_tag=delivery_tag,
             content_type=incoming.content_type or "application/octet-stream",
             content_encoding=incoming.content_encoding or "utf-8",
@@ -541,7 +570,7 @@ class Channel:
                 "redelivered": getattr(incoming, "redelivered", False),
             },
             properties=properties,
-            headers=dict(incoming.headers) if incoming.headers else {},
+            headers=headers,
             accept=accept,
             channel=self,  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
         )
