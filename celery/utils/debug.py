@@ -6,6 +6,7 @@ import os
 import sys
 import traceback
 from functools import partial
+from pprint import pprint
 
 from celery.utils.text import WhateverIO
 
@@ -115,7 +116,7 @@ def _process_memory_info(process):
         return process.get_memory_info()
 
 
-def cry(out=None, sepchr="=", seplen=49):  # pragma: no cover
+def cry(out=None, sepchr="=", seplen=49):
     """Return stack-trace of all active threads."""
     import threading
 
@@ -135,5 +136,6 @@ def cry(out=None, sepchr="=", seplen=49):  # pragma: no cover
         P(sep)
         P("LOCAL VARIABLES")
         P(sep)
+        pprint(frame.f_locals, stream=out)
         P("\n")
     return out.getvalue()

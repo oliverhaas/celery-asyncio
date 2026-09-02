@@ -1,3 +1,7 @@
+import sys
+import threading
+from unittest.mock import patch
+
 import pytest
 
 from celery.utils import debug
@@ -88,3 +92,23 @@ def test_ps(patching):
         assert debug._process is Process()
     finally:
         debug._process = prev
+
+
+def test_cry_dumps_the_stack_and_the_locals_of_every_thread():
+    def frame_with_a_marker():
+        cry_marker = "in-the-frame"  # noqa: F841
+        return sys._getframe()
+
+    frame = frame_with_a_marker()
+    thread = threading.current_thread()
+    with patch("sys._current_frames", return_value={thread.ident: frame}):
+        out = debug.cry()
+
+    assert thread.name in out
+    assert "frame_with_a_marker" in out
+    assert "'cry_marker': 'in-the-frame'" in out
+
+
+def test_cry_skips_frames_of_threads_that_already_finished():
+    with patch("sys._current_frames", return_value={-1: sys._getframe()}):
+        assert debug.cry() == ""
