@@ -34,26 +34,13 @@ class Pool(bootsteps.StartStopStep):
     In celery-asyncio, this is a hybrid asyncio + ThreadPoolExecutor pool.
     Async tasks run on the event loop, sync tasks run in threads.
 
-    Adds attributes:
-
-        * autoscale
-        * pool
-        * max_concurrency
-        * min_concurrency
+    Adds the ``pool`` attribute.
     """
 
     requires = (Timer,)
 
-    def __init__(self, w, autoscale=None, **kwargs):
+    def __init__(self, w, **kwargs):
         w.pool = None
-        w.max_concurrency = None
-        w.min_concurrency = w.concurrency
-        if isinstance(autoscale, str):
-            max_c, _, min_c = autoscale.partition(",")
-            autoscale = [int(max_c), (min_c and int(min_c)) or 0]
-        w.autoscale = autoscale
-        if w.autoscale:
-            w.max_concurrency, w.min_concurrency = w.autoscale
         super().__init__(w, **kwargs)
 
     def close(self, w):
@@ -65,7 +52,7 @@ class Pool(bootsteps.StartStopStep):
             w.pool.terminate()
 
     def create(self, w):
-        procs = w.min_concurrency
+        procs = w.concurrency
         w.process_task = w._process_task
         pool = w.pool = self.instantiate(
             w.pool_cls,
@@ -127,10 +114,7 @@ class Consumer(bootsteps.StartStopStep):
     last = True
 
     def create(self, w):
-        if w.max_concurrency:
-            prefetch_count = max(w.max_concurrency, 1) * w.prefetch_multiplier
-        else:
-            prefetch_count = w.concurrency * w.prefetch_multiplier
+        prefetch_count = w.concurrency * w.prefetch_multiplier
         c = w.consumer = self.instantiate(
             w.consumer_cls,
             w.process_task,

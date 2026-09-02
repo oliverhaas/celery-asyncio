@@ -25,8 +25,6 @@ hostname = socket.gethostname()
 
 
 class WorkController:
-    autoscaler = None
-
     def stats(self):
         return {"total": worker_state.total_count}
 
@@ -299,44 +297,6 @@ class test_ControlPanel:
             assert active_resp[0]["kwargs"] == kwargsrepr
         finally:
             worker_state.active_requests.discard(r)
-
-    def test_pool_grow(self):
-
-        class MockPool:
-            def __init__(self, size=1):
-                self.size = size
-
-            def grow(self, n=1):
-                self.size += n
-
-            def shrink(self, n=1):
-                self.size -= n
-
-            @property
-            def num_processes(self):
-                return self.size
-
-        consumer = Consumer(self.app)
-        consumer.prefetch_multiplier = 8
-        consumer.qos = Mock(name="qos")
-        consumer.pool = MockPool(1)
-        panel = self.create_panel(consumer=consumer)
-
-        panel.handle("pool_grow")
-        assert consumer.pool.size == 2
-        consumer.qos.increment_eventually.assert_called_with(8)
-        assert consumer.initial_prefetch_count == 16
-        panel.handle("pool_shrink")
-        assert consumer.pool.size == 1
-        consumer.qos.decrement_eventually.assert_called_with(8)
-        assert consumer.initial_prefetch_count == 8
-
-        panel.state.consumer = Mock()
-        panel.state.consumer.controller = Mock()
-        r = panel.handle("pool_grow")
-        assert "error" in r
-        r = panel.handle("pool_shrink")
-        assert "error" in r
 
     def test_add__cancel_consumer(self):
 
@@ -646,19 +606,6 @@ class test_ControlPanel:
         r_headers = control.revoke_by_stamped_headers(state, header_to_revoke, terminate=True)
         # revoke & revoke_by_stamped_headers are not aligned anymore in their return values
         assert "{'foo': {'bar'}}" in r_headers["ok"]
-
-    async def test_autoscale(self):
-        self.panel.state.consumer = Mock()
-        self.panel.state.consumer.controller = Mock()
-        sc = self.panel.state.consumer.controller.autoscaler = Mock()
-        sc.update.return_value = 10, 2
-        m = {"method": "autoscale", "destination": hostname, "arguments": {"max": "10", "min": "2"}}
-        r = await self.panel.handle_message(m, None)
-        assert "ok" in r
-
-        self.panel.state.consumer.controller.autoscaler = None
-        r = await self.panel.handle_message(m, None)
-        assert "error" in r
 
     async def test_ping(self):
         m = {"method": "ping", "destination": hostname}

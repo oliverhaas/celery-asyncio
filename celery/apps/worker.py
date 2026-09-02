@@ -203,9 +203,6 @@ class Worker(WorkController):
             loader = qualname(app.loader)
             loader = loader.removeprefix("celery.loaders")
             appr += f" ({loader})"
-        if self.autoscale:
-            max, min = self.autoscale
-            concurrency = f"{{min={min}, max={max}}}"
         pool = self.pool_cls
         if not isinstance(pool, str):
             pool = pool.__module__

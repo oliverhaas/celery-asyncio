@@ -738,30 +738,6 @@ class Control:
         """
         return self.broadcast("disable_events", arguments={}, destination=destination, **kwargs)
 
-    def pool_grow(self, n=1, destination=None, **kwargs):
-        """Tell all (or specific) workers to grow the pool by ``n``.
-
-        See Also:
-            Supports the same arguments as :meth:`broadcast`.
-        """
-        return self.broadcast("pool_grow", arguments={"n": n}, destination=destination, **kwargs)
-
-    def pool_shrink(self, n=1, destination=None, **kwargs):
-        """Tell all (or specific) workers to shrink the pool by ``n``.
-
-        See Also:
-            Supports the same arguments as :meth:`broadcast`.
-        """
-        return self.broadcast("pool_shrink", arguments={"n": n}, destination=destination, **kwargs)
-
-    def autoscale(self, max, min, destination=None, **kwargs):
-        """Change worker(s) autoscale setting.
-
-        See Also:
-            Supports the same arguments as :meth:`broadcast`.
-        """
-        return self.broadcast("autoscale", arguments={"max": max, "min": min}, destination=destination, **kwargs)
-
     def shutdown(self, destination=None, **kwargs):
         """Shutdown worker(s).
 

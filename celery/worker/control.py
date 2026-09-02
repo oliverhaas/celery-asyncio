@@ -588,34 +588,6 @@ def memdump(state, samples=10, **kwargs):  # pragma: no cover
 # -- Pool
 
 
-@control_command(
-    args=[("n", int)],
-    signature="[N=1]",
-)
-def pool_grow(state, n=1, **kwargs):
-    """Grow pool by n processes/threads."""
-    if state.consumer.controller.autoscaler:
-        return nok("pool_grow is not supported with autoscale. Adjust autoscale range instead.")
-    else:
-        state.consumer.pool.grow(n)
-        state.consumer._update_prefetch_count(n)
-    return ok("pool will grow")
-
-
-@control_command(
-    args=[("n", int)],
-    signature="[N=1]",
-)
-def pool_shrink(state, n=1, **kwargs):
-    """Shrink pool by n processes/threads."""
-    if state.consumer.controller.autoscaler:
-        return nok("pool_shrink is not supported with autoscale. Adjust autoscale range instead.")
-    else:
-        state.consumer.pool.shrink(n)
-        state.consumer._update_prefetch_count(-n)
-    return ok("pool will shrink")
-
-
 @control_command()
 def pool_restart(state, modules=None, reload=False, reloader=None, **kwargs):
     """Restart execution pool."""
@@ -624,19 +596,6 @@ def pool_restart(state, modules=None, reload=False, reloader=None, **kwargs):
         return ok("reload started")
     else:
         raise ValueError("Pool restarts not enabled")
-
-
-@control_command(
-    args=[("max", int), ("min", int)],
-    signature="[max [min]]",
-)
-def autoscale(state, max=None, min=None):
-    """Modify autoscale settings."""
-    autoscaler = state.consumer.controller.autoscaler
-    if autoscaler:
-        max_, min_ = autoscaler.update(max, min)
-        return ok(f"autoscale now max={max_} min={min_}")
-    raise ValueError("Autoscale not enabled")
 
 
 @control_command()

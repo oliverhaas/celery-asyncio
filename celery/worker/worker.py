@@ -327,7 +327,6 @@ class WorkController:
         consumer_cls=None,
         timer_cls=None,
         timer_precision=None,
-        autoscaler_cls=None,
         pool_putlocks=None,
         pool_restarts=None,
         optimization=None,
@@ -366,7 +365,6 @@ class WorkController:
             timer_precision,
         )
         self.optimization = optimization or O
-        self.autoscaler_cls = either("worker_autoscaler", autoscaler_cls)
         self.pool_putlocks = either("worker_pool_putlocks", pool_putlocks)
         self.pool_restarts = either("worker_pool_restarts", pool_restarts)
         self.statedb = either("worker_state_db", statedb, state_db)

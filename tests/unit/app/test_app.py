@@ -350,7 +350,6 @@ class test_App:
                 task_default_delivery_mode=63,
                 worker_agent="foo:Barz",
                 CELERYD_CONSUMER="foo:Fooz",
-                CELERYD_AUTOSCALER="foo:Xuzzy",
             )
             with pytest.raises(ImproperlyConfigured):
                 assert app.conf.worker_consumer == "foo:Fooz"
@@ -363,8 +362,6 @@ class test_App:
                 worker_agent="foo:Barz",
                 CELERYD_CONSUMER="foo:Fooz",
                 worker_consumer="foo:Fooz",
-                CELERYD_AUTOSCALER="foo:Xuzzy",
-                worker_autoscaler="foo:Xuzzy",
             )
 
     def test_pending_configuration__setdefault(self):

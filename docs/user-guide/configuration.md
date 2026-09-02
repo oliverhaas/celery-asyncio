@@ -36,8 +36,8 @@ Async task capacity is `worker_loop_workers × worker_loop_concurrency`. Sync ta
 run in a separate pool of `worker_sync_workers` threads. On Python 3.14t both pools
 run in parallel.
 
-`worker_concurrency` and `-c` are accepted for compatibility with upstream Celery,
-and are used to size autoscaling, but the asyncio pool does not read them.
+`worker_concurrency` and `-c` are accepted for compatibility with upstream Celery
+and size the prefetch count, but the asyncio pool does not read them for capacity.
 
 ## Worker settings
 

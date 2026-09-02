@@ -84,19 +84,6 @@ class test_Consumer(ConsumerTestCase):
             task_reserved.assert_called_with(request)
             c.on_task_request.assert_called_with(request)
 
-    def test_update_prefetch_count(self):
-        c = self.get_consumer()
-        c._update_qos_eventually = Mock(name="update_qos")
-        c.initial_prefetch_count = None
-        c.pool.num_processes = None
-        c.prefetch_multiplier = 10
-        assert c._update_prefetch_count(1) is None
-        c.initial_prefetch_count = 10
-        c.pool.num_processes = 10
-        c._update_prefetch_count(8)
-        c._update_qos_eventually.assert_called_with(8)
-        assert c.initial_prefetch_count == 10 * 10
-
     @pytest.mark.parametrize(
         "active_requests_count,expected_initial,expected_maximum,enabled",
         [

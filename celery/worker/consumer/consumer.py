@@ -288,19 +288,6 @@ class Consumer:
     def reset_rate_limits(self):
         self.task_buckets.update((n, self.bucket_for_task(t)) for n, t in self.app.tasks.items())
 
-    def _update_prefetch_count(self, index=0):
-        """Update prefetch count after pool grow/shrink operations."""
-        num_processes = self.pool.num_processes
-        if not self.initial_prefetch_count or not num_processes:
-            return None  # prefetch disabled
-        self.initial_prefetch_count = self.pool.num_processes * self.prefetch_multiplier
-        return self._update_qos_eventually(index)
-
-    def _update_qos_eventually(self, index):
-        return (self.qos.decrement_eventually if index < 0 else self.qos.increment_eventually)(
-            abs(index) * self.prefetch_multiplier
-        )
-
     def _limit_move_to_pool(self, request):
         task_reserved(request)
         self.on_task_request(request)

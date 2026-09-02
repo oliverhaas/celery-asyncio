@@ -499,32 +499,6 @@ class test_Control:
             _options={"connection": None},
         )
 
-    def test_autoscale(self):
-        self.app.control.autoscale(300, 10)
-        self.assert_control_called_with_args("autoscale", max=300, min=10, destination=None)
-
-    def test_autoscale__with_options(self):
-        self.app.control.autoscale(300, 10, destination="a@q.com", limit=39)
-        self.assert_control_called_with_args(
-            "autoscale", max=300, min=10, destination="a@q.com", _options={"limit": 39}
-        )
-
-    def test_pool_grow(self):
-        self.app.control.pool_grow(2)
-        self.assert_control_called_with_args("pool_grow", n=2, destination=None)
-
-    def test_pool_grow__with_options(self):
-        self.app.control.pool_grow(2, destination="a@q.com", limit=39)
-        self.assert_control_called_with_args("pool_grow", n=2, destination="a@q.com", _options={"limit": 39})
-
-    def test_pool_shrink(self):
-        self.app.control.pool_shrink(2)
-        self.assert_control_called_with_args("pool_shrink", n=2, destination=None)
-
-    def test_pool_shrink__with_options(self):
-        self.app.control.pool_shrink(2, destination="a@q.com", limit=39)
-        self.assert_control_called_with_args("pool_shrink", n=2, destination="a@q.com", _options={"limit": 39})
-
     def test_revoke_from_result(self):
         self.app.control.revoke = Mock(name="revoke")
         self.app.AsyncResult("foozbazzbar").revoke()

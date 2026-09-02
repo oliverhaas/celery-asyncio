@@ -65,33 +65,9 @@ class Hostname(StringParamType):
         return host_format(default_nodename(value))
 
 
-class Autoscale(ParamType):
-    """Autoscaling parameter."""
-
-    name = "<min workers>, <max workers>"
-
-    def convert(self, value, param, ctx):
-        value = value.split(",")
-
-        if len(value) > 2:
-            self.fail(f"Expected two comma separated integers or one integer.Got {len(value)} instead.")
-
-        if len(value) == 1:
-            try:
-                value = (int(value[0]), 0)
-            except ValueError:
-                self.fail(f"Expected an integer. Got {value} instead.")
-
-        try:
-            return tuple(sorted(map(int, value), reverse=True))
-        except ValueError:
-            self.fail(f"Expected two comma separated integers. Got {','.join(value)} instead.")
-
-
 CELERY_BEAT = CeleryBeat()
 WORKERS_POOL = WorkersPool()
 HOSTNAME = Hostname()
-AUTOSCALE = Autoscale()
 
 C_FAKEFORK = os.environ.get("C_FAKEFORK")
 
@@ -292,7 +268,6 @@ def detach(
 @click.option("--without-mingle", is_flag=True, cls=CeleryOption, help_group="Features")
 @click.option("--without-heartbeat", is_flag=True, cls=CeleryOption, help_group="Features")
 @click.option("--heartbeat-interval", type=int, cls=CeleryOption, help_group="Features")
-@click.option("--autoscale", type=AUTOSCALE, cls=CeleryOption, help_group="Features")
 @click.option("-B", "--beat", type=CELERY_BEAT, cls=CeleryOption, is_flag=True, help_group="Embedded Beat Options")
 @click.option(
     "-s",
@@ -328,7 +303,6 @@ def worker(
     $ celery --app=proj worker -l INFO
     $ celery -A proj worker -l INFO -Q hipri,lopri
     $ celery -A proj worker --concurrency=4
-    $ celery worker --autoscale=10,0
 
     """
     try:
