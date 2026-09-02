@@ -747,9 +747,20 @@ class test_Request(RequestCase):
             assert job.acknowledged
 
     def test_execute_does_not_execute_revoked(self):
-        job = self.xRequest()
+        ran = []
+
+        @self.app.task(name="test_execute_revoked", shared=False)
+        def marker(i, **kwargs):
+            ran.append(i)
+
+        job = self.xRequest(name="test_execute_revoked")
         revoked.add(job.id)
-        job.execute()
+
+        assert job.execute() is None
+
+        assert ran == []
+        assert job._already_revoked
+        assert self.app.backend.get_task_meta(job.id)["status"] == states.REVOKED
 
     def test_execute_acks_late(self):
         self.mytask_raising.acks_late = True

@@ -14,6 +14,16 @@ from celery.concurrency.base import BasePool, apply_target
 from celery.exceptions import WorkerShutdown, WorkerTerminate
 
 
+def wait_until(predicate, timeout=10.0):
+    """Poll until the predicate holds, returning whether it did."""
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.01)
+    return True
+
+
 class test_BasePool:
     def test_apply_target(self):
 
@@ -279,9 +289,7 @@ class test_LoopWorker:
             # While task is running, active_count should be >= 1
             assert w._active_count >= 1
             release.set()
-            # Give time for cleanup
-            time.sleep(0.1)
-            assert w._active_count == 0
+            assert wait_until(lambda: w._active_count == 0)
         finally:
             w.stop()
 
@@ -328,7 +336,7 @@ class test_TaskPool:
         w1._active_count = 7
         assert pool._pick_loop_worker() is w0
 
-        # All equal — picks first (stable min)
+        # All equal, so the stable min keeps the first
         w0._active_count = 3
         w1._active_count = 3
         w2._active_count = 3
