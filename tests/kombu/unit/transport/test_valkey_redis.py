@@ -9,6 +9,7 @@ from collections import deque
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import ResponseError
 
 from kombu.entity import Exchange, Queue
@@ -890,6 +891,15 @@ class TestGet:
         msg = await ch.get("q1", no_ack=True)
         assert msg is not None
         assert "tag-1" not in ch._delivered
+
+    async def test_get_lets_a_broker_failure_out(self):
+        """An outage is not an empty queue, or get_nowait() reports Empty for it."""
+        ch = _make_channel()
+        script = AsyncMock(side_effect=RedisConnectionError("connection lost"))
+        ch._get_consume_script = AsyncMock(return_value=script)
+
+        with pytest.raises(RedisConnectionError):
+            await ch.get("q1")
 
     async def test_get_empty(self):
         ch = _make_channel()
@@ -2064,6 +2074,39 @@ class TestPersistentConsumerTasks:
             await ch.close()
         assert ch._consume_iter_task is None
         assert any("did not drain" in rec.message for rec in caplog.records)
+
+    async def test_an_iteration_cancelled_by_close_does_not_cancel_the_caller(self):
+        """close() cancels a hung iteration; the drain_events waiting on it was not cancelled."""
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("q1", MagicMock(), True)
+
+        running = asyncio.Event()
+
+        async def hung_iteration(*args, **kwargs):
+            running.set()
+            await asyncio.sleep(60)
+            return False
+
+        ch._consume_regular = hung_iteration
+        drain = asyncio.create_task(ch.drain_events(timeout=30.0))
+        await running.wait()
+        ch._consume_iter_task.cancel()
+
+        assert await drain is False
+        assert not drain.cancelled()
+
+    async def test_a_failed_iteration_is_reported(self, caplog):
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("q1", MagicMock(), True)
+
+        async def broken_iteration(*args, **kwargs):
+            raise RedisConnectionError("connection lost")
+
+        ch._safe_consume_iter = broken_iteration
+        with caplog.at_level("WARNING", logger="kombu.transport.valkey_redis"):
+            assert await ch.drain_events(timeout=1.0) is False
+        assert [rec.message for rec in caplog.records] == ["Consumer iteration failed."]
+        assert caplog.records[0].exc_info[1].args == ("connection lost",)
 
 
 class TestPeriodicTasks:

@@ -1072,17 +1072,28 @@ class Channel:
         if not done:
             return False
 
+        return self._collect_iterations(done)
+
+    def _collect_iterations(self, done: AbstractSet[asyncio.Task]) -> bool:
+        """Read the results of the iterations that finished.
+
+        A task that ends cancelled was cancelled by ``close()``, not by this
+        caller, so its ``CancelledError`` stays here: re-raising it would
+        cancel a caller that nobody asked to cancel.
+        """
         delivered = False
         for task in done:
-            try:
-                if task.result():
-                    delivered = True
-            except Exception as exc:
-                logger.debug("consumer iteration error: %s", exc)
             if task is self._consume_iter_task:
                 self._consume_iter_task = None
             elif task is self._xread_iter_task:
                 self._xread_iter_task = None
+            if task.cancelled():
+                continue
+            error = task.exception()
+            if error is not None:
+                logger.warning("Consumer iteration failed.", exc_info=error)
+            elif task.result():
+                delivered = True
         return delivered
 
     def _regular_queues(self) -> list[str]:
@@ -1896,27 +1907,28 @@ class Channel:
         no_ack: bool = False,
         accept: AbstractSet[str] | None = None,
     ) -> Message | None:
-        """Non-blocking single message fetch via atomic consume Lua script."""
+        """Fetch one message without blocking, or None when the queue is empty.
+
+        A broker failure is not an empty queue: the script call is left to
+        raise, so a caller such as ``SimpleQueue.get_nowait`` reports the
+        outage instead of a spurious ``Empty``.
+        """
         queue_key = self._queue_key(queue)
         new_queue_at = time() + self._visibility_timeout + self._requeue_check_interval
 
-        try:
-            script = await self._get_consume_script()
-            result = await script(
-                keys=[queue_key],
-                args=[
-                    self._global_keyprefix,
-                    MESSAGE_KEY_PREFIX,
-                    str(new_queue_at),
-                    MESSAGES_INDEX_PREFIX,
-                    "1",
-                    queue,
-                    "1" if no_ack else "0",
-                ],
-            )
-        except Exception:
-            logger.debug("Consume script error in get()", exc_info=True)
-            result = None
+        script = await self._get_consume_script()
+        result = await script(
+            keys=[queue_key],
+            args=[
+                self._global_keyprefix,
+                MESSAGE_KEY_PREFIX,
+                str(new_queue_at),
+                MESSAGES_INDEX_PREFIX,
+                "1",
+                queue,
+                "1" if no_ack else "0",
+            ],
+        )
 
         if not result:
             return None
