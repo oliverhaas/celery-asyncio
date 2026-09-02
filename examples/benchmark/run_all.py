@@ -73,7 +73,7 @@ def matrix() -> list[Run]:
         runs.append(Run(f"aio-mixed-l2c50-s2-{suffix}", venv, "asyncio", None, 2, 50, 2, "mixed"))
 
         # Same three layouts again under uvloop (libuv event loop). Same venv,
-        # same kwargs — only the event-loop implementation differs.
+        # same kwargs; only the event-loop implementation differs.
         uvloop_env = {"BENCH_UVLOOP": "1"}
         runs.append(Run(f"aio-async-l4c25-uvloop-{suffix}", venv, "asyncio", None, 4, 25, 1, "async", uvloop_env))
         runs.append(Run(f"aio-sync-s4-uvloop-{suffix}", venv, "asyncio", None, 1, 1, 4, "sync", uvloop_env))

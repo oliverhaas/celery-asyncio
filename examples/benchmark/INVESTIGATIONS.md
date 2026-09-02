@@ -9,7 +9,7 @@ Captures what we changed, why, and what the bench said.
 These investigations were run on a workstation with faster cores than the
 bench machine in [RESULTS.md](RESULTS.md). On the bench machine,
 `aio-l4c25-314t` reaches `mean_cpu ≈ 367%` (close to 4 full cores). On the
-dev box, the same config caps at `mean_cpu ≈ 115%` — the 4 LoopWorker
+dev box, the same config caps at `mean_cpu ≈ 115%`: the 4 LoopWorker
 threads are mostly idle waiting for dispatch. Faster cores finish each task
 sooner, so the per-task broker round-trip cost becomes the dominant share
 of wall time, and the main thread can't refill the prefetch fast enough to
@@ -19,13 +19,13 @@ That cap is the constraint these experiments were aimed at lifting.
 
 ## Tools
 
-* [`profile_run.py`](profile_run.py) — wraps a worker in `py-spy record`
+* [`profile_run.py`](profile_run.py) wraps a worker in `py-spy record`
   and drives a workload through it. Outputs flamegraph SVG +
   speedscope JSON to `profiles/`. Useful because the bench's `run_all.py`
   starts/stops workers per config and gives no profiling hook.
 * py-spy 0.4.2 **does not work on Python 3.14t free-threaded builds**
   (`failed to get gil_thread_id`). All profiles below are from the 3.14
-  GIL build. The architecture observations transfer — the same threads,
+  GIL build. The architecture observations transfer: the same threads,
   the same broker code paths, the same syscalls.
 
 ## Round 1: five LoopWorker hot-path fixes
@@ -42,7 +42,7 @@ FT contention points and per-task waste.
 | 5 | Drop `LoopWorker._active_count_lock`. | **Reverted.** Per-LoopWorker 2-way lock that was already trivial. Removing it makes the diagnostic counter race under FT for zero measurable TPS gain. |
 
 **Result:** all five passed tests, none changed cpu-only TPS on the dev
-box. After honest review, #3/#4/#5 were rolled back — they traded real
+box. After honest review, #3/#4/#5 were rolled back: they traded real
 properties (lock safety, load-balancing, counter accuracy) for zero
 measured benefit. #1 and #2 stayed because they're pure cleanups with no
 downside.
@@ -81,7 +81,7 @@ experiments to confirm:
 | `_does_info = False` to suppress per-task `Task X received` / `succeeded` logs | If logging is the bottleneck, TPS should jump. | **0** |
 | Both at once | If both together, TPS should jump. | **0** |
 | `WatchedFileHandler` → `FileHandler` (no stat-per-emit) | Removes the 2.8% reopenIfNeeded. | **0** |
-| `task_ignore_result=True` | Would skip result publishing entirely. | could not measure — bench runner polls `result.ready()`, which never returns when the backend is disabled |
+| `task_ignore_result=True` | Would skip result publishing entirely. | could not measure: the bench runner polls `result.ready()`, which never returns when the backend is disabled |
 
 **Conclusion: none of the suspected per-task costs is the actual
 bottleneck on this hardware.** The CPU % on each thread is what it spends
@@ -100,7 +100,7 @@ Removing the noise from the no-bottleneck items lets the real cost surface.
  7.2% _read_ready__data_received
 ```
 
-The 34% sendmsg is *still high* with no acks — so it's mostly the
+The 34% sendmsg is *still high* with no acks, so it's mostly the
 **broker consume requests**, not acks. Each `drain_events` from kombu's
 Redis transport is a non-blocking FAST consume (Lua script) or a blocking
 BZMPOP, one message at a time.
@@ -117,9 +117,9 @@ The **result store is the visible LoopWorker cost.** Reading
 [`base.py:1268`](../../celery/backends/base.py) shows it does
 **two Redis round-trips per task**:
 
-1. `_aget_task_meta_for(task_id)` — GET the current meta to check
+1. `_aget_task_meta_for(task_id)`: GET the current meta to check
    if it's already SUCCESS (dedup against rerun-after-lost-worker races).
-2. `_aset_with_state(...)` — SET the new meta.
+2. `_aset_with_state(...)`: SET the new meta.
 
 Both `await`ed serially on the LoopWorker's loop. Plus a latent issue:
 the backend's `async_client` is a single `cached_property` that all four
@@ -136,27 +136,27 @@ internally serializes.
   ~30 ms  idle waiting on asyncio scheduling between hops
 ```
 
-The "idle waiting" is what's not directly visible in any one syscall —
-it's the combined cost of context switches, wakeup-pipe ping-pong between
+The "idle waiting" is what's not directly visible in any one syscall.
+It's the combined cost of context switches, wakeup-pipe ping-pong between
 threads, and the asyncio scheduler running through its ready queue. Each
 per-task hop pays a small amount; with 2-3 hops per task per worker, it
 adds up.
 
 ## What didn't work, and why
 
-* **Lock-removal fixes (Round 1)** — correct, but the threads were never
+* **Lock-removal fixes (Round 1)**: correct, but the threads were never
   contending on those locks on this hardware. They're work-bound, not
   lock-bound.
-* **Disabling acks** — acks contribute CPU but not wall-time gating. Main
+* **Disabling acks**: acks contribute CPU but not wall-time gating. Main
   thread has plenty of headroom (49% idle); freeing more headroom doesn't
   speed up the LoopWorkers, which are themselves idle waiting.
-* **Disabling per-task logs** — same reason.
-* **`WatchedFileHandler` → `FileHandler`** — only kills the per-emit
+* **Disabling per-task logs**: same reason.
+* **`WatchedFileHandler` → `FileHandler`**: only kills the per-emit
   `stat()` (2.8% of main); the `flush()` write syscall (7%) stays.
 
 ## Round 4: directions tried
 
-### 1. Atomic result store via Lua script — landed
+### 1. Atomic result store via Lua script: landed
 
 [`base.py:_astore_result`](../../celery/backends/base.py) does GET-then-SET
 across two separate `await`s, i.e. two Redis round-trips per task. The
@@ -190,13 +190,13 @@ return false
 Lives in [`valkey_redis.py`](../../celery/backends/valkey_redis.py) as
 `_ASTORE_RESULT_LUA` + a `cached_property` registered script + an
 `_astore_result` override that logs `logger.error` whenever the Lua
-returns an existing terminal state (i.e. a write was dropped — almost
+returns an existing terminal state (i.e. a write was dropped, almost
 always a redelivered task; worth surfacing because it indicates
 broker/ack instability). Non-JSON serializers fall back to the base
 GET+SET path (the Lua check needs `cjson`).
 
-**Why the widened rule.** The upstream behavior — only `SUCCESS` is sticky
-— is asymmetric: a redelivered task that fails the second time can
+**Why the widened rule.** The upstream behavior, where only `SUCCESS` is
+sticky, is asymmetric: a redelivered task that fails the second time can
 silently overwrite a previously-recorded `SUCCESS`, but a redelivered task
 that succeeds the second time will overwrite a previously-recorded
 `FAILURE` (which downstream consumers may already have acted on).
@@ -207,7 +207,7 @@ task finishes, its outcome is the outcome.
 65% → 71%. Confirmed the second round-trip is gone.
 **Bench delta on dev box:** 0 TPS (idle absorbs it; LoopWorkers were
 already 65% idle before).
-**Expected on bench machine:** real TPS gain — there the LoopWorkers run
+**Expected on bench machine:** real TPS gain, since there the LoopWorkers run
 at 367% mean_cpu, so a 5%-ish CPU saving translates to throughput.
 
 **Note on alternatives.** A redis-py `pipeline()` would also get this to
@@ -218,7 +218,7 @@ writers can both observe non-terminal state and both write, losing one of
 the outcomes. The Lua version makes the check + write atomic on the Redis
 server side.
 
-### 2. Per-LoopWorker async Redis client — attempted, reverted
+### 2. Per-LoopWorker async Redis client: attempted, reverted
 
 Idea: replace the backend's `cached_property async_client` with a per-loop
 cache keyed by `id(asyncio.get_running_loop())`. Each LoopWorker loop gets
@@ -251,22 +251,22 @@ If you pick this up again:
   has its own pool with default `max_connections=50`; lost-race
   constructions can stack up).
 - A `weakref.WeakValueDictionary` keyed by `loop` (not `id(loop)`) might
-  be cleaner — loops are hashable, and a WeakValueDictionary auto-evicts
+  be cleaner: loops are hashable, and a WeakValueDictionary auto-evicts
   when the loop is GC'd.
 - Consider giving the pool an explicit `max_connections` based on
   `loop_concurrency` instead of the default 50.
 
-### 3. Skip per-task acks when `task_acks_late=False` — not attempted
+### 3. Skip per-task acks when `task_acks_late=False`: not attempted
 
 When the worker is configured to ack-on-receive (the default and the bench
-setting), `_ack` is still called from the trace closure on every task —
+setting), `_ack` is still called from the trace closure on every task,
 just deferred to the main loop. With `acks_late=False`, the message could
 be acked the moment it leaves the broker (pre-dispatch, batched with the
 consume RTT) and the per-task back-channel deleted entirely.
 
 Skipped because:
 1. The Round-2 experiment already showed that making `_ack` a no-op gives
-   **zero TPS improvement on this hardware** — main thread isn't ack-bound.
+   **zero TPS improvement on this hardware**: the main thread isn't ack-bound.
 2. The change spans kombu transport + celery consumer, with real risk of
    breaking restore-on-cancel semantics.
 
@@ -282,11 +282,11 @@ For perf work specifically:
   stable steady state is ~65 TPS on 314t / ~35 TPS on 314 cpu-only on the
   dev box; deviations beyond ±2 TPS are real, anything inside is noise.
 * `FLUSHALL` Redis between runs. State leaks from a killed/interrupted
-  run can drop TPS by 10× without any visible error — there's no
+  run can drop TPS by 10× without any visible error, and there's no
   log line that says "you have stale messages from a previous run".
 * `ps -ef | grep celery.*worker` should return nothing before starting.
   Stray workers from previous runs steal tasks silently.
 * py-spy only works on the GIL build. The architecture observations
-  transfer to 3.14t — same broker round-trips, same wakeup pipes — but
+  transfer to 3.14t (same broker round-trips, same wakeup pipes), but
   3.14t-specific contention (per-object locks, biased refcounting) won't
   show up until py-spy or another profiler grows FT support.

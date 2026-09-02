@@ -7,7 +7,7 @@ configuration is compared on identical work.
 Three workload mixes are available (`--profile`):
 
   - `mixed`    (default): the balanced default mix that exercises all three
-                          dimensions — io_heavy 40%, cpu_heavy 30%,
+                          dimensions: io_heavy 40%, cpu_heavy 30%,
                           mem_heavy 20%, balanced 10%.
   - `cpu-only`:           100% CPU-bound tasks. Used to showcase the impact
                           of the GIL on multi-threaded configs (compare
@@ -41,7 +41,7 @@ MIXED_PROFILES = {
 
 # Single-profile defaults for the showcase modes. cpu-only burns ~5 ms of
 # pure-Python compute per task so the GIL effect is visible. io-only sleeps
-# 1 s per task — a realistic average for an outbound HTTP API call — so the
+# 1 s per task, a realistic average for an outbound HTTP API call, so the
 # asyncio concurrency advantage isn't drowned out by broker round-trip noise.
 CPU_ONLY_DEFAULT = {"cpu_iters": 20000, "io_seconds": 0.0, "mem_kb": 0}
 IO_ONLY_DEFAULT = {"cpu_iters": 0, "io_seconds": 0.5, "mem_kb": 0}

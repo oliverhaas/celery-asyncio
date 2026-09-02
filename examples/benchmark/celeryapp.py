@@ -14,7 +14,7 @@ import sys
 
 # Install uvloop BEFORE celery (which transitively imports asyncio) so the
 # policy is in place when any loop is created. Verify by actually checking
-# the policy after install — echo to stderr so each worker log records the
+# the policy after install: echo to stderr so each worker log records the
 # exact event-loop class used (the line shows up in the worker logfile and
 # makes uvloop activation observable per run, not just "we set the env var").
 _UVLOOP_REQUESTED = os.environ.get("BENCH_UVLOOP") == "1"

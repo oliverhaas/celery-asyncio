@@ -360,7 +360,7 @@ def main() -> None:
             results.append(task_for(i).apply_async(kwargs=t["kwargs"], queue=args.queue))
         t_publish_end = time.monotonic()
 
-        # Poll for completion. ready() is a redis GET — cheap.
+        # Poll for completion. ready() is a redis GET, which is cheap.
         # Some kombu versions strand a small fraction of tasks in the
         # broker (queue-index has them, consumer never picks them up). If
         # progress stalls near 100%, declare done and record the leak.

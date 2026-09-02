@@ -866,7 +866,7 @@ class TestDeliveryTracking:
 
 
 class TestConsumerCancellation:
-    """Regressions for the upstream kombu fixes ported in UPSTREAM-PLAN.md."""
+    """Regressions for the upstream kombu fixes ported into this transport."""
 
     async def test_a_message_popped_for_a_cancelled_consumer_goes_back(self, channel):
         """Upstream kombu 77a5dee8, adapted: a cancel racing an in-flight consume."""
