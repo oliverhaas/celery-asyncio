@@ -260,8 +260,8 @@ class ConsumerMixin:
         conn = self.create_connection()
         try:
             await conn.ensure_connection(
+                errback=self.on_connection_error,
                 max_retries=self.connect_max_retries,
-                callback=self.on_connection_error,
             )
             yield conn
         finally:
@@ -368,8 +368,8 @@ class ConsumerProducerMixin(ConsumerMixin):
         if self._producer_connection is None:
             conn = self.connection.clone()
             await conn.ensure_connection(
+                errback=self.on_connection_error,
                 max_retries=self.connect_max_retries,
-                callback=self.on_connection_error,
             )
             self._producer_connection = conn
         return self._producer_connection
