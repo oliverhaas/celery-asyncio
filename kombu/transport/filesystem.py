@@ -58,7 +58,7 @@ from pathlib import Path
 from time import monotonic_ns
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from kombu.exceptions import ChannelError
+from kombu.exceptions import ChannelError, KombuError
 from kombu.log import get_logger
 from kombu.message import Message
 from kombu.utils.json import dumps as json_dumps
@@ -128,6 +128,9 @@ class Channel(BaseChannel):
         self._channel_id = str(uuid.uuid4())
         self._consumers: dict[str, tuple[str, Callable, bool]] = {}
         self._closed = False
+        #: Consumer to start the next delivery at, so that one busy queue
+        #: cannot starve the others.
+        self._next_consumer = 0
 
         # Filesystem options
         self._data_folder_in = Path(data_folder_in)
@@ -221,7 +224,7 @@ class Channel(BaseChannel):
         """Read an exchange's bindings, raising if the control file is broken."""
         path = self._control_path(exchange)
         try:
-            raw = path.read_text()
+            raw = path.read_bytes()
         except FileNotFoundError:
             return []
         if not raw:
@@ -544,14 +547,8 @@ class Channel(BaseChannel):
         deadline = None if timeout is None else loop.time() + timeout
 
         while True:
-            # Snapshot: a consumer may be cancelled while a message is read.
-            for tag, (queue, callback, no_ack) in list(self._consumers.items()):
-                if tag not in self._consumers:
-                    continue
-                message = await self.get(queue, no_ack=no_ack)
-                if message is not None:
-                    await self._deliver_message(callback, message)
-                    return True
+            if await self._deliver_ready():
+                return True
 
             if deadline is None:
                 wait = POLL_INTERVAL
@@ -562,6 +559,27 @@ class Channel(BaseChannel):
                 wait = min(remaining, POLL_INTERVAL)
             await asyncio.sleep(wait)
 
+    async def _deliver_ready(self) -> bool:
+        """Deliver one queued message, taking the consumers in turn."""
+        # Snapshot: a consumer can be cancelled while a message file is read.
+        consumers = list(self._consumers.items())
+        if not consumers:
+            return False
+
+        start = self._next_consumer % len(consumers)
+        for offset in range(len(consumers)):
+            index = (start + offset) % len(consumers)
+            tag, (queue, callback, no_ack) = consumers[index]
+            if tag not in self._consumers:
+                continue
+            message = await self.get(queue, no_ack=no_ack)
+            if message is None:
+                continue
+            self._next_consumer = index + 1
+            await self._deliver_message(callback, message)
+            return True
+        return False
+
     async def _deliver_message(
         self,
         callback: Callable[..., Any],
@@ -570,7 +588,8 @@ class Channel(BaseChannel):
         """Deliver a message to a callback."""
         try:
             body = message.decode()
-        except Exception:
+        except KombuError as exc:
+            logger.warning("Cannot decode message %s: %r", message.delivery_tag, exc)
             body = message.body
 
         result = callback(body, message)

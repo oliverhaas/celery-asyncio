@@ -306,6 +306,33 @@ class test_drain_events:
         assert await channel.drain_events(timeout=0.1) is False
         await canceller
 
+    async def test_a_busy_queue_does_not_starve_the_others(self):
+        channel = await make_channel()
+        received = []
+        await channel.basic_consume("busy", lambda body, message: received.append(("busy", body)))
+        await channel.basic_consume("quiet", lambda body, message: received.append(("quiet", body)))
+        await channel.publish(envelope("reply"), "", "quiet")
+
+        # The first queue is never empty, so a drain that always starts there
+        # would never reach the second one.
+        for _ in range(3):
+            await channel.publish(envelope("task"), "", "busy")
+            assert await channel.drain_events(timeout=1) is True
+
+        assert ("quiet", "reply") in received
+
+    async def test_a_body_that_cannot_be_deserialized_is_passed_on(self, caplog):
+        channel = await make_channel()
+        received = []
+        await channel.basic_consume("q", lambda body, message: received.append(body))
+        await channel.publish(envelope("{truncated", **{"content-type": "application/json"}), "", "q")
+
+        with caplog.at_level(logging.WARNING, logger="kombu.transport.memory"):
+            assert await channel.drain_events(timeout=1) is True
+
+        assert received == [b"{truncated"]
+        assert "Cannot decode message" in caplog.text
+
     async def test_no_consumers_still_honours_the_timeout(self):
         channel = await make_channel()
 

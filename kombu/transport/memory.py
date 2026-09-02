@@ -28,6 +28,7 @@ import uuid
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from kombu.exceptions import KombuError
 from kombu.log import get_logger
 from kombu.message import Message
 
@@ -87,6 +88,9 @@ class Channel(BaseChannel):
         self._channel_id = str(uuid.uuid4())
         self._consumers: dict[str, tuple[str, Callable, bool]] = {}
         self._closed = False
+        #: Consumer to start the next delivery at, so that one busy queue
+        #: cannot starve the others.
+        self._next_consumer = 0
 
         # For no-ack consumers
         self.no_ack_consumers: set[str] | None = set()
@@ -390,11 +394,19 @@ class Channel(BaseChannel):
                 self._discard_waiter(names, waiter)
 
     async def _deliver_ready(self) -> bool:
-        """Deliver the first queued message found, if any."""
-        for queue, callback, no_ack in list(self._consumers.values()):
+        """Deliver one queued message, taking the consumers in turn."""
+        consumers = list(self._consumers.values())
+        if not consumers:
+            return False
+
+        start = self._next_consumer % len(consumers)
+        for offset in range(len(consumers)):
+            index = (start + offset) % len(consumers)
+            queue, callback, no_ack = consumers[index]
             data = self._take(queue)
             if data is None:
                 continue
+            self._next_consumer = index + 1
             message = self._create_message(queue, data, no_ack)
             await self._deliver_message(callback, message)
             return True
@@ -408,7 +420,8 @@ class Channel(BaseChannel):
         """Deliver a message to a callback."""
         try:
             body = message.decode()
-        except Exception:
+        except KombuError as exc:
+            logger.warning("Cannot decode message %s: %r", message.delivery_tag, exc)
             body = message.body
 
         result = callback(body, message)

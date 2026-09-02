@@ -13,8 +13,10 @@ from kombu.utils.json import dumps as json_dumps
 from kombu.utils.json import loads as json_loads
 
 
-def envelope(body: str) -> bytes:
-    return json_dumps({"body": body, "content-type": "text/plain", "content-encoding": "utf-8"}).encode()
+def envelope(body: str, **kwargs) -> bytes:
+    payload = {"body": body, "content-type": "text/plain", "content-encoding": "utf-8"}
+    payload.update(kwargs)
+    return json_dumps(payload).encode()
 
 
 @pytest.fixture
@@ -149,6 +151,15 @@ class test_bindings:
         await channel.declare_exchange(Exchange("fan", type="fanout"))
         await channel.queue_bind("one", "fan")
         (control_folder / "fan.exchange").write_text("{not json")
+
+        with pytest.raises(ChannelError, match="fan"):
+            await channel.publish(envelope("hi"), "fan", "")
+
+    async def test_a_control_file_that_is_not_text_is_reported(self, options, control_folder):
+        channel = await make_channel(options)
+        await channel.declare_exchange(Exchange("fan", type="fanout"))
+        await channel.queue_bind("one", "fan")
+        (control_folder / "fan.exchange").write_bytes(b"\xff\xfe\x00")
 
         with pytest.raises(ChannelError, match="fan"):
             await channel.publish(envelope("hi"), "fan", "")
@@ -369,6 +380,33 @@ class test_drain_events:
 
         assert await channel.drain_events(timeout=1) is True
         assert received == ["hi"]
+
+    async def test_a_body_that_cannot_be_deserialized_is_passed_on(self, options, caplog):
+        channel = await make_channel(options)
+        received = []
+        await channel.basic_consume("q", lambda body, message: received.append(body))
+        await channel.publish(envelope("{truncated", **{"content-type": "application/json"}), "", "q")
+
+        with caplog.at_level(logging.WARNING, logger="kombu.transport.filesystem"):
+            assert await channel.drain_events(timeout=1) is True
+
+        assert received == [b"{truncated"]
+        assert "Cannot decode message" in caplog.text
+
+    async def test_a_busy_queue_does_not_starve_the_others(self, options):
+        channel = await make_channel(options)
+        received = []
+        await channel.basic_consume("busy", lambda body, message: received.append(("busy", body)))
+        await channel.basic_consume("quiet", lambda body, message: received.append(("quiet", body)))
+        await channel.publish(envelope("reply"), "", "quiet")
+
+        # The first queue is never empty, so a drain that always starts there
+        # would never reach the second one.
+        for _ in range(3):
+            await channel.publish(envelope("task"), "", "busy")
+            assert await channel.drain_events(timeout=1) is True
+
+        assert ("quiet", "reply") in received
 
     async def test_no_consumers_still_honours_the_timeout(self, options):
         channel = await make_channel(options)
