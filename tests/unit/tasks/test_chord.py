@@ -426,7 +426,6 @@ class test_apply_tasks_ordering(ChordCase):
         assert events.count("apply_async") == 6
 
 
-@pytest.mark.skip(reason="Canvas sync path uses producer_or_acquire; needs async refactor")
 class test_Chord_task(ChordCase):
     @patch("celery.Celery.backend", new=PropertyMock(name="backend"))
     def test_run(self):

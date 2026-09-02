@@ -440,12 +440,12 @@ class test_BaseBackend_dict:
     def test_reload_group_result(self):
         self.b._cache = {}
         self.b.reload_group_result("exists")
-        self.b._cache["exists"] = {"result": "group"}
+        assert self.b._cache["exists"] == {"result": "group"}
 
     def test_reload_task_result(self):
         self.b._cache = {}
         self.b.reload_task_result("task-exists")
-        self.b._cache["task-exists"] = {"result": "task"}
+        assert self.b._cache["task-exists"] == {"result": "task"}
 
     def test_fail_from_current_stack(self):
         import inspect
@@ -726,9 +726,6 @@ class test_BaseBackend_dict:
     def test_exception_to_python_when_None(self):
         b = BaseBackend(app=self.app)
         assert b.exception_to_python(None) is None
-
-    def test_not_an_actual_exc_info(self):
-        pass
 
     def test_not_an_exception_but_a_callable(self):
         x = {"exc_message": ("echo 1",), "exc_type": "system", "exc_module": "os"}

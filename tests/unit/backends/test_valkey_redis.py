@@ -713,7 +713,9 @@ class test_RedisBackend(basetest_RedisBackend):
         with pytest.raises(ValueError):
             self.Backend("redis://:bosco@vandelay.com:123//1?ssl_cert_reqs=required", app=self.app)
 
-    def test_conf_raises_KeyError(self):
+    def test_a_conf_holding_only_the_result_keys_still_builds_a_backend(self):
+        # Every other setting has to be read with a default: a conf that only
+        # carries the result keys is enough to construct the backend.
         self.app.conf = AttributeDict(
             {
                 "result_serializer": "json",
@@ -723,7 +725,12 @@ class test_RedisBackend(basetest_RedisBackend):
                 "result_accept_content": ["json"],
             }
         )
-        self.Backend(app=self.app)
+
+        b = self.Backend(app=self.app)
+
+        assert b.serializer == "json"
+        assert b.expires is None
+        assert b._cache.limit == 1
 
     @patch("celery.backends.valkey_redis.logger")
     def test_on_connection_error(self, logger):

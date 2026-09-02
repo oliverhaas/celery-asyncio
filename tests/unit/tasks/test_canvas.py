@@ -425,8 +425,8 @@ class test_chunks(CanvasCase):
         x = self.add.chunks(range(100), 10)
         d = dict(x)
         d["subtask_type"] = "chunks_subclass"
-        isinstance(chunks_subclass.from_dict(d), chunks_subclass)
-        isinstance(chunks_subclass.from_dict(d).clone(), chunks_subclass)
+        assert isinstance(chunks_subclass.from_dict(d), chunks_subclass)
+        assert isinstance(chunks_subclass.from_dict(d).clone(), chunks_subclass)
 
     def test_chunks(self):
         x = self.add.chunks(range(100), 10)
@@ -907,7 +907,7 @@ class test_chain(CanvasCase):
 
     def test_accepts_generator_argument(self):
         x = chain(self.add.s(i) for i in range(10))
-        assert x.tasks[0].type, self.add
+        assert x.tasks[0].type == self.add
         assert x.type
 
     def test_chord_sets_result_parent(self):
