@@ -7,6 +7,9 @@ errors are recorded, handlers are applied and so on.
 """
 
 import asyncio
+import concurrent.futures
+import contextvars
+import inspect
 import logging
 import os
 import sys
@@ -36,6 +39,7 @@ from celery.exceptions import (
     Retry,
 )
 from celery.result import AsyncResult
+from celery.utils.eventloop import current_loop
 from celery.utils.log import get_logger
 from celery.utils.nodenames import gethostname
 from celery.utils.objects import mro_lookup
@@ -725,21 +729,18 @@ def build_tracer(
                         task_before_start(uuid, args, kwargs)
 
                     R = retval = fun(*args, **kwargs)
-                    # Handle async task functions - if run() returns a coroutine,
-                    # we need to execute it. If we're inside a running event loop
-                    # (async worker), we can't use asyncio.run(), so we run it
-                    # in a thread with its own event loop.
                     if asyncio.iscoroutine(retval):
-                        try:
-                            asyncio.get_running_loop()
-                            # Inside running loop - run coroutine in a thread
-                            import concurrent.futures
-
-                            with concurrent.futures.ThreadPoolExecutor(1) as pool:
-                                R = retval = pool.submit(asyncio.run, retval).result()
-                        except RuntimeError:
-                            # No running loop - use asyncio.run() directly
+                        # A coroutine body under the sync tracer. Asked for from
+                        # a loop there is nowhere here to run it, so it goes to
+                        # a thread of its own, carrying a copy of this context:
+                        # a thread starts with an empty one, and the body would
+                        # read a blank `self.request` out of it.
+                        if current_loop() is None:
                             R = retval = asyncio.run(retval)
+                        else:
+                            context = contextvars.copy_context()
+                            with concurrent.futures.ThreadPoolExecutor(1) as pool:
+                                R = retval = pool.submit(context.run, asyncio.run, retval).result()
                     state = SUCCESS
                 except Reject as exc:
                     I, R = Info(REJECTED, exc), ExceptionInfo(internal=True)
@@ -876,6 +877,10 @@ def build_async_tracer(
 
     See build_tracer for full documentation.
     """
+    # A custom __call__ is what the sync tracer calls, so running arun() past it
+    # here left the same task behaving differently under the two tracers.
+    fun = task if task_has_custom(task, "__call__") else None
+
     loader = loader or app.loader
     deduplicate_successful_tasks = (
         (app.conf.task_acks_late or task.acks_late)
@@ -1077,10 +1082,14 @@ def build_async_tracer(
                     if task_before_start:
                         task_before_start(uuid, args, kwargs)
 
-                    # Execute the task using arun() which handles both sync and async
-                    # - If user overrides arun(), uses their async implementation
-                    # - If user only defines run(), arun() wraps it with sync_to_async
-                    R = retval = await task.arun(*args, **kwargs)
+                    if fun is None:
+                        # arun() runs the user's async body, or wraps a sync
+                        # one with sync_to_async.
+                        R = retval = await task.arun(*args, **kwargs)
+                    else:
+                        R = retval = fun(*args, **kwargs)
+                        if inspect.isawaitable(retval):
+                            R = retval = await retval
                     state = SUCCESS
                 except Reject as exc:
                     I, R = Info(REJECTED, exc), ExceptionInfo(internal=True)

@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from kombu.exceptions import EncodeError
 
-from celery import group, signals, states, uuid
+from celery import Task, group, signals, states, uuid
 from celery.app.task import Context
 from celery.app.trace import (
     TraceInfo,
@@ -1170,6 +1170,87 @@ class test_async_trace(TraceCase):
             )
 
         assert retval == 4
+
+
+class test_async_body_under_the_sync_tracer(TraceCase):
+    """`build_tracer` with a coroutine body, which it runs on a thread of its own."""
+
+    async def test_the_body_reads_the_request(self):
+        # A thread starts with an empty context unless the caller's is copied
+        # into it, and the request stack lives in one.
+        seen = {}
+
+        @self.app.task(bind=True, shared=False)
+        async def peek(self_):
+            seen["id"] = self_.request.id
+            seen["args"] = self_.request.args
+            return "ok"
+
+        retval, info = trace(self.app, peek, (), {}, request={"id": "id-1", "args": ()})
+
+        assert info is None
+        assert retval == "ok"
+        assert seen == {"id": "id-1", "args": ()}
+
+    async def test_a_runtime_error_from_the_body_is_reported(self):
+        # Catching RuntimeError around the hand-off caught the body's own, and
+        # reran the spent coroutine to report asyncio's complaint about that.
+        exc = RuntimeError("boom")
+
+        @self.app.task(bind=True, shared=False)
+        async def failing(self_):
+            raise exc
+
+        _, info = trace(self.app, failing, (), {}, request={"id": "id-1"})
+
+        assert info.state == states.FAILURE
+        assert info.retval is exc
+
+
+class test_custom_call_under_the_async_tracer(TraceCase):
+    """A task with its own ``__call__``, which only the sync tracer used to run."""
+
+    async def test_the_async_tracer_calls_it(self):
+        calls = []
+
+        class CallingTask(Task):
+            name = "test_custom_call_under_the_async_tracer"
+
+            def __call__(self, *args, **kwargs):
+                calls.append(args)
+                return super().__call__(*args, **kwargs)
+
+            async def run(self, x):
+                return x * 2
+
+        task = self.app.register_task(CallingTask())
+
+        retval, info = await atrace(self.app, task, (3,), {})
+
+        assert info is None
+        assert retval == 6
+        assert calls == [(3,)]
+
+    def test_the_sync_tracer_calls_it_too(self):
+        calls = []
+
+        class CallingTask(Task):
+            name = "test_custom_call_under_the_sync_tracer"
+
+            def __call__(self, *args, **kwargs):
+                calls.append(args)
+                return super().__call__(*args, **kwargs)
+
+            def run(self, x):
+                return x * 2
+
+        task = self.app.register_task(CallingTask())
+
+        retval, info = trace(self.app, task, (3,), {})
+
+        assert info is None
+        assert retval == 6
+        assert calls == [(3,)]
 
 
 class test_TraceInfo(TraceCase):
