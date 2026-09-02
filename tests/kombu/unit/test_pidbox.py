@@ -146,3 +146,21 @@ async def test_broadcast_without_a_pattern_dispatches_everywhere():
         await _broadcast_and_drain(conn, mailbox)
 
     assert sorted(seen) == ["worker-a1", "worker-b1"]
+
+
+async def _reply_content_type(serializer):
+    async with Connection("memory://") as conn:
+        mailbox = Mailbox("testns", type="fanout", serializer=serializer)(conn)
+        channel = await conn.default_channel()
+        node = mailbox.Node("worker-a1", channel=channel)
+        await node.reply({"worker-a1": "pong"}, "reply.testns.pidbox", "replies", "ticket")
+        message = await channel.get("replies", no_ack=True)
+    return message.content_type
+
+
+async def test_reply_uses_the_mailbox_serializer():
+    assert await _reply_content_type("pickle") == "application/x-python-serialize"
+
+
+async def test_reply_falls_back_to_json():
+    assert await _reply_content_type(None) == "application/json"

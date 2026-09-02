@@ -171,13 +171,14 @@ class Node:
     dispatch_from_message = handle_message
 
     async def reply(self, data, exchange, routing_key, ticket, **kwargs):
+        kwargs.setdefault("serializer", self.mailbox.serializer)
         await self.mailbox._publish_reply(
             data,
             exchange,
             routing_key,
             ticket,
             channel=self.channel,
-            serializer=self.mailbox.serializer,
+            **kwargs,
         )
 
 
@@ -333,6 +334,7 @@ class Mailbox:
                     "ticket": ticket,
                     "clock": self.clock.forward(),
                 },
+                **opts,
             )
         except InconsistencyError:
             # queue probably deleted and no one is expecting a reply.
