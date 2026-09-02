@@ -131,11 +131,12 @@ The CLI is the same:
 # Before
 celery -A myapp worker --loglevel=info
 
-# After -- identical
+# After, unchanged
 celery -A myapp worker --loglevel=info
 ```
 
-The `-P` flag only accepts `asyncio` (or omit it -- it's the default).
+The `-P` flag only accepts `asyncio`, which is also the default, so you can
+drop it.
 
 The worker is a single process, so the node name substitutions `%i` and `%I`
 always expand to `0` and to the empty string.
