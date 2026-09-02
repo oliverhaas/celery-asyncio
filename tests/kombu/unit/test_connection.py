@@ -179,7 +179,7 @@ class test_Connection:
 
     def test_error_tuples_are_the_transports_before_connecting(self):
         # Whoever asks which errors are recoverable is usually about to
-        # connect for the first time, or has just been disconnected -- so a
+        # connect for the first time, or has just been disconnected, so a
         # generic default here sent transport-specific connection errors past
         # the very handler that was meant to retry them.
         from kombu.transport.valkey_redis import Transport

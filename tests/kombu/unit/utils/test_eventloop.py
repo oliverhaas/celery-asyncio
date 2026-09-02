@@ -79,8 +79,8 @@ class test_LoopRunner:
         assert runner.run(which_loop()) is not first
 
     def test_stop_cancels_what_is_still_running(self, runner):
-        # A transport leaves long-lived background tasks on the loop --
-        # consumer iterations, heartbeats. Closing the loop with those still
+        # A transport leaves long-lived background tasks on the loop
+        # (consumer iterations, heartbeats). Closing the loop with those still
         # pending is what produces "Task was destroyed but it is pending!" at
         # interpreter exit, so stop() has to unwind them first.
         cancelled = threading.Event()
