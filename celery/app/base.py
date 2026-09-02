@@ -14,7 +14,7 @@ import typing
 import warnings
 import weakref
 from collections import UserDict, defaultdict, deque
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime
 from operator import attrgetter
 
@@ -1022,8 +1022,9 @@ class Celery:
         ignore_result = options.pop("ignore_result", False)
         options = router.route(options, route_name or name, args, kwargs, task_type)
 
-        # Get driver type from the async connection (may not be connected yet)
-        conn = self.async_connection
+        # Get driver type from the connection this will publish on (which may
+        # not be connected yet).
+        conn = connection or self.async_connection
         driver_type = conn.transport.driver_type if conn.transport else conn._scheme
 
         if (eta or countdown) and _detect_quorum_queues(self, driver_type)[0]:
@@ -1129,51 +1130,58 @@ class Celery:
 
         return message, options, task_id, ignore_result, producer, result_cls, add_to_parent
 
-    async def _asend_task_message(self, name, message, task_id, ignore_result, connection=None, **options):
-        """Send the prepared task message to the broker using native asyncio.
-
-        This is the native async implementation that uses kombu's
-        async Producer.publish() directly.
+    async def _asend_task_message(
+        self, name, message, task_id, ignore_result, producer=None, connection=None, **options
+    ):
+        """Send the prepared task message to the broker.
 
         Arguments:
             name: Task name.
             message: Prepared message from _prepare_task_message.
             task_id: Task ID.
             ignore_result: Whether to ignore the result.
-            connection: Optional connection to use.
+            producer: Producer to publish with, one of this loop's own if None.
+            connection: Connection to publish on, when there is no producer.
             **options: Additional options for asend_task_message.
         """
-        amqp = self.amqp
-
-        if connection is None:
-            # This loop's shared connection, not a new one. `connect()` on an
-            # already-connected connection is a no-op, so the first send opens
-            # it and later ones reuse it.
-            connection = await self.ensure_async_connection()
+        if producer is not None:
+            # Entered by whoever opened it, and theirs to close.
+            context = nullcontext(producer)
         else:
-            await connection.connect()
+            if connection is None:
+                # This loop's shared connection, not a new one. `connect()` on
+                # an already-connected connection is a no-op, so the first
+                # send opens it and later ones reuse it.
+                connection = await self.ensure_async_connection()
+            else:
+                await connection.connect()
+            context = connection.Producer()
 
-        # Create async producer
-        async with connection.Producer() as producer:
+        async with context as producer:
             if not ignore_result:
                 self.backend.on_task_call(producer, task_id)
-            await amqp.asend_task_message(producer, name, message, **options)
+            await self.amqp.asend_task_message(producer, name, message, **options)
 
-    def _send_task_message(self, producer, name, message, task_id, ignore_result, **options):
+    def _send_task_message(self, producer, name, message, task_id, ignore_result, connection=None, **options):
         """Send the prepared task message to the broker (sync wrapper).
 
         Arguments:
-            producer: Optional producer to use (ignored in async impl, kept for compat).
+            producer: Producer to publish with, one of this loop's own if None.
             name: Task name.
             message: Prepared message from _prepare_task_message.
             task_id: Task ID.
             ignore_result: Whether to ignore the result.
+            connection: Connection to publish on, when there is no producer.
             **options: Additional options for send_task_message.
         """
         # On the process-wide background loop rather than `async_to_sync`,
         # which would build a throwaway loop per call and so a throwaway
         # broker connection with it. See `celery.utils.eventloop`.
-        default_loop_runner().run(self._asend_task_message(name, message, task_id, ignore_result, **options))
+        default_loop_runner().run(
+            self._asend_task_message(
+                name, message, task_id, ignore_result, producer=producer, connection=connection, **options
+            )
+        )
 
     def send_task(
         self,
@@ -1250,7 +1258,7 @@ class Celery:
         )
 
         # Send message (I/O)
-        self._send_task_message(producer, name, message, task_id, ignore_result, **options)
+        self._send_task_message(producer, name, message, task_id, ignore_result, connection=connection, **options)
 
         result = (result_cls or self.AsyncResult)(task_id)
         result.ignored = ignore_result
@@ -1337,7 +1345,9 @@ class Celery:
         )
 
         # Send message (I/O) - native async
-        await self._asend_task_message(name, message, task_id, ignore_result, connection=connection, **options)
+        await self._asend_task_message(
+            name, message, task_id, ignore_result, producer=producer, connection=connection, **options
+        )
 
         result = (result_cls or self.AsyncResult)(task_id)
         result.ignored = ignore_result

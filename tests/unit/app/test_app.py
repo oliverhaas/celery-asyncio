@@ -1515,6 +1515,39 @@ class test_broker_connection_reuse:
         assert not connected[0].is_connected
         assert not app._async_connections
 
+    def test_send_task_publishes_on_the_connection_it_is_given(self):
+        app = self._app("t.reuse.given")
+        given = app.connection_for_write()
+        connected = []
+
+        with self._counting_connect(connected):
+            app.send_task("t.reuse.given", connection=given)
+
+        assert connected == [given]
+        assert not app._async_connections
+
+    async def test_asend_task_publishes_on_the_connection_it_is_given(self):
+        app = self._app("t.reuse.agiven")
+        given = app.connection_for_write()
+        connected = []
+
+        with self._counting_connect(connected):
+            await app.asend_task("t.reuse.agiven", connection=given)
+
+        assert connected == [given]
+        assert not app._async_connections
+
+    def test_send_task_publishes_with_the_producer_it_is_given(self):
+        app = self._app("t.reuse.producer")
+        given = app.amqp.Producer(app.connection_for_write())
+        published = []
+
+        with patch.object(app.amqp, "asend_task_message") as send:
+            send.side_effect = lambda producer, *a, **kw: published.append(producer)
+            app.send_task("t.reuse.producer", producer=given)
+
+        assert published == [given]
+
     def test_close_hands_the_connection_back(self):
         app = self._app("t.reuse.close")
         app.send_task("t.reuse.close")
