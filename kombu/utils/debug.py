@@ -20,12 +20,17 @@ __all__ = ("Logwrapped", "setup_logging")
 
 
 def setup_logging(loglevel: int | None = logging.DEBUG, loggers: list[str] | None = None) -> None:
-    """Setup logging to stdout."""
+    """Setup logging to stdout.
+
+    A `loglevel` of :const:`None` attaches the handler and leaves each
+    logger's level as it is.
+    """
     loggers = ["kombu.connection", "kombu.channel"] if not loggers else loggers
     for logger_name in loggers:
         logger = get_logger(logger_name)
         logger.addHandler(logging.StreamHandler())
-        logger.setLevel(loglevel)
+        if loglevel is not None:
+            logger.setLevel(loglevel)
 
 
 class Logwrapped:
