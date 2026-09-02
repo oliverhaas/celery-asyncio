@@ -445,8 +445,23 @@ class Channel:
 
     async def basic_ack(self, delivery_tag: str, multiple: bool = False) -> None:
         incoming = self._delivery_tag_map.pop(delivery_tag, None)
-        if incoming:
-            await incoming.ack(multiple=multiple)
+        if incoming is None:
+            return
+        if multiple:
+            self._forget_tags_up_to(delivery_tag)
+        await incoming.ack(multiple=multiple)
+
+    def _forget_tags_up_to(self, delivery_tag: str) -> None:
+        """Drop every tracked tag the broker considers acknowledged.
+
+        A multiple ack covers every delivery tag up to and including the one
+        it names. Keeping the lower tags would let a later ack send a tag the
+        broker has already forgotten, which it answers with PRECONDITION_FAILED
+        and a closed channel.
+        """
+        acknowledged = int(delivery_tag)
+        for tag in [t for t in self._delivery_tag_map if int(t) <= acknowledged]:
+            del self._delivery_tag_map[tag]
 
     async def basic_reject(self, delivery_tag: str, requeue: bool = True) -> None:
         incoming = self._delivery_tag_map.pop(delivery_tag, None)

@@ -965,6 +965,26 @@ class TestChannelAckReject:
 
         incoming.ack.assert_awaited_once_with(multiple=True)
 
+    async def test_basic_ack_multiple_forgets_the_tags_it_covers(self, channel):
+        for tag in (8, 9, 10, 11):
+            channel._delivery_tag_map[str(tag)] = _make_incoming_message(delivery_tag=tag)
+
+        await channel.basic_ack("10", multiple=True)
+
+        # 8 and 9 are acknowledged by the broker along with 10; 11 is not.
+        assert sorted(channel._delivery_tag_map) == ["11"]
+
+    async def test_ack_of_a_tag_below_a_multiple_ack_is_not_resent(self, channel):
+        lower = _make_incoming_message(delivery_tag=8)
+        channel._delivery_tag_map["8"] = lower
+        channel._delivery_tag_map["10"] = _make_incoming_message(delivery_tag=10)
+
+        await channel.basic_ack("10", multiple=True)
+        await channel.basic_ack("8")
+
+        # Re-sending tag 8 would earn a PRECONDITION_FAILED and a closed channel.
+        lower.ack.assert_not_awaited()
+
     async def test_basic_ack_unknown_tag(self, channel):
         # Should not raise
         await channel.basic_ack("nonexistent")
