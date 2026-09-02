@@ -449,12 +449,12 @@ def stats(state, **kwargs):
 
 
 @inspect_command(alias="dump_schedule")
-def scheduled(state, **kwargs):
+def scheduled(state, safe=False, **kwargs):
     """List of currently scheduled ETA/countdown tasks."""
-    return list(_iter_schedule_requests(state.consumer.timer))
+    return list(_iter_schedule_requests(state.consumer.timer, safe=safe))
 
 
-def _iter_schedule_requests(timer):
+def _iter_schedule_requests(timer, safe=False):
     for entry in timer.queue:
         try:
             arg0 = entry.args[0]
@@ -465,18 +465,18 @@ def _iter_schedule_requests(timer):
                 yield {
                     "eta": arg0.eta.isoformat() if arg0.eta else None,
                     "priority": entry.priority,
-                    "request": arg0.info(),
+                    "request": arg0.info(safe=safe),
                 }
 
 
 @inspect_command(alias="dump_reserved")
-def reserved(state, **kwargs):
+def reserved(state, safe=False, **kwargs):
     """List of currently reserved tasks, not including scheduled/active."""
     with worker_state._lock:
         reserved_tasks = state.tset(worker_state.reserved_requests) - state.tset(worker_state.active_requests)
     if not reserved_tasks:
         return []
-    return [request.info() for request in reserved_tasks]
+    return [request.info(safe=safe) for request in reserved_tasks]
 
 
 @inspect_command(alias="dump_active")

@@ -145,11 +145,19 @@ class test_inspect:
 
     def test_scheduled(self):
         self.inspect.scheduled()
-        self.assert_broadcast_called("scheduled")
+        self.assert_broadcast_called("scheduled", safe=None)
+
+    def test_scheduled_safe(self):
+        self.inspect.scheduled(safe=True)
+        self.assert_broadcast_called("scheduled", safe=True)
 
     def test_reserved(self):
         self.inspect.reserved()
-        self.assert_broadcast_called("reserved")
+        self.assert_broadcast_called("reserved", safe=None)
+
+    def test_reserved_safe(self):
+        self.inspect.reserved(safe=True)
+        self.assert_broadcast_called("reserved", safe=True)
 
     def test_stats(self):
         self.inspect.stats()

@@ -358,6 +358,19 @@ class test_ControlPanel:
         finally:
             worker_state.active_requests.discard(r)
 
+    def test_reserved_safe(self):
+        kwargsrepr = "<anything>"
+        r = Request(
+            self.TaskMessage(self.mytask.name, id="do re mi", kwargsrepr=kwargsrepr),
+            app=self.app,
+        )
+        worker_state.reserved_requests.add(r)
+        try:
+            reserved_resp = self.panel.handle("dump_reserved", {"safe": True})
+            assert reserved_resp[0]["kwargs"] == kwargsrepr
+        finally:
+            worker_state.reserved_requests.discard(r)
+
     def test_add__cancel_consumer(self):
 
         class MockConsumer:

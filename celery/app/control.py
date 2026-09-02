@@ -202,11 +202,11 @@ class Inspect:
         See Also:
             For more details about ``TASK_INFO``  see :func:`query_task` return value.
         """
-        return self._request("scheduled")
+        return self._request("scheduled", safe=safe)
 
     async def ascheduled(self, safe=None):
         """Async version of :meth:`scheduled`."""
-        return await self._arequest("scheduled")
+        return await self._arequest("scheduled", safe=safe)
 
     def reserved(self, safe=None):
         """Return list of currently reserved tasks, not including scheduled/active.
@@ -217,11 +217,11 @@ class Inspect:
         See Also:
             For ``TASK_INFO`` details see :func:`query_task` return value.
         """
-        return self._request("reserved")
+        return self._request("reserved", safe=safe)
 
     async def areserved(self, safe=None):
         """Async version of :meth:`reserved`."""
-        return await self._arequest("reserved")
+        return await self._arequest("reserved", safe=safe)
 
     def stats(self):
         """Return statistics of worker.
