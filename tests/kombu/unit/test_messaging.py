@@ -2,7 +2,10 @@
 
 from itertools import count
 
+import pytest
+
 from kombu import Connection, Exchange, Queue
+from kombu.exceptions import ChannelError
 from kombu.messaging import Consumer, Producer
 
 
@@ -355,3 +358,18 @@ class test_Consumer_cancel_by_queue:
 
         assert channel.cancelled == []
         assert consumer.consuming_from("one") is True
+
+
+class test_Producer_declare:
+    async def test_a_failing_declare_reaches_the_caller(self):
+        class Mismatched:
+            async def declare(self, channel):
+                raise ChannelError("PRECONDITION_FAILED - inequivalent arg 'x-max-priority'")
+
+        async with Connection("memory://") as conn:
+            producer = conn.Producer()
+            with pytest.raises(ChannelError, match="x-max-priority"):
+                await producer.publish({"a": 1}, routing_key="declare_q", declare=[Mismatched()])
+
+            channel = await conn.default_channel()
+            assert await channel.get("declare_q", no_ack=True) is None

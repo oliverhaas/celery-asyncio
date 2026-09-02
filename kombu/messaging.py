@@ -127,14 +127,12 @@ class Producer:
         if self.auto_declare and not self._declared:
             await self.declare()
 
-        # Declare any extra exchanges/queues
+        # A declare that fails means the entity on the broker does not match the
+        # one being published to, which the caller has to hear about: the channel
+        # is dead afterwards anyway.
         if declare:
             for entity in declare:
-                if hasattr(entity, "declare"):
-                    try:
-                        await entity.declare(channel)
-                    except Exception as exc:
-                        logger.debug("Failed to declare %r: %s", entity, exc)
+                await entity.declare(channel)
 
         # Resolve defaults
         routing_key = routing_key if routing_key is not None else self.routing_key
