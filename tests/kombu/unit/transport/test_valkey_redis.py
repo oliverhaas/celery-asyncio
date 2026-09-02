@@ -30,6 +30,7 @@ from kombu.transport.valkey_redis import (
     MIN_BINDING_LIFETIME,
     MIN_QUEUE_EXPIRES,
     QUEUE_KEY_PREFIX,
+    SOCKET_TIMEOUT_HEADROOM,
     Channel,
     SweepStats,
     Transport,
@@ -1025,14 +1026,40 @@ class TestTransport:
             visibility_timeout=120,
             delivery_limit=5,
             credential_provider="some.module.Provider",
-            socket_timeout=10,
+            socket_timeout=30,
         )
         kw = t._client_kwargs()
         assert "global_keyprefix" not in kw
         assert "visibility_timeout" not in kw
         assert "delivery_limit" not in kw
         assert "credential_provider" not in kw
-        assert kw["socket_timeout"] == 10
+        assert kw["socket_timeout"] == 30
+
+    def test_the_socket_timeout_outlasts_the_block_by_default(self):
+        # The client libraries read a blocking reply under their own socket
+        # timeout (5s by default), so a block of 10s used to end in a read
+        # timeout and a dropped connection every single time.
+        t = Transport(url="redis://localhost:6379")
+        assert t._client_kwargs()["socket_timeout"] == DEFAULT_BLOCK_TIMEOUT + SOCKET_TIMEOUT_HEADROOM
+
+        t = Transport(url="redis://localhost:6379", block_timeout=30.0)
+        assert t._client_kwargs()["socket_timeout"] == 30.0 + SOCKET_TIMEOUT_HEADROOM
+
+    @pytest.mark.parametrize("socket_timeout", [1, 10])
+    def test_a_socket_timeout_shorter_than_the_block_is_refused(self, socket_timeout):
+        t = Transport(url="redis://localhost:6379", socket_timeout=socket_timeout)
+        with pytest.raises(ValueError, match="must be greater than block_timeout"):
+            t._client_kwargs()
+
+    def test_a_socket_timeout_on_the_url_is_read_too(self):
+        # from_url lets URL query parameters win over keyword arguments, so a
+        # short one there would silently undo the derived value.
+        t = Transport(url="redis://localhost:6379/0?socket_timeout=2")
+        with pytest.raises(ValueError, match="must be greater than block_timeout"):
+            t._client_kwargs()
+
+        t = Transport(url="redis://localhost:6379/0?socket_timeout=60")
+        assert "socket_timeout" not in t._client_kwargs()
 
     async def test_connect(self):
         t = Transport(url="redis://localhost:6379")

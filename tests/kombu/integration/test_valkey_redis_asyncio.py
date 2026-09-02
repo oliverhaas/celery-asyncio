@@ -744,6 +744,22 @@ class TestDeliveryTracking:
             assert await channel.client.zcard(channel._queue_key(queue_name)) == 0
             assert await channel.client.zcard(channel._messages_index_key(queue_name)) == 0
 
+    async def test_a_blocking_consume_outlasts_the_client_socket_timeout(self):
+        """The client reads a blocking reply under its own socket timeout.
+
+        That default is five seconds, shorter than the default block, so every
+        blocking consume ended in a read timeout and a dropped connection.
+        """
+        queue_name = "test_block_outlasts_socket_timeout"
+        block = 5.5
+        async with Connection(REDIS_URL, transport_options={"block_timeout": block}) as conn:
+            channel = await conn.channel()
+            await channel.queue_purge(queue_name)
+
+            start = time()
+            assert await channel._slow_consume([queue_name], block) is False
+            assert time() - start >= block
+
 
 class TestConsumerCancellation:
     """Regressions for the upstream kombu fixes ported in UPSTREAM-PLAN.md."""

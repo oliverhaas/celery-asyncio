@@ -159,6 +159,12 @@ MIN_BINDING_LIFETIME = 300
 # iteration. Overridable via the `block_timeout` transport option.
 DEFAULT_BLOCK_TIMEOUT = 10.0
 
+# How much longer than `block_timeout` a socket read is given before it is
+# treated as a timeout. The client libraries read every reply under a socket
+# timeout of their own and pass no separate deadline for a blocking command,
+# so a socket timeout shorter than the block aborts every blocking consume.
+SOCKET_TIMEOUT_HEADROOM = 5.0
+
 # How long past its own `block_timeout` a consumer iteration may stay pending
 # before it is reported as stalled. Redis returns within BLOCK, so anything
 # beyond this means the client connection or the server has hung.
@@ -2217,8 +2223,43 @@ class Transport(BaseTransport):
     )
 
     def _client_kwargs(self) -> dict[str, Any]:
-        """Filter transport-only options from client kwargs."""
-        return {k: v for k, v in self._options.items() if k not in self._TRANSPORT_ONLY_OPTIONS}
+        """Client keyword arguments, with a socket timeout that fits the block.
+
+        redis-py and valkey-py read a reply under their own socket timeout,
+        five seconds by default, and pass no separate deadline for a blocking
+        command. A BZMPOP or XREAD blocking longer than that fails with a read
+        timeout and the connection is dropped, which with the default
+        ``block_timeout`` of ten seconds is every blocking consume on an idle
+        queue. So the socket timeout is derived from the block unless the
+        caller set one, and a setting that is too short is refused rather than
+        breaking the consume loop.
+        """
+        kwargs = {k: v for k, v in self._options.items() if k not in self._TRANSPORT_ONLY_OPTIONS}
+        block_timeout = _duration_option(self._options, "block_timeout", DEFAULT_BLOCK_TIMEOUT)
+        configured = self._configured_socket_timeout()
+        if configured is None:
+            kwargs["socket_timeout"] = block_timeout + SOCKET_TIMEOUT_HEADROOM
+        elif configured <= block_timeout:
+            raise ValueError(
+                f"socket_timeout ({configured}s) must be greater than block_timeout "
+                f"({block_timeout}s), or every blocking consume ends in a read "
+                "timeout and a dropped connection",
+            )
+        return kwargs
+
+    def _configured_socket_timeout(self) -> float | None:
+        """The socket timeout the caller asked for, if any.
+
+        A query parameter on the URL wins over a keyword argument in
+        ``from_url``, so both places have to be read.
+        """
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(self._url).query)
+        values = query.get("socket_timeout")
+        if values:
+            return float(values[-1])
+        if "socket_timeout" in self._options:
+            return float(self._options["socket_timeout"])
+        return None
 
     def _process_credential_provider(self) -> dict[str, Any]:
         """Process credential_provider option and return extra kwargs for Redis client.
