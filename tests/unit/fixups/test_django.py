@@ -1,9 +1,11 @@
+import socket
 from contextlib import contextmanager
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from celery.fixups.django import DjangoFixup, DjangoWorkerFixup, FixupWarning, _maybe_close_fd, fixup
+from celery import signals
+from celery.fixups.django import DjangoFixup, DjangoWorkerFixup, FixupWarning, fixup
 from tests.unit import conftest
 
 
@@ -81,11 +83,6 @@ class test_DjangoFixup(FixupCase):
                 fixup(self.app)
                 Fixup.assert_called()
 
-    def test_maybe_close_fd(self):
-        with patch("os.close"):
-            _maybe_close_fd(Mock())
-            _maybe_close_fd(object())
-
     def test_init(self):
         with self.fixup_context(self.app) as (f, importmod, sym):
             assert f
@@ -159,10 +156,6 @@ class test_DjangoFixup(FixupCase):
             assert f._worker_fixup is DWF.return_value
 
 
-class InterfaceError(Exception):
-    pass
-
-
 class test_DjangoWorkerFixup(FixupCase):
     Fixup = DjangoWorkerFixup
 
@@ -180,25 +173,30 @@ class test_DjangoWorkerFixup(FixupCase):
             )
             sigs.task_prerun.connect.assert_called_with(f.on_task_prerun)
             sigs.task_postrun.connect.assert_called_with(f.on_task_postrun)
-            sigs.worker_process_init.connect.assert_called_with(
-                f.on_worker_process_init,
-            )
+            # Nothing forks, so the pool starting is not a reason to touch the
+            # connections of the process that started it.
+            sigs.worker_process_init.connect.assert_not_called()
 
-    def test_on_worker_process_init(self, patching):
+    def test_the_pool_starting_leaves_open_connections_alone(self):
+        # The fixup used to close the raw file descriptor of every open
+        # connection when the pool started, which is what a forked child has to
+        # do with the descriptors it inherited. Nothing forks here, so the
+        # connection belongs to this process, and Django went on using a socket
+        # whose number the next open call is free to hand out again.
         with self.fixup_context(self.app) as (f, _, _):
-            with patch("celery.fixups.django._maybe_close_fd", side_effect=InterfaceError) as mcf:
-                _all = f._db.connections.all = Mock()
-                conns = _all.return_value = [
-                    Mock(),
-                    MagicMock(),
-                ]
-                conns[0].connection = None
-                with patch.object(f, "close_cache"), patch.object(f, "_close_database"):
-                    f.interface_errors = (InterfaceError,)
-                    f.on_worker_process_init()
-                    mcf.assert_called_with(conns[1].connection)
-                    f.close_cache.assert_called_with()
-                    f._close_database.assert_called_with()
+            left, right = socket.socketpair()
+            with left, right:
+                # A MagicMock for `wrap_database_errors`, which is a context
+                # manager Django enters around the close.
+                connection = MagicMock()
+                connection.connection = left
+                f._db.connections.all = Mock(return_value=[connection])
+                f.install()
+
+                signals.worker_process_init.send(sender=None)
+
+                left.send(b"still open")
+                assert right.recv(16) == b"still open"
 
     def test_on_task_prerun(self):
         task = Mock()

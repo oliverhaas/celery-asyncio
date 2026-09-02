@@ -7,7 +7,7 @@ import sys
 import warnings
 from datetime import UTC, datetime
 from importlib import import_module
-from typing import IO, TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from kombu.utils.imports import symbol_by_name
 from kombu.utils.objects import cached_property
@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from types import ModuleType
     from typing import Protocol
 
-    from django.db.backends.base.base import BaseDatabaseWrapper
     from django.db.utils import ConnectionHandler
 
     from celery.app.base import Celery
@@ -35,14 +34,6 @@ ERR_NOT_INSTALLED = """\
 Environment variable DJANGO_SETTINGS_MODULE is defined
 but Django isn't installed.  Won't apply Django fix-ups!
 """
-
-
-def _maybe_close_fd(fh: IO) -> None:
-    try:
-        os.close(fh.fileno())
-    except AttributeError, OSError, TypeError:
-        # TypeError added for celery#962
-        pass
 
 
 def _verify_django_version(django: ModuleType) -> None:
@@ -148,34 +139,9 @@ class DjangoWorkerFixup:
         signals.beat_embedded_init.connect(self.close_database)
         signals.task_prerun.connect(self.on_task_prerun)
         signals.task_postrun.connect(self.on_task_postrun)
-        signals.worker_process_init.connect(self.on_worker_process_init)
         self.close_database()
         self.close_cache()
         return self
-
-    def on_worker_process_init(self, **kwargs: Any) -> None:
-        # close connections:
-        # the parent process may have established these,
-        # so need to close them.
-
-        # calling db.close() on some DB connections will cause
-        # the inherited DB conn to also get broken in the parent
-        # process so we need to remove it without triggering any
-        # network IO that close() might cause.
-        for c in self._db.connections.all():
-            if c and c.connection:
-                self._maybe_close_db_fd(c)
-
-        # use the _ version to avoid DB_REUSE preventing the conn.close() call
-        self._close_database()
-        self.close_cache()
-
-    def _maybe_close_db_fd(self, c: BaseDatabaseWrapper) -> None:
-        try:
-            with c.wrap_database_errors:
-                _maybe_close_fd(c.connection)
-        except self.interface_errors:
-            pass
 
     def on_task_prerun(self, sender: Task, **kwargs: Any) -> None:
         """Called before every task."""
