@@ -373,12 +373,10 @@ class Signal:  # pragma: no cover
 
     def _remove_receiver(self, receiver=None):
         """Remove dead receivers from connections."""
-        # Mark that the self..receivers first has dead weakrefs. If so,
-        # we will clean those up in connect, disconnect and _live_receivers
-        # while holding self.lock.  Note that doing the cleanup here isn't a
-        # good idea, _remove_receiver() will be called as a side effect of
-        # garbage collection, and so the call can happen wh ile we are already
-        # holding self.lock.
+        # Only flag that self.receivers holds dead weakrefs; connect,
+        # disconnect and _live_receivers clean them up while holding
+        # self.lock.  Cleaning up here would deadlock: garbage collection
+        # calls this, so it can run while we already hold the lock.
         self._dead_receivers = True
 
     def __repr__(self):
