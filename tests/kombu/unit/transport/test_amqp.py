@@ -565,9 +565,6 @@ class TestChannelPublish:
         fetched_ex.publish.assert_awaited_once()
 
     async def test_publish_binary_body_travels_as_bytes(self, channel, aio_channel):
-        # A pickle payload the producer had to base64-wrap to fit the JSON
-        # envelope; content_encoding "binary" is not a Python codec, so
-        # encoding the string with it used to raise LookupError.
         raw = pickle.dumps({"task": "add", "args": (1, 2)})
         envelope = json.dumps(
             {

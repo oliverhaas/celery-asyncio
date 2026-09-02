@@ -79,9 +79,8 @@ if aio_pika is not None:
     )
     _amqp_channel_errors: tuple[type[Exception], ...] = (
         aiormq_exc.AMQPChannelError,
-        # A bare RuntimeError that aio-pika raises for every operation on a
-        # channel the broker has taken away, including reopening one whose
-        # connection is gone.
+        # A bare RuntimeError aio-pika raises for any operation on a channel
+        # the broker took away, including reopening one whose connection is gone.
         aiormq_exc.ChannelInvalidStateError,
     )
     # aiormq raises a distinct class per AMQP reply code and, unlike py-amqp,
@@ -225,12 +224,8 @@ class Channel:
         self._queue_declarations: dict[str, dict[str, Any]] = {}
         self._bindings: list[dict[str, Any]] = []
 
-        # Incoming message buffer for drain_events. The prefetch window is
-        # what really bounds it: the broker sends no more than that many
-        # unacknowledged messages, so the buffer cannot grow past it. Without
-        # a prefetch the broker sends the whole queue, and aiormq runs the
-        # buffering callback in a task per delivery, so the bound below is
-        # all that stands between a deep queue and a task per message in it.
+        # The prefetch window bounds the incoming buffer; without one aiormq
+        # runs a task per delivery, so the bound below is all that limits a deep queue.
         self._prefetch_count = prefetch_count
         self._message_queue: asyncio.Queue[tuple[str, Message]] = asyncio.Queue(
             maxsize=prefetch_count or _UNTHROTTLED_BUFFER_SIZE,
@@ -239,9 +234,8 @@ class Channel:
         # delivery_tag bridging: str(amqp_int_tag) -> aio-pika IncomingMessage
         self._delivery_tag_map: dict[str, aio_pika.abc.AbstractIncomingMessage] = {}
 
-        # Set when the broker takes the channel or its connection away, so a
-        # drain_events parked on the buffer wakes up instead of waiting for a
-        # message that can no longer arrive.
+        # Set when the broker takes the channel or connection away, so a parked
+        # drain_events wakes up instead of waiting for a message that cannot arrive.
         self._interrupted = asyncio.Event()
         self._connection_error: Exception | None = None
         self._lost_connection = False
@@ -348,9 +342,8 @@ class Channel:
                 break
 
         for item in buffered:
-            # An unacknowledged delivery goes back on the queue when the
-            # channel closes, so keeping this copy would run it twice. A
-            # no-ack delivery is not coming back, so it stays.
+            # The broker requeues unacked deliveries on close, so keeping this
+            # copy would run it twice; a no-ack delivery is not coming back, so it stays.
             if item[1].delivery_tag not in self._delivery_tag_map:
                 self._message_queue.put_nowait(item)
 
@@ -648,9 +641,8 @@ class Channel:
                 msg = self._convert_message(incoming, queue, tag, consumer_tag=consumer_tag)
                 await self._message_queue.put((queue, msg))
             except Exception:
-                # aiormq runs this in a task per delivery and never looks at
-                # the result, so an error raised here reaches nobody and the
-                # message disappears. Hand it back to the broker instead.
+                # aiormq runs this in a task per delivery and drops the result,
+                # so an error raised here reaches nobody. Hand it back to the broker.
                 logger.exception("Failed to accept delivery %s on queue %s", tag, queue)
                 self._delivery_tag_map.pop(tag, None)
                 if not no_ack:
@@ -690,9 +682,7 @@ class Channel:
 
         if timeout is not None and timeout <= 0:
             # A non-blocking poll. asyncio.wait_for(timeout=0) cancels the get
-            # before it has run and reports a timeout even with messages
-            # already buffered, which turns the caller's fast drain into a
-            # single message per pass.
+            # before it runs and reports a timeout even with messages buffered.
             try:
                 queue_name, message = self._message_queue.get_nowait()
             except asyncio.QueueEmpty:
@@ -736,9 +726,8 @@ class Channel:
         try:
             body = message.decode()
         except Exception:
-            # The callback still gets the message, which is what celery works
-            # from, but a payload that cannot be read must not pass for a
-            # normal one without a word.
+            # The callback still gets the message, but a payload that cannot
+            # be read must not pass for a normal one without a word.
             logger.exception(
                 "Failed to decode message %s from queue %s, delivering it undecoded",
                 message.delivery_tag,
