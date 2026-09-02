@@ -255,11 +255,14 @@ class Connection:
 
         This will block until a message arrives or timeout is reached.
 
+        Only the default channel is drained. A consumer built on a channel of
+        its own, from :meth:`channel`, has to be drained through that channel.
+
         Args:
             timeout: Maximum time to wait in seconds.
 
         Raises:
-            socket.timeout: If timeout is reached with no events.
+            TimeoutError: If timeout is reached with no events.
         """
 
         channel = await self.default_channel()
