@@ -313,3 +313,45 @@ class test_Consumer_consume:
             await conn.drain_events(timeout=1.0)
 
         assert received == [{"for": "two"}]
+
+
+class test_Consumer_cancel_by_queue:
+    async def test_cancels_the_broker_consumer_for_that_queue_only(self):
+        channel = RecordingChannel()
+        consumer = Consumer(channel, queues=[Queue("one"), Queue("two")])
+        await consumer.consume()
+
+        await consumer.cancel_by_queue("one")
+
+        assert channel.cancelled == ["tag-0"]
+        assert consumer.consuming_from("one") is False
+        assert consumer.consuming_from("two") is True
+
+    async def test_stops_delivery_from_the_cancelled_queue(self):
+        received = []
+
+        async with Connection("memory://") as conn:
+            consumer = conn.Consumer(
+                [Queue("one"), Queue("two")],
+                callbacks=[lambda body, message: received.append(body)],
+                no_ack=True,
+            )
+            await consumer.consume()
+            await consumer.cancel_by_queue("one")
+
+            async with conn.Producer() as producer:
+                await producer.publish({"for": "one"}, routing_key="one")
+                await producer.publish({"for": "two"}, routing_key="two")
+            await conn.drain_events(timeout=1.0)
+
+        assert received == [{"for": "two"}]
+
+    async def test_an_unknown_queue_is_left_alone(self):
+        channel = RecordingChannel()
+        consumer = Consumer(channel, queues=[Queue("one")])
+        await consumer.consume()
+
+        await consumer.cancel_by_queue("nope")
+
+        assert channel.cancelled == []
+        assert consumer.consuming_from("one") is True

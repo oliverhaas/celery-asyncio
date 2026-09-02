@@ -382,10 +382,14 @@ class Consumer:
         name = queue_name if isinstance(queue_name, str) else queue_name.name
         return any(q.name == name for q in self._queues)
 
-    async def cancel_by_queue(self, queue_name: str | Queue) -> None:
-        """Cancel consuming from a specific queue."""
-        name = queue_name if isinstance(queue_name, str) else queue_name.name
+    async def cancel_by_queue(self, queue: str | Queue) -> None:
+        """Stop consuming from one queue, leaving the others running."""
+        name = queue if isinstance(queue, str) else queue.name
+        tag = self._consumer_tags.pop(name, None)
+        if tag is not None and self._channel is not None:
+            await self._channel.basic_cancel(tag)
         self._queues = [q for q in self._queues if q.name != name]
+        self._declared.discard(name)
 
     async def close(self) -> None:
         """Close the consumer."""
