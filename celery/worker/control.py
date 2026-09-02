@@ -610,9 +610,7 @@ def shutdown(state, msg="Got shutdown from remote", **kwargs):
 )
 def add_consumer(state, queue, exchange=None, exchange_type=None, routing_key=None, **options):
     """Tell worker(s) to consume from task queue by name."""
-    result = state.consumer.add_task_queue(queue, exchange, exchange_type or "direct", routing_key, **options)
-    if asyncio.iscoroutine(result):
-        _schedule(result)
+    _schedule(state.consumer.add_task_queue(queue, exchange, exchange_type or "direct", routing_key, **options))
     return ok(f"add consumer {queue}")
 
 
@@ -622,9 +620,7 @@ def add_consumer(state, queue, exchange=None, exchange_type=None, routing_key=No
 )
 def cancel_consumer(state, queue, **_):
     """Tell worker(s) to stop consuming from task queue by name."""
-    result = state.consumer.cancel_task_queue(queue)
-    if asyncio.iscoroutine(result):
-        _schedule(result)
+    _schedule(state.consumer.cancel_task_queue(queue))
     return ok(f"no longer consuming from {queue}")
 
 

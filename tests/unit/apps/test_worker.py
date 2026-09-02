@@ -6,7 +6,14 @@ from unittest.mock import Mock
 import pytest
 
 from celery import platforms, signals
-from celery.apps.worker import Worker, install_worker_int_handler, install_worker_term_handler, on_cold_shutdown
+from celery.apps.worker import (
+    Worker,
+    during_soft_shutdown,
+    install_worker_int_handler,
+    install_worker_term_handler,
+    on_cold_shutdown,
+)
+from celery.exceptions import WorkerTerminate
 from celery.platforms import EX_FAILURE, EX_OK, current_process
 from celery.worker import components, state
 from celery.worker.components import stop_pool
@@ -196,6 +203,26 @@ class test_shutdown_signals(WorkerCase):
         self.raise_signal("SIGINT")
 
         assert state.should_terminate == EX_FAILURE
+
+    def test_the_soft_shutdown_cancels_the_unacked_requests(self):
+        worker = self.create_worker()
+        worker.consumer = Mock(name="consumer")
+
+        during_soft_shutdown(worker)
+
+        worker.consumer.cancel_active_requests.assert_called_once_with()
+
+    def test_the_soft_shutdown_escalates_without_a_consumer(self):
+        # It runs from a signal handler, and the consumer is gone once the
+        # blueprint has torn it down. Raising AttributeError there left the
+        # next signal on the handler that got half way through.
+        worker = self.create_worker()
+        worker.consumer = None
+
+        during_soft_shutdown(worker)
+
+        with pytest.raises(WorkerTerminate):
+            self.raise_signal("SIGQUIT")
 
     async def test_the_cold_shutdown_stops_the_pool_off_the_loop(self):
         worker = self.create_worker()

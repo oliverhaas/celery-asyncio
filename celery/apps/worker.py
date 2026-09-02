@@ -341,7 +341,8 @@ def during_soft_shutdown(worker: Worker):
     install_worker_term_hard_handler(worker, sig="SIGQUIT", callback=on_hard_shutdown)
 
     # Cancel all unacked requests and allow the worker to terminate naturally
-    worker.consumer.cancel_active_requests()  # type: ignore[attr-defined]
+    if worker.consumer:
+        worker.consumer.cancel_active_requests()
 
     # We get here if the worker was in the middle of the soft (cold) shutdown process,
     # and the matching signal was received. This can typically happen when the worker is
@@ -381,15 +382,15 @@ def on_cold_shutdown(worker: Worker):
     state.should_terminate = True
 
     # Cancel all unacked requests and allow the worker to terminate naturally
-    if hasattr(worker, "consumer") and worker.consumer:
+    if worker.consumer:
         worker.consumer.cancel_active_requests()
 
-    # Stop the pool so that successful tasks still get to call on_success().
-    # This handler runs on the worker's event loop, and the pool brings its
-    # threads down with a join of up to ten seconds each, so the stop goes to
-    # a helper thread and the loop is told to wait for it.
-    if hasattr(worker, "consumer") and worker.consumer and worker.consumer.pool:
-        _stop_pool_off_the_loop(worker.consumer.pool)
+        # Stop the pool so that successful tasks still get to call on_success().
+        # This handler runs on the worker's event loop, and the pool brings its
+        # threads down with a join of up to ten seconds each, so the stop goes
+        # to a helper thread and the loop is told to wait for it.
+        if worker.consumer.pool:
+            _stop_pool_off_the_loop(worker.consumer.pool)
 
 
 def _stop_pool_off_the_loop(pool):
