@@ -213,7 +213,9 @@ class _regen(UserList, list):  # type: ignore[misc]
     def __init__(self, it):
         # UserList creates a new list and sets .data, so we don't
         # want to call init here.
-        self.__it = it
+        # Bind the iterator once.  Re-iterating a re-iterable source would
+        # restart it and hand out the already consumed elements again.
+        self.__it = iter(it)
         self.__consumed = []
         self.__done = False
 
@@ -229,10 +231,11 @@ class _regen(UserList, list):  # type: ignore[misc]
 
     def __lookahead_consume(self, limit=None):
         if not self.__done and (limit is None or limit > 0):
-            it = iter(self.__it)
+            it = self.__it
             try:
                 now = next(it)
             except StopIteration:
+                self.__done = True
                 return
             self.__consumed.append(now)
             # Maintain a single look-ahead to ensure we set `__done` when the
