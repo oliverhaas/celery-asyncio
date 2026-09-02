@@ -93,11 +93,11 @@ redis_test_container: RedisContainer = container(
 
 
 @pytest.fixture(autouse=True)
-def set_redis_test_container(redis_test_container: RedisContainer):
+def set_redis_test_container(monkeypatch, redis_test_container: RedisContainer):
     """Configure the Redis test container to be used by the integration tests tasks."""
     # get_redis_connection(): will use these settings in the tests environment
-    os.environ["REDIS_HOST"] = "localhost"
-    os.environ["REDIS_PORT"] = str(redis_test_container.port)
+    monkeypatch.setenv("REDIS_HOST", "localhost")
+    monkeypatch.setenv("REDIS_PORT", str(redis_test_container.port))
 
 
 @pytest.fixture
@@ -116,7 +116,11 @@ def default_worker_env(default_worker_env: dict, redis_test_container: RedisCont
 
 @pytest.fixture(scope="session", autouse=True)
 def set_aws_credentials():
-    os.environ.update(LOCALSTACK_CREDS)
+    # Session scope, so the function-scoped monkeypatch fixture will not do.
+    with pytest.MonkeyPatch.context() as mp:
+        for name, value in LOCALSTACK_CREDS.items():
+            mp.setenv(name, value)
+        yield
 
 
 @pytest.fixture

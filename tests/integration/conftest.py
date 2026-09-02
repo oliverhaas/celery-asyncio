@@ -57,12 +57,21 @@ def _on_database(url: str, database: int) -> str:
 
 REDIS_DATABASE = _worker_database()
 
-# Read back by tasks.get_redis_connection, which the tasks themselves call. The
-# embedded worker runs in this process, so the environment reaches it.
-os.environ["REDIS_DB"] = str(REDIS_DATABASE)
-
 TEST_BROKER = _on_database(os.environ.get("TEST_BROKER", "redis://"), REDIS_DATABASE)
 TEST_BACKEND = _on_database(os.environ.get("TEST_BACKEND", "redis://"), REDIS_DATABASE)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def redis_database_env():
+    """Point the test tasks at this xdist worker's Redis database.
+
+    Read back by tasks.get_redis_connection, which the tasks themselves call.
+    The embedded worker runs in this process, so the environment reaches it.
+    Session scope, so the function-scoped monkeypatch fixture will not do.
+    """
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("REDIS_DB", str(REDIS_DATABASE))
+        yield
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
