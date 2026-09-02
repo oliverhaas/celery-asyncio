@@ -1,5 +1,6 @@
 import errno
 import socket
+from uuid import uuid4
 from collections import deque
 from unittest.mock import AsyncMock, Mock, call, patch
 
@@ -1165,11 +1166,17 @@ class test_Connection:
 
 
 class test_Consumer_TaskQueues(ConsumerTestCase):
+    def setup_method(self):
+        # The memory transport keeps its queues for the life of the process,
+        # so every test needs names of its own.
+        self.first = f"first-{uuid4().hex}"
+        self.extra = f"extra-{uuid4().hex}"
+
     async def consumer_on(self, conn, received):
-        """A consumer already consuming from the default queue."""
+        """A consumer already consuming from one queue."""
         c = self.get_consumer()
         c.task_consumer = conn.Consumer(
-            [Queue("celery")],
+            [Queue(self.first)],
             callbacks=[lambda body, message: received.append(body)],
         )
         await c.task_consumer.consume()
@@ -1180,12 +1187,12 @@ class test_Consumer_TaskQueues(ConsumerTestCase):
         async with KombuConnection("memory://") as conn:
             c = await self.consumer_on(conn, received)
 
-            await c.add_task_queue("extra")
+            await c.add_task_queue(self.extra)
 
-            assert c.task_consumer.consuming_from("extra")
+            assert c.task_consumer.consuming_from(self.extra)
             async with conn.Producer() as producer:
-                await producer.publish({"to": "celery"}, routing_key="celery")
-                await producer.publish({"to": "extra"}, routing_key="extra")
+                await producer.publish({"to": "first"}, routing_key=self.first)
+                await producer.publish({"to": "extra"}, routing_key=self.extra)
             for _ in range(4):
                 try:
                     await conn.drain_events(timeout=0.2)
@@ -1194,16 +1201,16 @@ class test_Consumer_TaskQueues(ConsumerTestCase):
 
         # Once each: adding a queue must not re-register the queues the
         # consumer was already serving.
-        assert received == [{"to": "celery"}, {"to": "extra"}]
+        assert received == [{"to": "first"}, {"to": "extra"}]
 
     async def test_cancel_task_queue_stops_consuming_from_it(self):
         # cancel_by_queue is a coroutine: calling it without awaiting left the
         # worker consuming from a queue it had reported as cancelled.
         async with KombuConnection("memory://") as conn:
             c = await self.consumer_on(conn, [])
-            await c.add_task_queue("extra")
+            await c.add_task_queue(self.extra)
 
-            await c.cancel_task_queue("extra")
+            await c.cancel_task_queue(self.extra)
 
-            assert not c.task_consumer.consuming_from("extra")
-            assert "extra" not in c.app.amqp.queues.consume_from
+            assert not c.task_consumer.consuming_from(self.extra)
+            assert self.extra not in c.app.amqp.queues.consume_from

@@ -48,22 +48,6 @@ class Consumer(consumer.Consumer):
         self.task_buckets = defaultdict(lambda: None)
         self.hub = None
 
-    def add_task_queue(self, queue, exchange=None, exchange_type=None, routing_key=None, **options):
-        """Sync override for test compatibility."""
-        cset = self.task_consumer
-        queues = self.app.amqp.queues
-        if queue in queues:
-            q = queues[queue]
-        else:
-            exchange = queue if exchange is None else exchange
-            exchange_type = "direct" if exchange_type is None else exchange_type
-            q = queues.select_add(
-                queue, exchange=exchange, exchange_type=exchange_type, routing_key=routing_key, **options
-            )
-        if not cset.consuming_from(queue):
-            cset.add_queue(q)
-            cset.consume()
-
     def call_soon(self, p, *args, **kwargs):
         return p(*args, **kwargs)
 
@@ -365,10 +349,10 @@ class test_ControlPanel:
             def add_queue(self, queue):
                 self.queues.append(queue.name)
 
-            def consume(self):
+            async def consume(self):
                 self.consuming = True
 
-            def cancel_by_queue(self, queue):
+            async def cancel_by_queue(self, queue):
                 self.canceled.append(queue)
 
             def consuming_from(self, queue):
