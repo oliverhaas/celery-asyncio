@@ -1,14 +1,14 @@
 """Pure asyncio Valkey/Redis transport with priority queues, Streams fanout, and delayed delivery.
 
 This transport uses valkey.asyncio or redis.asyncio for all operations and provides:
-1. BZMPOP + sorted sets for regular queues — full 0-255 priority support
-2. Streams for fanout exchanges — reliable, not lossy like PUB/SUB
-3. Native delayed delivery — delay integrated into sorted set scoring
-4. Per-message hash storage — reliability and visibility tracking
-5. Global key prefixing — multi-tenant support
-6. FAST/SLOW consume mode — atomic Lua script with BZMPOP fallback
-7. Atomic ack — Lua script for ZREM+DEL atomicity
-8. Delivery count tracking — delivery_limit enforcement
+1. BZMPOP + sorted sets for regular queues, with full 0-255 priority support
+2. Streams for fanout exchanges, reliable rather than lossy like PUB/SUB
+3. Native delayed delivery, with the delay part of the sorted set scoring
+4. Per-message hash storage for reliability and visibility tracking
+5. Global key prefixing for multi-tenant setups
+6. FAST/SLOW consume mode: atomic Lua script with a BZMPOP fallback
+7. Atomic ack: one Lua script for the ZREM and the DEL
+8. Delivery count tracking for delivery_limit enforcement
 
 Supports both valkey-py and redis-py client libraries. The URL scheme selects the
 preferred library (with automatic fallback if only one is installed):
@@ -300,7 +300,7 @@ class Channel:
     background tasks for visibility heartbeat and delayed enqueue.
 
     Supports FAST/SLOW consume mode:
-    - FAST: atomic Lua script (ZPOPMIN + ZADD index + HMGET) — non-blocking
+    - FAST: atomic Lua script (ZPOPMIN + ZADD index + HMGET), non-blocking
     - SLOW: blocking BZMPOP fallback when queues are empty
     """
 
@@ -2081,7 +2081,7 @@ class Channel:
         # covers a close that is cancelled while draining.
         self._transport.forget_channel(self)
 
-        # Let consumer iterations finish naturally — bounded by
+        # Let consumer iterations finish naturally, bounded by
         # `block_timeout`. They are never cancelled in the hot path, so any
         # in-flight FAST script / BZMPOP finalisation runs to completion and
         # the message is delivered rather than stranded in messages_index.
@@ -2100,9 +2100,9 @@ class Channel:
             except TimeoutError:
                 logger.warning(
                     "consumer iterations did not drain within %.1fs at close "
-                    "(block_timeout=%.1fs + headroom=%.1fs); cancelling — "
-                    "in-flight messages may be stranded until visibility-"
-                    "timeout restore",
+                    "(block_timeout=%.1fs + headroom=%.1fs); cancelling them. "
+                    "In-flight messages may be stranded until the "
+                    "visibility timeout restores them.",
                     drain_timeout,
                     self._block_timeout,
                     CLOSE_DRAIN_HEADROOM,

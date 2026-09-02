@@ -1,6 +1,6 @@
 """Unit tests for the pure asyncio Redis transport.
 
-All Redis operations are mocked — no Redis server required.
+All Redis operations are mocked, so no Redis server is required.
 """
 
 import asyncio
@@ -3401,7 +3401,7 @@ class TestTransportEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# Enqueue due messages — batch limit warning
+# Enqueue due messages: batch limit warning
 # ---------------------------------------------------------------------------
 
 

@@ -1,14 +1,14 @@
 -- Lua script for atomic message consumption from sorted set queues.
 -- Pops the highest-priority message across multiple queues, refreshes the
 -- messages_index score for visibility timeout tracking, and returns the
--- message data — all in a single atomic operation.
+-- message data, all in a single atomic operation.
 --
 -- Handles expired message hashes (x-message-ttl) by cleaning up the index
 -- entry and trying the next message.
 --
--- KEYS: [queue:q1, queue:q2, ...] — queue sorted set keys (with global_keyprefix applied)
+-- KEYS: [queue:q1, queue:q2, ...] queue sorted set keys (with global_keyprefix applied)
 -- ARGV: [1] = global_keyprefix, [2] = message_key_prefix,
---       [3] = new_queue_at (now + visibility_timeout, as string number),
+--       [3] = new_queue_at (the visibility deadline, as string number),
 --       [4] = messages_index_prefix, [5] = max messages to return,
 --       [6..5+N] = queue_name_1, queue_name_2, ... (raw names, in KEYS order)
 --       [6+N..5+2N] = no_ack flag ('1'/'0') per queue, same order as KEYS
