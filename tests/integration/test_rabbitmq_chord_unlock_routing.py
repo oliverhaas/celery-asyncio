@@ -91,7 +91,10 @@ def wait_for_chord_unlock(chord_result, timeout=10, interval=0.2):
 
 @pytest.mark.amqp
 @pytest.mark.timeout(90)
-@pytest.mark.xfail(reason="chord_unlock routed to quorum/topic queue intermittently fails under load")
+@pytest.mark.xfail(
+    reason="chord_unlock routed to quorum/topic queue intermittently fails under load",
+    strict=False,
+)
 def test_chord_unlock_stress_routing_to_quorum_queue(app, add, summarize):
     """
     Reproduces Celery Discussion #9742 (intermittently):
