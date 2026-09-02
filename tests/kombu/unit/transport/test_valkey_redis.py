@@ -48,7 +48,6 @@ def _make_transport(**opts) -> Transport:
     transport._client = MagicMock()
     transport._subclient = MagicMock()
     transport._channels = []
-    transport._connection_id = "test-conn"
     transport._connected = True
     transport._db = "0"
     return transport
@@ -57,7 +56,7 @@ def _make_transport(**opts) -> Transport:
 def _make_channel(**opts) -> Channel:
     """Create a Channel with a mocked transport."""
     transport = _make_transport(**opts)
-    return Channel(transport, "test-conn")
+    return Channel(transport)
 
 
 def _stub_binding_writes(ch: Channel) -> Channel:
@@ -287,10 +286,9 @@ class TestExchangeOps:
         ch = _make_channel()
         ch.client.delete = AsyncMock()
         ch._exchanges["test_ex"] = {"type": "direct"}
-        ch._bindings["test_ex"] = [("q1", "rk1")]
         await ch.exchange_delete("test_ex")
         assert "test_ex" not in ch._exchanges
-        assert "test_ex" not in ch._bindings
+        ch.client.delete.assert_awaited_once_with("_kombu.binding.test_ex")
 
 
 # ---------------------------------------------------------------------------
@@ -379,15 +377,19 @@ class TestQueueOps:
         ch = _make_channel()
         _stub_binding_writes(ch)
         await ch.queue_bind("q1", "ex1", "rk1")
-        assert ("q1", "rk1") in ch._bindings["ex1"]
+        assert ("ex1", BINDING_SEP.join(["rk1", "rk1", "q1"])) in ch._binding_members["q1"]
         ch.client.zadd.assert_called_once()
 
     async def test_queue_unbind(self):
         ch = _make_channel()
         _stub_binding_writes(ch)
-        ch._bindings["ex1"] = [("q1", "rk1")]
+        await ch.queue_bind("q1", "ex1", "rk1")
         await ch.queue_unbind("q1", "ex1", "rk1")
-        assert ("q1", "rk1") not in ch._bindings["ex1"]
+        assert "q1" not in ch._binding_members
+        ch.client.zrem.assert_awaited_once_with(
+            "_kombu.binding.ex1",
+            BINDING_SEP.join(["rk1", "rk1", "q1"]),
+        )
 
     async def test_queue_purge_cleans_hashes(self):
         ch = _make_channel()
@@ -1007,7 +1009,7 @@ class TestTransport:
 
     async def test_close(self):
         t = _make_transport()
-        ch = Channel(t, "conn")
+        ch = Channel(t)
         ch._closed = True  # Skip close logic
         t._channels = [ch]
         t._client.aclose = AsyncMock()
@@ -1523,7 +1525,6 @@ class TestBasicConsume:
 
         await ch.basic_consume("fq1", MagicMock())
         assert "fq1" in ch.active_fanout_queues
-        assert ch._fanout_to_queue["fanout_ex"] == "fq1"
 
     async def test_basic_consume_starts_periodic_tasks(self):
         ch = _make_channel()
@@ -1554,11 +1555,9 @@ class TestBasicConsume:
 
         tag = await ch.basic_consume("fq1", MagicMock())
         assert "fq1" in ch.active_fanout_queues
-        assert "fanout_ex" in ch._fanout_to_queue
 
         await ch.basic_cancel(tag)
         assert "fq1" not in ch.active_fanout_queues
-        assert "fanout_ex" not in ch._fanout_to_queue
 
     async def test_basic_cancel_nonexistent_tag(self):
         ch = _make_channel()

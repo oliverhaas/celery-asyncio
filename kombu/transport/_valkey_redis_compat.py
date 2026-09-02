@@ -73,12 +73,6 @@ def resolve_async_lib(url: str = "") -> types.ModuleType:
     return lib.asyncio
 
 
-def resolve_exceptions(url: str = "") -> types.ModuleType:
-    """Return the exceptions sub-module."""
-    lib = resolve_lib(url)
-    return lib.exceptions
-
-
 def normalize_url(url: str, lib: types.ModuleType) -> str:
     """Rewrite valkey:// → redis:// when using redis-py (and vice versa).
 

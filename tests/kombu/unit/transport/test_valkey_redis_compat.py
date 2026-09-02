@@ -9,7 +9,6 @@ from kombu.transport._valkey_redis_compat import (
     get_all_connection_errors,
     normalize_url,
     resolve_async_lib,
-    resolve_exceptions,
     resolve_lib,
 )
 
@@ -58,15 +57,6 @@ class TestResolveAsyncLib:
     def test_returns_asyncio_module(self):
         aiolib = resolve_async_lib("redis://localhost")
         assert hasattr(aiolib, "from_url")
-
-
-class TestResolveExceptions:
-    """Tests for resolve_exceptions()."""
-
-    def test_returns_exceptions_module(self):
-        exc = resolve_exceptions("redis://localhost")
-        assert hasattr(exc, "ConnectionError")
-        assert hasattr(exc, "TimeoutError")
 
 
 class TestNormalizeUrl:

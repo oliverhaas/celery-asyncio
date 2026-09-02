@@ -79,7 +79,6 @@ from kombu.transport._valkey_redis_compat import (
     get_all_connection_errors,
     normalize_url,
     resolve_async_lib,
-    resolve_exceptions,
     resolve_lib,
 )
 from kombu.transport.base import Transport as BaseTransport
@@ -121,7 +120,6 @@ MAX_PRIORITY = 255
 DEFAULT_PRIORITY = 0
 
 DEFAULT_VISIBILITY_TIMEOUT = 300
-DEFAULT_HEALTH_CHECK_INTERVAL = 25
 DEFAULT_STREAM_MAXLEN = 10000
 DEFAULT_REQUEUE_CHECK_INTERVAL = 60
 DEFAULT_REQUEUE_BATCH_LIMIT = 1000
@@ -302,9 +300,8 @@ class Channel:
     _enqueue_script = _requeue_script = _consume_script = _ack_script = None
     _convert_bindings_script = None
 
-    def __init__(self, transport: Transport, connection_id: str) -> None:
+    def __init__(self, transport: Transport) -> None:
         self._transport = transport
-        self._connection_id = connection_id
         self._channel_id = str(uuid.uuid4())
         self._closed = False
 
@@ -317,14 +314,12 @@ class Channel:
 
         # Exchange / binding state
         self._exchanges: dict[str, dict] = {}
-        self._bindings: dict[str, list[tuple[str, str]]] = {}
         # queue → {(exchange, member)} for the bindings this channel declared,
         # which are the only ones it may rescore on refresh or publish.
         self._binding_members: dict[str, set[tuple[str, str]]] = {}
 
         # Fanout state
         self._fanout_queues: dict[str, tuple[str, str]] = {}  # queue → (exchange, rk)
-        self._fanout_to_queue: dict[str, str] = {}  # exchange → queue
         self.active_fanout_queues: set[str] = set()
         self.auto_delete_queues: set[str] = set()
         self._stream_offsets: dict[str, str] = {}  # stream_key → last ID
@@ -565,7 +560,6 @@ class Channel:
 
     async def exchange_delete(self, exchange: str) -> None:
         self._exchanges.pop(exchange, None)
-        self._bindings.pop(exchange, None)
         await self.client.delete(self._binding_key(exchange))
 
     # ---- queue operations --------------------------------------------------
@@ -632,12 +626,6 @@ class Channel:
         routing_key: str = "",
         arguments: dict | None = None,
     ) -> None:
-        if exchange not in self._bindings:
-            self._bindings[exchange] = []
-        binding = (queue, routing_key or queue)
-        if binding not in self._bindings[exchange]:
-            self._bindings[exchange].append(binding)
-
         # Detect fanout
         exchange_meta = self._exchanges.get(exchange, {})
         if exchange_meta.get("type") == "fanout":
@@ -668,11 +656,6 @@ class Channel:
         routing_key: str = "",
         arguments: dict | None = None,
     ) -> None:
-        if exchange in self._bindings:
-            binding = (queue, routing_key or queue)
-            if binding in self._bindings[exchange]:
-                self._bindings[exchange].remove(binding)
-
         if self._exchanges.get(exchange, {}).get("type") == "fanout":
             # Nothing was written for it, so there is nothing to remove.
             self._fanout_queues.pop(queue, None)
@@ -755,9 +738,6 @@ class Channel:
         self._message_ttls.pop(queue, None)
         self.auto_delete_queues.discard(queue)
         self._binding_members.pop(queue, None)
-
-        for exch, bindings in list(self._bindings.items()):
-            self._bindings[exch] = [(q, rk) for q, rk in bindings if q != queue]
 
         return size
 
@@ -1024,8 +1004,6 @@ class Channel:
 
         if queue in self._fanout_queues:
             self.active_fanout_queues.add(queue)
-            exchange, _ = self._fanout_queues[queue]
-            self._fanout_to_queue[exchange] = queue
 
         self._start_periodic_tasks()
         return consumer_tag
@@ -1041,9 +1019,6 @@ class Channel:
             self.active_fanout_queues.discard(queue)
             if not any(q == queue for q, _cb, _na in self._consumers.values()):
                 await self._restore_prefetch_buffer(queue)
-            if queue in self._fanout_queues:
-                exchange, _ = self._fanout_queues[queue]
-                self._fanout_to_queue.pop(exchange, None)
         if self.no_ack_consumers is not None:
             self.no_ack_consumers.discard(consumer_tag)
 
@@ -2059,8 +2034,6 @@ class Transport(BaseTransport):
     driver_type = "redis"
     driver_name = "redis"
 
-    supports_native_delayed_delivery = True
-
     connection_errors = (
         BaseTransport.connection_errors
         + (
@@ -2079,7 +2052,6 @@ class Transport(BaseTransport):
     ) -> None:
         self._lib = resolve_lib(url)
         self._aiolib = resolve_async_lib(url)
-        self._exc = resolve_exceptions(url)
         self.driver_name = self._lib.__name__
 
         super().__init__(url, **options)
@@ -2087,7 +2059,6 @@ class Transport(BaseTransport):
         self._client = None
         self._subclient = None
         self._channels: list[Channel] = []
-        self._connection_id = str(uuid.uuid4())
         self._connected = False
         self._db = _parse_db_from_url(url)
 
@@ -2189,7 +2160,7 @@ class Transport(BaseTransport):
     async def create_channel(self) -> _Channel:  # type: ignore[override]  # ty: ignore[invalid-method-override]
         if not self._connected:
             await self.connect()
-        channel = Channel(self, self._connection_id)
+        channel = Channel(self)
         self._channels.append(channel)
         return channel
 
