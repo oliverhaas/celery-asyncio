@@ -101,17 +101,17 @@ dev = [
   "pytest-flakefinder==1.1.0",
   # tests/integration/test_native_delayed_delivery_binding.py reads RabbitMQ's
   # management API over HTTP.
-  "requests==2.33.0",
+  "requests==2.34.2",
   # Optional-extra packages: installed so their transports and serializers are
   # both type-checked and exercised by the suite instead of skipped.
   "aio-pika==9.5.7",
   "brotli==1.2.0",
-  "msgpack==1.1.2",
+  "msgpack==1.2.2",
   "pyyaml==6.0.3",
   "redis==8.1.0",
   "ruff==0.16.5",
   "valkey==6.1.1",
-  "ty==0.0.75",
+  "ty==0.0.77",
 ]
 docs = [
   "mkdocs==1.6.1",
