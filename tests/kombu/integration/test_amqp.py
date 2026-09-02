@@ -265,6 +265,24 @@ class TestQueue:
         assert await channel.queue_purge(queue) == 3
         assert await channel.get(queue, no_ack=True) is None
 
+    async def test_purge_reaches_a_queue_this_channel_did_not_declare(self, connection, channel, queue):
+        # Which is the ordinary case: `celery purge` names the queues from the
+        # configuration, on a channel it just opened. Purging used to look
+        # only at what the channel had declared itself and answer anything
+        # else with zero, so the command purged nothing and said so.
+        for _ in range(3):
+            await channel.publish(envelope(), exchange="", routing_key=queue)
+        await asyncio.sleep(0.2)
+
+        other = await connection.channel()
+
+        assert await other.queue_purge(queue) == 3
+        assert await channel.get(queue, no_ack=True) is None
+
+    async def test_purging_a_queue_the_broker_does_not_have_is_a_channel_error(self, connection, channel):
+        with pytest.raises(connection.channel_errors):
+            await channel.queue_purge(f"kombu-it-missing-{uuid.uuid4().hex}")
+
     async def test_server_names_an_anonymous_queue(self, channel):
         name = await channel.declare_queue(Queue("", auto_delete=True))
         assert name
