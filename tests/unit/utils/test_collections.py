@@ -10,12 +10,10 @@ import tests.skip
 from celery.exceptions import ExceptionInfo
 from celery.utils.collections import (
     AttributeDict,
-    BufferMap,
     ChainMap,
     ConfigurationView,
     DictAttribute,
     LimitedSet,
-    Messagebuffer,
 )
 from celery.utils.objects import Bunch
 
@@ -385,138 +383,6 @@ class test_AttributeDict:
             x.bar
         x.bar = "foo"
         assert x["bar"] == "foo"
-
-
-class test_Messagebuffer:
-    def assert_size_and_first(self, buf, size, expected_first_item):
-        assert len(buf) == size
-        assert buf.take() == expected_first_item
-
-    def test_append_limited(self):
-        b = Messagebuffer(10)
-        for i in range(20):
-            b.put(i)
-        self.assert_size_and_first(b, 10, 10)
-
-    def test_append_unlimited(self):
-        b = Messagebuffer(None)
-        for i in range(20):
-            b.put(i)
-        self.assert_size_and_first(b, 20, 0)
-
-    def test_extend_limited(self):
-        b = Messagebuffer(10)
-        b.extend(list(range(20)))
-        self.assert_size_and_first(b, 10, 10)
-
-    def test_extend_unlimited(self):
-        b = Messagebuffer(None)
-        b.extend(list(range(20)))
-        self.assert_size_and_first(b, 20, 0)
-
-    def test_extend_eviction_time_limited(self):
-        b = Messagebuffer(3000)
-        b.extend(range(10000))
-        assert len(b) > 3000
-        b.evict()
-        assert len(b) == 3000
-
-    def test_pop_empty_with_default(self):
-        b = Messagebuffer(10)
-        sentinel = object()
-        assert b.take(sentinel) is sentinel
-
-    def test_pop_empty_no_default(self):
-        b = Messagebuffer(10)
-        with pytest.raises(b.Empty):
-            b.take()
-
-    def test_repr(self):
-        assert repr(Messagebuffer(10, [1, 2, 3]))
-
-    def test_iter(self):
-        b = Messagebuffer(10, list(range(10)))
-        assert len(b) == 10
-        for i, item in enumerate(b):
-            assert item == i
-        assert len(b) == 0
-
-    def test_contains(self):
-        b = Messagebuffer(10, list(range(10)))
-        assert 5 in b
-
-    def test_reversed(self):
-        assert list(reversed(Messagebuffer(10, list(range(10))))) == list(reversed(range(10)))
-
-    def test_getitem(self):
-        b = Messagebuffer(10, list(range(10)))
-        for i in range(10):
-            assert b[i] == i
-
-
-class test_BufferMap:
-    def test_append_limited(self):
-        b = BufferMap(10)
-        for i in range(20):
-            b.put(i, i)
-        self.assert_size_and_first(b, 10, 10)
-
-    def assert_size_and_first(self, buf, size, expected_first_item):
-        assert buf.total == size
-        assert buf._LRUpop() == expected_first_item
-
-    def test_append_unlimited(self):
-        b = BufferMap(None)
-        for i in range(20):
-            b.put(i, i)
-        self.assert_size_and_first(b, 20, 0)
-
-    def test_extend_limited(self):
-        b = BufferMap(10)
-        b.extend(1, list(range(20)))
-        self.assert_size_and_first(b, 10, 10)
-
-    def test_extend_unlimited(self):
-        b = BufferMap(None)
-        b.extend(1, list(range(20)))
-        self.assert_size_and_first(b, 20, 0)
-
-    def test_pop_empty_with_default(self):
-        b = BufferMap(10)
-        sentinel = object()
-        assert b.take(1, sentinel) is sentinel
-
-    def test_pop_empty_no_default(self):
-        b = BufferMap(10)
-        with pytest.raises(b.Empty):
-            b.take(1)
-
-    def test_total_tracks_what_the_inner_buffers_kept(self):
-        # the inner buffer evicts on its own; total used to count every put
-        # and made _evict() drop whole buffers far too early.
-        b = BufferMap(maxsize=100, bufmaxsize=5)
-        for i in range(20):
-            b.put("k", i)
-        assert b.total == 5
-        assert b.total == sum(len(buf) for buf in b.values())
-        assert list(b["k"]) == [15, 16, 17, 18, 19]
-
-    def test_total_tracks_what_the_inner_buffers_kept_on_extend(self):
-        b = BufferMap(maxsize=100, bufmaxsize=5)
-        b.extend("k", list(range(20)))
-        assert b.total == 5
-        assert b.total == sum(len(buf) for buf in b.values())
-
-    def test_full_buffers_are_not_evicted_early(self):
-        b = BufferMap(maxsize=10, bufmaxsize=5)
-        for i in range(20):
-            b.put("k", i)
-        b.put("other", "x")
-        assert "k" in b
-        assert b.total == 6
-
-    def test_repr(self):
-        assert repr(Messagebuffer(10, [1, 2, 3]))
 
 
 class test_ChainMap:

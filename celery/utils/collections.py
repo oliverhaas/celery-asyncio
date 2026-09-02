@@ -4,11 +4,9 @@
 
 import time
 from collections import OrderedDict as _OrderedDict
-from collections import deque
-from collections.abc import Callable, Mapping, MutableMapping, MutableSet, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, MutableSet
 from heapq import heapify, heappop, heappush
-from itertools import chain, count
-from queue import Empty
+from itertools import chain
 from typing import Any
 
 from .functional import first, uniq
@@ -26,13 +24,10 @@ except ImportError:
 __all__ = (
     "AttributeDictMixin",
     "AttributeDict",
-    "BufferMap",
     "ChainMap",
     "ConfigurationView",
     "DictAttribute",
-    "Evictable",
     "LimitedSet",
-    "Messagebuffer",
     "OrderedDict",
     "force_mapping",
     "lpmerge",
@@ -585,185 +580,3 @@ class LimitedSet:
 
 
 MutableSet.register(LimitedSet)
-
-
-class Evictable:
-    """Mixin for classes supporting the ``evict`` method."""
-
-    Empty = Empty
-
-    def evict(self) -> None:
-        """Force evict until maxsize is enforced."""
-        self._evict(range=count)
-
-    def _evict(self, limit: int = 100, range=range) -> None:
-        try:
-            [self._evict1() for _ in range(limit)]  # type: ignore[func-returns-value]
-        except IndexError:
-            pass
-
-    def _evict1(self) -> None:
-        if self._evictcount <= self.maxsize:  # type: ignore[attr-defined]
-            raise IndexError()
-        try:
-            self._pop_to_evict()  # type: ignore[attr-defined]
-        except self.Empty:
-            raise IndexError() from None
-
-
-class Messagebuffer(Evictable):
-    """A buffer of pending messages."""
-
-    Empty = Empty
-
-    def __init__(self, maxsize, iterable=None, deque=deque):
-        self.maxsize = maxsize
-        self.data = deque(iterable or [])
-        self._append = self.data.append
-        self._pop = self.data.popleft
-        self._len = self.data.__len__
-        self._extend = self.data.extend
-
-    def put(self, item):
-        self._append(item)
-        self.maxsize and self._evict()
-
-    def extend(self, it):
-        self._extend(it)
-        self.maxsize and self._evict()
-
-    def take(self, *default):
-        try:
-            return self._pop()
-        except IndexError:
-            if default:
-                return default[0]
-            raise self.Empty() from None
-
-    def _pop_to_evict(self):
-        return self.take()
-
-    def __repr__(self):
-        return f"<{type(self).__name__}: {len(self)}/{self.maxsize}>"
-
-    def __iter__(self):
-        while 1:
-            try:
-                yield self._pop()
-            except IndexError:
-                break
-
-    def __len__(self):
-        return self._len()
-
-    def __contains__(self, item) -> bool:
-        return item in self.data
-
-    def __reversed__(self):
-        return reversed(self.data)
-
-    def __getitem__(self, index):
-        return self.data[index]
-
-    @property
-    def _evictcount(self):
-        return len(self)
-
-
-Sequence.register(Messagebuffer)
-
-
-class BufferMap(OrderedDict, Evictable):
-    """Map of buffers."""
-
-    Buffer = Messagebuffer
-    Empty = Empty
-
-    maxsize = None
-    total = 0
-    bufmaxsize = None
-
-    def __init__(self, maxsize, iterable=None, bufmaxsize=1000):
-        super().__init__()
-        self.maxsize = maxsize
-        self.bufmaxsize = bufmaxsize
-        if iterable:
-            self.update(iterable)
-        self.total = sum(len(buf) for buf in self.values())
-
-    def put(self, key, item):
-        buf = self._get_or_create_buffer(key)
-        # the buffer evicts on its own once it is full, so count what it kept.
-        before = len(buf)
-        buf.put(item)
-        self.total += len(buf) - before
-        self.move_to_end(key)  # least recently used.
-        self.maxsize and self._evict()
-
-    def extend(self, key, it):
-        buf = self._get_or_create_buffer(key)
-        before = len(buf)
-        buf.extend(it)
-        self.total += len(buf) - before
-        self.maxsize and self._evict()
-
-    def take(self, key, *default):
-        item, throw = None, False
-        try:
-            buf = self[key]
-        except KeyError:
-            throw = True
-        else:
-            try:
-                item = buf.take()
-                self.total -= 1
-            except self.Empty:
-                throw = True
-            else:
-                self.move_to_end(key)  # mark as LRU
-
-        if throw:
-            if default:
-                return default[0]
-            raise self.Empty()
-        return item
-
-    def _get_or_create_buffer(self, key):
-        try:
-            return self[key]
-        except KeyError:
-            buf = self[key] = self._new_buffer()
-            return buf
-
-    def _new_buffer(self):
-        return self.Buffer(maxsize=self.bufmaxsize)
-
-    def _LRUpop(self, *default):
-        return self[self._LRUkey()].take(*default)
-
-    def _pop_to_evict(self):
-        for _ in range(100):
-            key = self._LRUkey()
-            buf = self[key]
-            try:
-                buf.take()
-            except IndexError, self.Empty:
-                # buffer empty, remove it from mapping.
-                self.pop(key)
-            else:
-                # we removed one item
-                self.total -= 1
-                # if buffer is empty now, remove it from mapping.
-                if not len(buf):
-                    self.pop(key)
-                else:
-                    # move to least recently used.
-                    self.move_to_end(key)
-                break
-
-    def __repr__(self):
-        return f"<{type(self).__name__}: {self.total}/{self.maxsize}>"
-
-    @property
-    def _evictcount(self):
-        return self.total
