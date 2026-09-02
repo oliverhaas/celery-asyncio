@@ -578,10 +578,10 @@ class Consumer:
             await cset.consume()
             info("Started consuming from %s", queue)
 
-    def cancel_task_queue(self, queue):
+    async def cancel_task_queue(self, queue):
         info("Canceling queue %s", queue)
         self.app.amqp.queues.deselect(queue)
-        self.task_consumer.cancel_by_queue(queue)
+        await self.task_consumer.cancel_by_queue(queue)
 
     def apply_eta_task(self, task):
         """Method called by the timer to apply a task with an ETA/countdown."""

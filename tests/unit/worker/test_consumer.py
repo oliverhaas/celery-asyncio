@@ -10,6 +10,9 @@ try:
 except ImportError:
     ChannelError = type("ChannelError", (Exception,), {})
 
+from kombu import Connection as KombuConnection
+from kombu import Queue
+
 from celery import bootsteps
 from celery.app.base import _detect_quorum_queues as detect_quorum_queues
 from celery.contrib.testing.mocks import ContextMock
@@ -1159,3 +1162,48 @@ class test_Connection:
         c.connection = None
 
         assert Connection(c).info(c) == {"broker": "N/A"}
+
+
+class test_Consumer_TaskQueues(ConsumerTestCase):
+    async def consumer_on(self, conn, received):
+        """A consumer already consuming from the default queue."""
+        c = self.get_consumer()
+        c.task_consumer = conn.Consumer(
+            [Queue("celery")],
+            callbacks=[lambda body, message: received.append(body)],
+        )
+        await c.task_consumer.consume()
+        return c
+
+    async def test_add_task_queue_starts_delivering_from_the_new_queue(self):
+        received = []
+        async with KombuConnection("memory://") as conn:
+            c = await self.consumer_on(conn, received)
+
+            await c.add_task_queue("extra")
+
+            assert c.task_consumer.consuming_from("extra")
+            async with conn.Producer() as producer:
+                await producer.publish({"to": "celery"}, routing_key="celery")
+                await producer.publish({"to": "extra"}, routing_key="extra")
+            for _ in range(4):
+                try:
+                    await conn.drain_events(timeout=0.2)
+                except TimeoutError:
+                    break
+
+        # Once each: adding a queue must not re-register the queues the
+        # consumer was already serving.
+        assert received == [{"to": "celery"}, {"to": "extra"}]
+
+    async def test_cancel_task_queue_stops_consuming_from_it(self):
+        # cancel_by_queue is a coroutine: calling it without awaiting left the
+        # worker consuming from a queue it had reported as cancelled.
+        async with KombuConnection("memory://") as conn:
+            c = await self.consumer_on(conn, [])
+            await c.add_task_queue("extra")
+
+            await c.cancel_task_queue("extra")
+
+            assert not c.task_consumer.consuming_from("extra")
+            assert "extra" not in c.app.amqp.queues.consume_from
