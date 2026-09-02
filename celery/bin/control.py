@@ -149,7 +149,12 @@ def status(ctx, timeout, destination, json, **kwargs):
         raise CeleryCommandException(message="No nodes replied within time constraint", exit_code=EX_UNAVAILABLE)
 
     if json:
+        # Only the document, the way `celery inspect --json` does it: the
+        # count that follows it below is for people to read, and it left the
+        # output of this command unparseable.
         ctx.obj.echo(dumps(replies))
+        return
+
     nodecount = len(replies)
     if not ctx.obj.quiet:
         ctx.obj.echo("\n{} {} online.".format(nodecount, text.pluralize(nodecount, "node")))

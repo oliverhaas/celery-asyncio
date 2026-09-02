@@ -1,4 +1,5 @@
 import importlib
+import json
 import os
 import re
 from unittest.mock import patch
@@ -41,6 +42,17 @@ def clean_os_environ():
     # This interferes with other tests, so we need to reset os.environ
     with patch.dict(os.environ, clear=True):
         yield
+
+
+def test_status_in_json_says_nothing_else(cli_runner: CliRunner):
+    # The node count used to follow the document on stdout, so nothing could
+    # parse what the option produced.
+    replies = {"celery@node1": {"ok": "pong"}}
+    with patch("celery.app.control.Inspect.ping", return_value=replies):
+        res = cli_runner.invoke(celery, [*_GLOBAL_OPTIONS, "status", "--json"], catch_exceptions=False)
+
+    assert res.exit_code == 0, (res, res.output)
+    assert json.loads(res.output) == replies
 
 
 @pytest.mark.parametrize(
