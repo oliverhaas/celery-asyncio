@@ -66,8 +66,6 @@ def test_cli_skip_checks(cli_runner: CliRunner):
 
 
 def test_setup_logging_subsystem_is_not_left_disabled(cli_runner: CliRunner):
-    # The three tests above used to set the flag on the class and never put it
-    # back, so every later call to setup_logging_subsystem returned early.
     assert Logging._setup is False
 
 
@@ -84,8 +82,6 @@ def test_setup_logging_subsystem_is_not_left_disabled(cli_runner: CliRunner):
 def test_limit_flags_reach_the_setting_the_worker_reads(
     flag, argument, setting, expected, cli_runner: CliRunner, restore_app_conf
 ):
-    # They used to be handed to the pool as constructor keywords, which parked
-    # them in `BasePool.options` where nothing ever looked them up.
     worker = run_worker(cli_runner, [flag, argument])
 
     assert worker.app.conf[setting] == expected
@@ -120,7 +116,6 @@ def test_pool_sizing_flags_reach_the_worker(flag, attribute, cli_runner: CliRunn
 
 @pytest.mark.parametrize("removed", ["-O", "--optimization", "--disable-prefetch"])
 def test_removed_options_are_rejected(removed, cli_runner: CliRunner):
-    # `-O fair` and `--disable-prefetch` both described a prefork worker.
     res = cli_runner.invoke(celery, ["-A", "tests.unit.bin.proj.app", "worker", removed, "fair"])
 
     assert res.exit_code == 2, (res, res.output)
@@ -143,9 +138,6 @@ def test_strip_detach_options(argv, expected):
 
 
 def test_detach_reexecutes_without_the_uid_and_gid_values(cli_runner: CliRunner):
-    # The option names were removed but their values were not, so the detached
-    # worker got "1000" as a stray positional and died on a usage error with
-    # stdout and stderr already closed.
     command = [
         "celery",
         "-A",

@@ -413,8 +413,6 @@ def _restore_logging():
     root = logging.getLogger()
     level = root.level
     handlers = root.handlers
-    # A real setup_logging_subsystem() call latches this on the class, and
-    # every later call in the session then returns without doing anything.
     already_setup = Logging._setup
 
     try:

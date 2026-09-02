@@ -30,11 +30,8 @@ def _say_remote_command_reply(ctx, replies, show_reply=False):
 
 
 def _consume_arguments(meta, method, args):
-    # `consumed` counts what was yielded, which is not the loop index: when the
-    # positionals run out exactly, the loop ends on the last one rather than
-    # breaking past it, and leaving `args` at that index handed the last
-    # positional to the variadic as well (`control terminate SIGTERM` targeted
-    # a task named "SIGTERM").
+    # `consumed` counts what was yielded, not the loop index: leaving `args` at
+    # the index of the last positional handed it to the variadic as well.
     consumed = 0
     try:
         for i, arg in enumerate(args):
@@ -149,9 +146,8 @@ def status(ctx, timeout, destination, json, **kwargs):
         raise CeleryCommandException(message="No nodes replied within time constraint", exit_code=EX_UNAVAILABLE)
 
     if json:
-        # Only the document, the way `celery inspect --json` does it: the
-        # count that follows it below is for people to read, and it left the
-        # output of this command unparseable.
+        # Only the document, the way `celery inspect --json` does it; the
+        # count below is for people and made the output unparseable.
         ctx.obj.echo(dumps(replies))
         return
 

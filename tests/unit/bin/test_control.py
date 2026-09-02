@@ -45,8 +45,6 @@ def clean_os_environ():
 
 
 def test_status_in_json_says_nothing_else(cli_runner: CliRunner):
-    # The node count used to follow the document on stdout, so nothing could
-    # parse what the option produced.
     replies = {"celery@node1": {"ok": "pong"}}
     with patch("celery.app.control.Inspect.ping", return_value=replies):
         res = cli_runner.invoke(celery, [*_GLOBAL_OPTIONS, "status", "--json"], catch_exceptions=False)
@@ -201,8 +199,6 @@ def test_control_with_preload_option(cli_runner: CliRunner):
 @pytest.mark.parametrize(
     ("command", "argv", "expected"),
     [
-        # The variadic used to be handed the last positional as well, so
-        # `terminate SIGTERM` asked the workers to kill a task id "SIGTERM".
         ("terminate", ["SIGTERM"], {"signal": "SIGTERM", "task_id": []}),
         ("terminate", ["SIGTERM", "id1"], {"signal": "SIGTERM", "task_id": ["id1"]}),
         ("terminate", ["SIGTERM", "id1", "id2"], {"signal": "SIGTERM", "task_id": ["id1", "id2"]}),
@@ -221,7 +217,6 @@ def test_compile_arguments_leaves_no_positional_behind():
 
 
 def test_status_quiet_omits_the_node_count(cli_runner: CliRunner):
-    # `-q` is a global option, so it arrives on ctx.obj, never in **kwargs.
     with patch("celery.app.control.Inspect.ping", return_value={"node@host": {"ok": "pong"}}):
         res = cli_runner.invoke(celery, [*_GLOBAL_OPTIONS, "-q", "status"], catch_exceptions=False)
 

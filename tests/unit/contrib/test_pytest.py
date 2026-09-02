@@ -19,8 +19,6 @@ def test_pytest_celery_marker_registration(testdir):
         """
     )
 
-    # The plugin is named by module path: this distribution declares no
-    # pytest11 entry point, so there is no short name for pytest to resolve.
     result = testdir.runpytest("-q", "-p", "celery.contrib.pytest")
     with pytest.raises((ValueError, Failed)):
         result.stdout.fnmatch_lines_random("*PytestUnknownMarkWarning: Unknown pytest.mark.celery*")

@@ -37,10 +37,6 @@ class test_DjangoTask:
 
 class test_DjangoTask_without_django:
     def test_the_module_imports(self):
-        # The module used to import django.db at the top, so anything that
-        # touched it without Django installed died on the import. A
-        # subprocess, because by the time this runs the module is already in
-        # sys.modules, imported while the class above had Django mocked out.
         result = subprocess.run(
             [sys.executable, "-c", "from celery.contrib.django.task import DjangoTask"],
             capture_output=True,

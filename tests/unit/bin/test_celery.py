@@ -8,8 +8,6 @@ _PLAIN = ["-A", "tests.unit.bin.proj.app"]
 
 
 def test_preload_options_are_gone_again_for_the_next_app(cli_runner: CliRunner):
-    # The options used to be appended to the module-level commands and stayed
-    # there, so the next app in the same process inherited them.
     with_options = cli_runner.invoke(celery, [*_PYRAMID, "purge", "--help"], catch_exceptions=False)
     assert "--ini" in with_options.output
 

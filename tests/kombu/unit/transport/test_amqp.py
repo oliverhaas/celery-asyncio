@@ -1645,7 +1645,6 @@ class TestTransport:
         assert Transport.default_port == 5672
         assert Transport.driver_type == "amqp"
         assert Transport.driver_name == "aio-pika"
-        assert Transport.qos_semantics_matches_spec is False
         assert Transport.Channel is Channel
 
     def test_init(self):

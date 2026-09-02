@@ -68,11 +68,8 @@ def purge(ctx, force, queues, exclude_queues, **kwargs):
                     try:
                         total += await channel.queue_purge(queue) or 0
                     except conn.channel_errors as exc:
-                        # A queue the broker does not have is a channel error,
-                        # and the broker closes the channel it raised on. The
-                        # queues after it went to a dead channel and failed the
-                        # same way, so a single missing queue silently purged
-                        # nothing at all.
+                        # A missing queue is a channel error, and the broker closes the
+                        # channel it raised on, which used to fail every queue after it.
                         failed.append((queue, exc))
                         channel = await conn.channel()
                 return total, failed

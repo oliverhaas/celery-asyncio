@@ -110,10 +110,6 @@ class test_EventDispatcher:
         assert not eventer._outbound_buffer
 
     async def test_send_buffers_what_the_publish_task_failed_to_deliver(self, caplog):
-        # The publish is a coroutine, so it cannot have failed by the time
-        # `send` returns: the buffering used to sit in an except around the
-        # call, where nothing ever raised, and every event lost while the
-        # broker was down was lost for good.
         producer = MockProducer()
         producer.raise_on_publish = True
         eventer = self.app.events.Dispatcher(Mock(), enabled=False, buffer_while_offline=True)
@@ -142,9 +138,6 @@ class test_EventDispatcher:
         assert "task.sent dropped" in caplog.text
 
     def test_send_from_a_thread_without_a_loop_reaches_the_broker(self):
-        # A dispatcher built by a client, outside any loop, has no loop of its
-        # own to publish on. It used to throw the coroutine away unexecuted,
-        # which made every client-side task-sent event a no-op.
         producer = MockProducer()
         eventer = self.app.events.Dispatcher(Mock(), enabled=False)
         eventer.producer = producer
@@ -299,9 +292,6 @@ class test_EventDispatcher:
 
             assert dispatcher.enabled
             assert dispatcher.producer.serializer == self.app.conf.event_serializer
-            # The channel a caller hands over is the one the producer
-            # publishes on. It used to arrive where the connection belongs, so
-            # the producer asked a channel for a channel of its own instead.
             assert on_channel.producer._channel is channel
 
             dispatcher.disable()
@@ -309,7 +299,6 @@ class test_EventDispatcher:
             on_channel.disable()
             assert not dispatcher.enabled
             assert dispatcher.producer is None
-            # The dispatcher gives up its producer, not the caller's channel.
             assert on_channel.channel is channel
 
             dispatcher.enable()

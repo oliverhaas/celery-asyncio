@@ -173,21 +173,12 @@ class test_DjangoWorkerFixup(FixupCase):
             )
             sigs.task_prerun.connect.assert_called_with(f.on_task_prerun)
             sigs.task_postrun.connect.assert_called_with(f.on_task_postrun)
-            # Nothing forks, so the pool starting is not a reason to touch the
-            # connections of the process that started it.
             sigs.worker_process_init.connect.assert_not_called()
 
     def test_the_pool_starting_leaves_open_connections_alone(self):
-        # The fixup used to close the raw file descriptor of every open
-        # connection when the pool started, which is what a forked child has to
-        # do with the descriptors it inherited. Nothing forks here, so the
-        # connection belongs to this process, and Django went on using a socket
-        # whose number the next open call is free to hand out again.
         with self.fixup_context(self.app) as (f, _, _):
             left, right = socket.socketpair()
             with left, right:
-                # A MagicMock for `wrap_database_errors`, which is a context
-                # manager Django enters around the close.
                 connection = MagicMock()
                 connection.connection = left
                 f._db.connections.all = Mock(return_value=[connection])

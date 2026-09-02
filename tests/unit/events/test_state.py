@@ -349,10 +349,6 @@ class test_State:
         assert now[2][0] == tB
 
     def test_task_ascending_clock_ordering(self):
-        # Ascending is by the first event of each task, where the default
-        # ordering goes by the last one. The replay was played once on
-        # purpose: every later round appends to the same heap, so the tasks
-        # that come first stay the ones this round put there.
         state = State()
         r = ev_logical_clock_ordering(state)
         tA, tB, tC = r.uids
@@ -579,9 +575,6 @@ class test_State:
         assert len(r.state.tasks_by_worker["utest2"]) == 10
 
     def test_tasks_by_worker_skips_tasks_that_have_no_worker_yet(self):
-        # A task-sent event comes from the client, so the task has a client
-        # but no worker. Asking it for a hostname raised AttributeError and
-        # took the whole query with it.
         s = State()
         s.event(
             {

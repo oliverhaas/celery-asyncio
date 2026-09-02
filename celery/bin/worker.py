@@ -71,11 +71,8 @@ HOSTNAME = Hostname()
 
 C_FAKEFORK = os.environ.get("C_FAKEFORK")
 
-#: Limit options and the setting each one has to be written to. The worker
-#: reads its limits from the configuration: the hard and soft time limits
-#: through the task attributes bound from it, the child limits in the pool
-#: loop. Passing them as keyword arguments only reached `BasePool.options`,
-#: which nothing looks at, so the flags did nothing at all.
+#: Limit options and the setting each one writes. The worker reads its limits
+#: from the configuration; passing them to the pool reached nothing that looks at them.
 LIMIT_SETTINGS = {
     "time_limit": "task_time_limit",
     "soft_time_limit": "task_soft_time_limit",

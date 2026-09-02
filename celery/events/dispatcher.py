@@ -126,9 +126,8 @@ class EventDispatcher:
         self.close()
 
     def enable(self):
-        # The channel goes in the channel argument. Passing it first put it
-        # where the connection belongs, and the producer then asked a channel
-        # for a channel of its own the first time it published.
+        # The channel goes in the channel argument; passed first it sat where
+        # the connection belongs, and the producer asked it for a channel of its own.
         self.producer = Producer(
             self.connection,
             channel=self.channel,
@@ -196,15 +195,12 @@ class EventDispatcher:
         if not asyncio.iscoroutine(coro):
             return
 
-        # `producer.publish()` is a coroutine in kombu, so nothing has left the
-        # process yet and nothing can have failed yet either. A broker that is
-        # down surfaces on the task, which is why the offline buffer has to be
-        # filled from the done callback rather than from an except here.
+        # `producer.publish()` is a coroutine, so nothing can have failed yet;
+        # a broker that is down surfaces on the task, hence the done callback.
         loop = self._event_loop
         if loop is None:
-            # Built outside a running loop, by a client sending task-sent
-            # events, say. The connection then belongs to the shared
-            # background loop, which is the one that will close it as well.
+            # Built outside a running loop, by a client sending task-sent events,
+            # say; the connection then belongs to the shared background loop.
             loop = default_loop_runner().loop
         elif loop.is_closed():
             coro.close()
@@ -232,9 +228,8 @@ class EventDispatcher:
 
     def _publish_failed(self, event, routing_key, exc):
         if self.buffer_while_offline:
-            # The entry holds no exception: that pins its traceback and every
-            # frame below it, which for a dispatcher publishing every couple of
-            # seconds against a dead broker is the leak (upstream 8b4b29c93).
+            # The entry holds no exception: that would pin its traceback and
+            # every frame below it on every failed publish (upstream 8b4b29c93).
             self._outbound_buffer.append((event, routing_key))
             logger.warning("Event %s buffered, publishing it failed: %r", routing_key, exc)
         else:

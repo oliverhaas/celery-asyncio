@@ -73,8 +73,6 @@ def test_purge_reports_the_number_of_messages(cli_runner: CliRunner):
 
 
 def test_a_queue_the_broker_does_not_have_stops_neither_the_others_nor_the_report(cli_runner: CliRunner):
-    # The broker closes the channel it raised the error on, so every queue
-    # after the missing one used to fail as well, without a word about it.
     connection = FakeConnection(missing={"one"})
 
     res = run_purge(cli_runner, connection, ["-Q", "one,two,three"])
