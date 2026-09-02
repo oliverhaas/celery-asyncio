@@ -1299,11 +1299,13 @@ class Channel:
         try:
             delivered = await self._deliver_to_consumer(queue_name, message)
         except BaseException:
-            # The Lua script already popped this tag from the queue ZSET.
-            # If delivery is cancelled (e.g. close() running out of headroom)
-            # or otherwise fails, restore the tag so the next consume cycle
-            # picks it up rather than waiting ~6 min for the visibility-
-            # timeout restore.
+            # The Lua script already popped this tag from the queue ZSET, so a
+            # cancellation here (close() running out of headroom, say) would
+            # leave the message invisible until the visibility timeout. Put it
+            # straight back instead, at its original score and without
+            # counting a redelivery: nobody has seen it. A callback that
+            # raises is a different matter and is dealt with in
+            # _deliver_to_consumer.
             self._delivered.pop(delivery_tag, None)
             await self._restore_to_queue(queue_name, delivery_tag)
             raise
@@ -1392,6 +1394,22 @@ class Channel:
         # BZMPOP popped this tag server-side. From here on we either deliver
         # it or push it back, even on cancellation, so the message isn't
         # stuck in messages_index for the visibility-timeout window.
+        delivered = await self._claim_and_deliver(queue, delivery_tag, original_score)
+        if delivered is None:
+            return await self._drain_expired_and_deliver(queue)
+        return delivered
+
+    async def _claim_and_deliver(
+        self,
+        queue: str,
+        delivery_tag: str,
+        original_score: float,
+    ) -> bool | None:
+        """Take ownership of a popped tag and hand its message to a consumer.
+
+        Returns None when the message hash is gone, which leaves the caller to
+        move on to the next tag.
+        """
         message_key = self._message_key(delivery_tag)
         index_key = self._messages_index_key(queue)
         new_queue_at = time() + self._visibility_timeout + self._requeue_check_interval
@@ -1421,9 +1439,8 @@ class Channel:
 
         payload_json = results[1][0]
         if not payload_json:
-            # Hash expired — clean up index, try drain
             await self.client.zrem(index_key, delivery_tag)
-            return await self._drain_expired_and_deliver(queue)
+            return None
 
         payload = json_loads(payload_json)
         delivery_count = int(results[1][1] or 0)
@@ -1450,27 +1467,23 @@ class Channel:
         return queue_name, delivery_tag, payload_json, delivery_count
 
     async def _drain_expired_and_deliver(self, queue: str) -> bool:
-        """Pop messages until a valid one is found or queue is empty."""
+        """Pop tags until one still has its message, or the queue runs dry.
+
+        A message whose hash has expired leaves its tag behind on the queue
+        ZSET. Delivery goes through the same claim path as the BZMPOP one, so
+        a message handed out here is tracked in ``messages_index`` and comes
+        back after the visibility timeout if it is never acked.
+        """
         queue_key = self._queue_key(queue)
         while True:
-            result = await self.client.zpopmin(queue_key, count=1)
-            if not result:
+            popped = await self.client.zpopmin(queue_key, count=1)
+            if not popped:
                 return False
-            delivery_tag_raw, _score = result[0]
+            delivery_tag_raw, score = popped[0]
             delivery_tag = delivery_tag_raw.decode() if isinstance(delivery_tag_raw, bytes) else delivery_tag_raw
-            message_key = self._message_key(delivery_tag)
-
-            fields = await self.client.hmget(message_key, "payload", "delivery_count")
-            if fields[0]:
-                payload = json_loads(fields[0])
-                delivery_count = int(fields[1] or 0)
-                message = self._create_message(queue, payload, delivery_tag, delivery_count)
-                if await self._deliver_to_consumer(queue, message):
-                    return True
-                await self._restore_undeliverable(queue, delivery_tag)
-                return False
-            # Expired — clean up index entry
-            await self.client.zrem(self._messages_index_key(queue), delivery_tag)
+            delivered = await self._claim_and_deliver(queue, delivery_tag, float(score))
+            if delivered is not None:
+                return delivered
 
     async def _xread_wait(self, timeout: float) -> bool:
         """Wait for fanout messages from Redis Streams."""
@@ -1612,21 +1625,66 @@ class Channel:
         back rather than leaving it invisible until the visibility timeout,
         which would also count a redelivery against ``delivery_limit``.
         """
+        # Every message this transport builds carries a delivery tag.
+        delivery_tag: str = message.delivery_tag  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         for q, callback, no_ack in self._consumers.values():
             if q == queue:
                 if not no_ack:
-                    self._delivered[message.delivery_tag] = (queue, message)  # type: ignore[index]  # ty: ignore[invalid-assignment]
+                    self._delivered[delivery_tag] = (queue, message)
 
                 try:
                     body = message.decode()
                 except Exception:
+                    # The consumer gets the raw body and decides what to do
+                    # with it; the transport cannot know which content types
+                    # this consumer accepts.
+                    logger.warning(
+                        "Could not decode message %s on queue %r; passing the raw body.",
+                        delivery_tag,
+                        queue,
+                        exc_info=True,
+                    )
                     body = message.body
 
-                result = callback(body, message)
-                if asyncio.iscoroutine(result):
-                    await result
+                try:
+                    result = callback(body, message)
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception as error:
+                    await self._on_callback_failure(queue, delivery_tag, error)
                 return True
         return False
+
+    async def _on_callback_failure(
+        self,
+        queue: str,
+        delivery_tag: str,
+        error: Exception,
+    ) -> None:
+        """Requeue a message whose consumer callback raised.
+
+        The attempt counts as a delivery, so the message goes back through the
+        requeue script rather than a plain ZADD: it increments
+        ``delivery_count``, which is what makes ``delivery_limit`` drop a
+        payload that breaks the callback every single time. Without the
+        increment such a message circulates forever.
+
+        It goes back at its own priority score rather than at the head, so the
+        rest of the queue is served before the next attempt.
+        """
+        logger.error(
+            "Consumer callback for queue %r raised on message %s; requeuing it.",
+            queue,
+            delivery_tag,
+            exc_info=error,
+        )
+        self._delivered.pop(delivery_tag, None)
+        if delivery_tag in self._fanout_tags:
+            # A fanout delivery has no message hash to requeue from and the
+            # stream offset has already moved past it.
+            self._fanout_tags.discard(delivery_tag)
+            return
+        await self._requeue_by_tag(delivery_tag)
 
     # ---- ack / reject / recover -------------------------------------------
 

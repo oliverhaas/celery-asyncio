@@ -717,6 +717,33 @@ class TestDeliveryTracking:
             assert await channel.client.exists(channel._message_key(second.delivery_tag)) == 0
             assert await channel.get(queue_name, no_ack=False) is None
 
+    async def test_a_failing_callback_stops_at_the_delivery_limit(self):
+        """A consumer callback that raises used to redeliver forever.
+
+        The message was put back with a plain ZADD, so delivery_count never
+        moved and the limit never applied.
+        """
+        queue_name = "test_failing_callback_limit"
+        seen: list[int] = []
+
+        def explode(body, message):
+            seen.append(message.headers.get("x-delivery-count", 0))
+            raise ValueError("bad task")
+
+        async with Connection(REDIS_URL, transport_options={"delivery_limit": 3}) as conn:
+            channel = await conn.channel()
+            await channel.queue_purge(queue_name)
+            await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+            await channel.basic_consume(queue_name, callback=explode)
+
+            for _ in range(10):
+                if not await channel.drain_events(timeout=0):
+                    break
+
+            assert seen == [0, 1, 2]
+            assert await channel.client.zcard(channel._queue_key(queue_name)) == 0
+            assert await channel.client.zcard(channel._messages_index_key(queue_name)) == 0
+
 
 class TestConsumerCancellation:
     """Regressions for the upstream kombu fixes ported in UPSTREAM-PLAN.md."""

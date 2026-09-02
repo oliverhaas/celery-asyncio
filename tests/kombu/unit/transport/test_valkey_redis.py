@@ -4,6 +4,8 @@ All Redis operations are mocked — no Redis server required.
 """
 
 import asyncio
+import json
+import logging
 import re
 from collections import deque
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -102,6 +104,22 @@ class _MockPipeline:
 
     async def __aexit__(self, *args):
         pass
+
+
+def _stub_pipeline(channel, execute_results: list) -> AsyncMock:
+    """Hand `channel.client.pipeline()` one execute() result per call."""
+    pipe = AsyncMock()
+    pipe.execute = AsyncMock(side_effect=execute_results)
+
+    class PipeCtx:
+        async def __aenter__(self):
+            return pipe
+
+        async def __aexit__(self, *args):
+            return False
+
+    channel.client.pipeline = MagicMock(side_effect=lambda *a, **kw: PipeCtx())
+    return pipe
 
 
 # ---------------------------------------------------------------------------
@@ -1755,11 +1773,9 @@ class TestDrainExpiredAndDeliver:
         ch.client.zpopmin = AsyncMock(
             return_value=[(b"tag-valid", 1000.0)],
         )
-        ch.client.hmget = AsyncMock(
-            return_value=[
-                b'{"body": "found", "properties": {}, "headers": {}}',
-                b"0",
-            ],
+        _stub_pipeline(
+            ch,
+            [[None, [b'{"body": "found", "properties": {}, "headers": {}}', b"0"]]],
         )
 
         result = await ch._drain_expired_and_deliver("q1")
@@ -1778,10 +1794,11 @@ class TestDrainExpiredAndDeliver:
                 [(b"valid-tag", 1000.0)],
             ],
         )
-        ch.client.hmget = AsyncMock(
-            side_effect=[
-                [None, None],  # expired
-                [b'{"body": "ok", "properties": {}, "headers": {}}', b"2"],  # valid with delivery_count=2
+        _stub_pipeline(
+            ch,
+            [
+                [None, [None, None]],  # expired
+                [None, [b'{"body": "ok", "properties": {}, "headers": {}}', b"2"]],
             ],
         )
         ch.client.zrem = AsyncMock()
@@ -1804,11 +1821,13 @@ class TestDrainExpiredAndDeliver:
                 [],  # queue now empty
             ],
         )
-        ch.client.hmget = AsyncMock(return_value=[None, None])
+        _stub_pipeline(ch, [[None, [None, None]]])
         ch.client.zrem = AsyncMock()
 
         result = await ch._drain_expired_and_deliver("q1")
         assert result is False
+        # The expired tag is dropped from the visibility index too.
+        ch.client.zrem.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -2786,6 +2805,87 @@ class TestDeliverToConsumer:
         await ch._deliver_to_consumer("q1", msg)
 
         cb.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# A consumer callback that raises
+# ---------------------------------------------------------------------------
+
+
+class TestFailingCallback:
+    @staticmethod
+    def _channel_with_a_broken_callback(no_ack: bool = False):
+        ch = _make_channel()
+
+        def explode(body, message):
+            raise ValueError("bad task")
+
+        ch._consumers["tag1"] = ("q1", explode, no_ack)
+        ch._requeue_by_tag = AsyncMock(return_value=True)
+        ch.client.zadd = AsyncMock()
+        return ch
+
+    async def test_the_message_goes_back_through_the_counting_requeue(self):
+        ch = self._channel_with_a_broken_callback()
+        msg = ch._create_message("q1", {"body": "hi", "properties": {}, "headers": {}}, "dtag1")
+
+        assert await ch._deliver_to_consumer("q1", msg) is True
+
+        # The requeue script is the only path that bumps delivery_count and so
+        # the only one delivery_limit can ever act on.
+        ch._requeue_by_tag.assert_awaited_once_with("dtag1")
+        ch.client.zadd.assert_not_called()
+        assert "dtag1" not in ch._delivered
+
+    async def test_the_failure_is_logged_with_its_traceback(self, caplog):
+        ch = self._channel_with_a_broken_callback()
+        msg = ch._create_message("q1", {"body": "hi", "properties": {}, "headers": {}}, "dtag1")
+
+        with caplog.at_level(logging.ERROR, logger="kombu.transport.valkey_redis"):
+            await ch._deliver_to_consumer("q1", msg)
+
+        record = next(r for r in caplog.records if r.levelno == logging.ERROR)
+        assert "dtag1" in record.getMessage()
+        assert record.exc_info is not None
+        assert isinstance(record.exc_info[1], ValueError)
+
+    async def test_a_fanout_delivery_has_nothing_to_requeue(self):
+        ch = self._channel_with_a_broken_callback(no_ack=True)
+        ch._fanout_tags.add("dtag1")
+        msg = ch._create_message("q1", {"body": "hi", "properties": {}, "headers": {}}, "dtag1")
+
+        assert await ch._deliver_to_consumer("q1", msg) is True
+
+        ch._requeue_by_tag.assert_not_called()
+        assert "dtag1" not in ch._fanout_tags
+
+    async def test_the_claimed_path_does_not_restore_on_top_of_the_requeue(self):
+        ch = self._channel_with_a_broken_callback()
+        payload = json.dumps({"body": "hi", "properties": {}, "headers": {}})
+
+        assert await ch._deliver_claimed("q1", "dtag1", payload, 0) is True
+
+        ch._requeue_by_tag.assert_awaited_once_with("dtag1")
+        # _restore_to_queue would put the tag back without counting the
+        # redelivery, which is what let a poison message cycle forever.
+        ch.client.zadd.assert_not_called()
+
+    async def test_a_cancelled_delivery_still_restores_without_counting(self):
+        ch = _make_channel()
+
+        async def cancelled(body, message):
+            raise asyncio.CancelledError
+
+        ch._consumers["tag1"] = ("q1", cancelled, False)
+        ch._requeue_by_tag = AsyncMock(return_value=True)
+        ch.client.zadd = AsyncMock()
+        payload = json.dumps({"body": "hi", "properties": {}, "headers": {}})
+
+        with pytest.raises(asyncio.CancelledError):
+            await ch._deliver_claimed("q1", "dtag1", payload, 0)
+
+        ch._requeue_by_tag.assert_not_called()
+        ch.client.zadd.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
