@@ -2,8 +2,6 @@
 # https://github.com/celery/celery
 """Worker Pidbox (remote control) - async implementation."""
 
-import asyncio
-
 from kombu.utils.encoding import safe_str
 
 from celery.utils.collections import AttributeDict
@@ -46,9 +44,7 @@ class Pidbox:
         """
         self._forward_clock()
         try:
-            result = self.node.handle_message(body, message)
-            if asyncio.iscoroutine(result):
-                await result
+            await self.node.handle_message(body, message)
         except KeyError as exc:
             error("No such control command: %s", exc)
         except Exception as exc:

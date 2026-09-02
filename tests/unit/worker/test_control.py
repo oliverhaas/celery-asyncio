@@ -95,6 +95,44 @@ class test_Pidbox:
         with pytest.raises(TypeError):
             await pbox.stop(parent)
 
+    async def test_on_message_runs_the_command_and_forwards_the_clock(self):
+        parent = Mock()
+        pbox = Pidbox(parent)
+        pbox.node = AsyncMock()
+
+        await pbox.on_message({"method": "ping"}, None)
+
+        pbox.node.handle_message.assert_awaited_once_with({"method": "ping"}, None)
+        parent.app.clock.forward.assert_called_once_with()
+
+    async def test_on_message_reopens_the_mailbox_after_a_command_error(self):
+        parent = Mock()
+        parent.connection_errors = (OSError,)
+        parent.channel_errors = ()
+        pbox = Pidbox(parent)
+        pbox.node = AsyncMock()
+        pbox.node.handle_message.side_effect = RuntimeError("boom")
+        pbox.consumer = AsyncMock()
+        pbox.start = AsyncMock()
+
+        await pbox.on_message({"method": "ping"}, None)
+
+        assert pbox.consumer is None
+        pbox.start.assert_awaited_once_with(parent)
+
+    async def test_on_message_keeps_the_mailbox_for_an_unknown_command(self):
+        parent = Mock()
+        pbox = Pidbox(parent)
+        pbox.node = AsyncMock()
+        pbox.node.handle_message.side_effect = KeyError("nosuchcommand")
+        consumer = pbox.consumer = AsyncMock()
+        pbox.start = AsyncMock()
+
+        await pbox.on_message({"method": "nosuchcommand"}, None)
+
+        assert pbox.consumer is consumer
+        pbox.start.assert_not_awaited()
+
 
 class test_ControlPanel:
     def setup_method(self):
