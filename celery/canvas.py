@@ -1926,10 +1926,7 @@ class group(Signature):
             **options,
         )
 
-        # apply() prepares the options itself, so it has to see the caller's
-        # originals. _prepare_apply_async() has already turned task_id into
-        # group_id, and handing that on would leave apply() to invent a new
-        # group id and drop the one the caller asked for.
+        # apply() prepares options itself; the prepared ones would make it invent a new group id.
         if tasks is None:
             if app.conf.task_always_eager:
                 return self.apply(args, kwargs, **options)
@@ -2374,9 +2371,7 @@ class group(Signature):
             task = maybe_signature(stack.popleft(), app=self._app).clone()
             # if this is a group, flatten it by adding all of the group's tasks to the stack
             if isinstance(task, group):
-                # extendleft() pushes one at a time, so the nested tasks land in
-                # reverse. Reversing first puts them back in declaration order,
-                # which is the order the chord body sees its results in.
+                # extendleft() reverses, so reverse first to keep declaration order.
                 stack.extendleft(reversed(task.tasks))
             else:
                 new_tasks.append(task)

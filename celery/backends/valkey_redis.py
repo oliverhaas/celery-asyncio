@@ -800,10 +800,7 @@ return false
             args=[encoded, expires, states.SUCCESS],
         )
         if existing is not None:
-            # Lua found a stored SUCCESS and dropped the write. Most
-            # commonly a redelivered task (lost ack, broker restart, network
-            # partition) re-executing while the prior outcome was already
-            # recorded.
+            # A stored SUCCESS won: usually a redelivered task re-executing.
             logger.error(
                 "Dropped duplicate result write for task %s: stored state %s, attempted state %s",
                 bytes_to_str(task_id),

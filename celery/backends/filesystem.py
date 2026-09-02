@@ -99,9 +99,7 @@ class FilesystemBackend(KeyValueStoreBackend):
         """Delete expired meta-data."""
         if not self.expires:
             return
-        # The epoch has to be spelled in UTC: with the app on any other
-        # timezone the subtraction shifts the cutoff by its UTC offset and
-        # deletes results that are still fresh.
+        # A naive epoch shifts the cutoff by the app timezone's UTC offset.
         epoch = datetime(1970, 1, 1, tzinfo=UTC)
         now_ts = (self.app.now() - epoch).total_seconds()
         cutoff_ts = now_ts - self.expires
