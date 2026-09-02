@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from .compression import compress
 from .entity import Exchange, Queue
 from .log import get_logger
-from .serialization import dumps
+from .serialization import dumps, prepare_accept_content
 from .utils.json import dumps as json_dumps
 
 logger = get_logger(__name__)
@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from .transport.base import Channel
 
 __all__ = ("Consumer", "Producer")
+
+
+async def _maybe_await(result: Any) -> Any:
+    return await result if asyncio.iscoroutine(result) else result
 
 
 class Producer:
@@ -266,11 +270,11 @@ class Consumer:
             self._channel = channel
         self._queues = queues or []
         self._callbacks = callbacks or []
-        # on_message receives just (message,): raw message, no body decode.
+        # on_message receives just (message,): the raw message, no body decode.
         # Regular callbacks receive (body, message).
         self._on_message_callback = on_message
         self._no_ack = no_ack
-        self._accept = set(accept) if accept else None
+        self._accept = prepare_accept_content(set(accept)) if accept else None
         self._prefetch_count = prefetch_count
         self._consumer_tags: dict[str, str] = {}
         self._running = False
@@ -327,18 +331,33 @@ class Consumer:
 
         self._running = True
 
-    async def _on_message(self, body: Any, message: Message) -> Any:
+    async def _on_message(self, body: Any, message: Message) -> None:
         """Handle received message."""
-        if self._on_message_callback:
-            # Raw message callback: receives just the message (no body decode)
-            result = self._on_message_callback(message)
-            if asyncio.iscoroutine(result):
-                await result
+        if self._accept is not None:
+            # The transport decoded the body before it could know what this
+            # consumer accepts, so hand the message the restriction and let it
+            # decode again under it.
+            message.accept = self._accept
+
+        if self._on_message_callback is not None:
+            # Raw message callback: it receives the message and decodes if it
+            # wants to, which is where `accept` is then enforced.
+            await _maybe_await(self._on_message_callback(message))
             return
+
+        try:
+            if message.errors:
+                message._reraise_error()
+            if self._accept is not None:
+                body = message.decode()
+        except Exception as exc:
+            if self.on_decode_error is None:
+                raise
+            await _maybe_await(self.on_decode_error(message, exc))
+            return
+
         for callback in self._callbacks:
-            result = callback(body, message)
-            if asyncio.iscoroutine(result):
-                await result
+            await _maybe_await(callback(body, message))
 
     async def cancel(self) -> None:
         """Cancel consuming."""

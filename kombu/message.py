@@ -3,13 +3,13 @@
 """Message class for pure asyncio Kombu."""
 
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from collections.abc import Set as AbstractSet
 from typing import TYPE_CHECKING, Any
 
 from .compression import decompress
 from .exceptions import MessageStateError, reraise
-from .serialization import loads
+from .serialization import loads, prepare_accept_content
 
 if TYPE_CHECKING:
     from .transport.base import Channel
@@ -41,9 +41,9 @@ class Message:
 
     __slots__ = (
         "__dict__",
+        "_accept",
         "_decoded_cache",
         "_state",
-        "accept",
         "body",
         "channel",
         "content_encoding",
@@ -94,6 +94,19 @@ class Message:
             except Exception:
                 self.errors.append(sys.exc_info())
         self.body = body
+
+    @property
+    def accept(self) -> AbstractSet[str] | None:
+        """Content types this message may be decoded as, or None for any."""
+        return self._accept
+
+    @accept.setter
+    def accept(self, accept: Iterable[str] | None) -> None:
+        # Serializer names ("json", "pickle") are accepted alongside content
+        # types, and a decode already made under a different restriction is no
+        # longer an answer to this one.
+        self._accept = prepare_accept_content(accept)
+        self._decoded_cache = None
 
     def _reraise_error(self, callback: Callable | None = None) -> None:
         try:

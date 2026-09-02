@@ -5,7 +5,7 @@ from itertools import count
 import pytest
 
 from kombu import Connection, Exchange, Queue
-from kombu.exceptions import ChannelError
+from kombu.exceptions import ChannelError, ContentDisallowed
 from kombu.messaging import Consumer, Producer
 
 
@@ -373,3 +373,64 @@ class test_Producer_declare:
 
             channel = await conn.default_channel()
             assert await channel.get("declare_q", no_ack=True) is None
+
+
+class test_Consumer_accept:
+    """`accept` restricts what a delivered message may be decoded as.
+
+    The disallowed cases publish JSON, which decodes fine without a
+    restriction, so what they assert on is the restriction and nothing else.
+    """
+
+    async def _consume(self, *, serializer, accept, on_decode_error=None):
+        received = []
+        async with Connection("memory://") as conn:
+            async with conn.Producer() as producer:
+                await producer.publish({"x": 1}, routing_key="accept_q", serializer=serializer)
+
+            consumer = conn.Consumer(
+                [Queue("accept_q")],
+                callbacks=[lambda body, message: received.append(body)],
+                accept=accept,
+                no_ack=True,
+                on_decode_error=on_decode_error,
+            )
+            await consumer.consume()
+            await conn.drain_events(timeout=1.0)
+        return received
+
+    async def test_an_accepted_content_type_is_delivered_decoded(self):
+        assert await self._consume(serializer="json", accept=["json"]) == [{"x": 1}]
+
+    async def test_a_disallowed_content_type_raises_content_disallowed(self):
+        with pytest.raises(ContentDisallowed, match="application/json"):
+            await self._consume(serializer="json", accept=["yaml"])
+
+    async def test_a_disallowed_content_type_goes_to_on_decode_error(self):
+        errors = []
+        received = await self._consume(
+            serializer="json",
+            accept=["yaml"],
+            on_decode_error=lambda message, exc: errors.append(exc),
+        )
+        assert received == []
+        assert [type(exc) for exc in errors] == [ContentDisallowed]
+
+    async def test_a_raw_on_message_callback_still_gets_the_restriction(self):
+        seen = []
+        async with Connection("memory://") as conn:
+            async with conn.Producer() as producer:
+                await producer.publish({"x": 1}, routing_key="accept_q", serializer="json")
+
+            consumer = conn.Consumer(
+                [Queue("accept_q")],
+                on_message=seen.append,
+                accept=["yaml"],
+                no_ack=True,
+            )
+            await consumer.consume()
+            await conn.drain_events(timeout=1.0)
+
+        assert len(seen) == 1
+        with pytest.raises(ContentDisallowed):
+            seen[0].payload
