@@ -123,6 +123,8 @@ class Node:
         handle = (reply_to and self.handle_call) or self.handle_cast
         try:
             reply = handle(method, arguments)
+            if asyncio.iscoroutine(reply):
+                reply = await reply
         except SystemExit:
             raise
         except Exception as exc:

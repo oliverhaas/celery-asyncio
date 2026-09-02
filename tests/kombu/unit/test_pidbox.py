@@ -164,3 +164,22 @@ async def test_reply_uses_the_mailbox_serializer():
 
 async def test_reply_falls_back_to_json():
     assert await _reply_content_type(None) == "application/json"
+
+
+def _dispatch_node(handlers):
+    return Mailbox("testns").Node("test.node", state="worker-a1", handlers=handlers)
+
+
+async def test_dispatch_awaits_an_async_handler():
+    async def ping(state):
+        await asyncio.sleep(0)
+        return f"pong from {state}"
+
+    assert await _dispatch_node({"ping": ping}).dispatch("ping") == "pong from worker-a1"
+
+
+async def test_dispatch_reports_an_async_handler_that_raises():
+    async def boom(state):
+        raise KeyError("no such command")
+
+    assert await _dispatch_node({"boom": boom}).dispatch("boom") == {"error": "KeyError('no such command')"}
