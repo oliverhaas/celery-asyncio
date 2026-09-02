@@ -5,33 +5,23 @@
 import asyncio
 import os
 import threading
-from collections import deque
-from contextlib import asynccontextmanager
 from itertools import count
 from typing import TYPE_CHECKING, Any
 from uuid import NAMESPACE_OID, uuid3, uuid4, uuid5
 
 from .entity import Exchange, Queue
 from .log import get_logger
-from .serialization import registry as serializers
 from .utils.uuid import uuid
 
 if TYPE_CHECKING:
     from .connection import Connection
-    from .message import Message
-    from .messaging import Consumer, Producer
     from .transport.base import Channel
 
 __all__ = (
     "Broadcast",
     "QoS",
-    "collect_replies",
-    "drain_consumer",
     "eventloop",
-    "ignore_errors",
-    "itermessages",
     "maybe_declare",
-    "send_reply",
     "uuid",
 )
 
@@ -130,72 +120,6 @@ async def maybe_declare(
     return True
 
 
-async def drain_consumer(
-    consumer: Consumer,
-    limit: int = 1,
-    timeout: float | None = None,
-    callbacks: list | None = None,
-):
-    """Drain messages from consumer instance.
-
-    Args:
-        consumer: Consumer instance to drain messages from.
-        limit: Maximum number of messages to drain.
-        timeout: Timeout for waiting on messages.
-        callbacks: Additional callbacks to add.
-
-    Yields:
-        Tuple of (body, message) for each received message.
-    """
-    acc: deque[tuple[Any, Message]] = deque()
-
-    def on_message(body: Any, message: Message) -> None:
-        acc.append((body, message))
-
-    # Add our collector callback
-    original_callbacks = consumer._callbacks.copy()
-    consumer._callbacks = [on_message] + (callbacks or []) + consumer._callbacks
-
-    try:
-        async with consumer:
-            async for _ in eventloop(consumer._connection, limit=limit, timeout=timeout, ignore_timeouts=True):  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-                while acc:
-                    yield acc.popleft()
-    finally:
-        consumer._callbacks = original_callbacks
-
-
-async def itermessages(
-    conn: Connection,
-    queue: Queue,
-    limit: int = 1,
-    timeout: float | None = None,
-    callbacks: list | None = None,
-    **kwargs: Any,
-):
-    """Async iterator over messages from a queue.
-
-    Args:
-        conn: Connection to use.
-        queue: Queue to consume from.
-        limit: Maximum number of messages.
-        timeout: Timeout for waiting.
-        callbacks: Additional callbacks.
-        **kwargs: Additional arguments for Consumer.
-
-    Yields:
-        Tuple of (body, message) for each received message.
-    """
-    consumer = conn.Consumer(queues=[queue], **kwargs)
-    async for item in drain_consumer(
-        consumer,
-        limit=limit,
-        timeout=timeout,
-        callbacks=callbacks,
-    ):
-        yield item
-
-
 async def eventloop(
     conn: Connection,
     limit: int | None = None,
@@ -236,79 +160,6 @@ async def eventloop(
             if timeout is not None and not ignore_timeouts:
                 raise
             yield
-
-
-async def send_reply(
-    exchange: Exchange | str,
-    req: Message,
-    msg: Any,
-    producer: Producer,
-    **props: Any,
-) -> None:
-    """Send reply for request.
-
-    Args:
-        exchange: Reply exchange.
-        req: Original request message with reply_to property.
-        msg: Message body to send.
-        producer: Producer instance to use.
-        **props: Extra properties.
-    """
-    await producer.publish(
-        msg,
-        exchange=exchange,
-        routing_key=req.properties["reply_to"],
-        correlation_id=req.properties.get("correlation_id"),
-        serializer=serializers.type_to_name.get(req.content_type, "json"),
-        **props,
-    )
-
-
-async def collect_replies(
-    conn: Connection,
-    queue: Queue,
-    limit: int = 1,
-    timeout: float | None = None,
-    no_ack: bool = True,
-    **kwargs: Any,
-):
-    """Async generator collecting replies from a queue.
-
-    Args:
-        conn: Connection to use.
-        queue: Queue to collect replies from.
-        limit: Maximum number of replies.
-        timeout: Timeout for waiting.
-        no_ack: If True, don't require acknowledgment.
-        **kwargs: Additional arguments.
-
-    Yields:
-        Message bodies.
-    """
-    async for body, message in itermessages(
-        conn,
-        queue,
-        limit=limit,
-        timeout=timeout,
-        no_ack=no_ack,
-        **kwargs,
-    ):
-        if not no_ack:
-            await message.ack()
-        yield body
-
-
-@asynccontextmanager
-async def ignore_errors(conn: Connection):
-    """Async context manager to ignore connection/channel errors.
-
-    Args:
-        conn: Connection whose errors to ignore.
-    """
-    try:
-        yield
-    except conn.connection_errors + conn.channel_errors:
-        pass
 
 
 class QoS:
