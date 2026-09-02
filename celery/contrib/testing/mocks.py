@@ -21,7 +21,11 @@ def TaskMessage(
     utc=None,
     **options,
 ):
-    """Create task message in protocol 2 format."""
+    """Create task message in protocol 2 format.
+
+    `utc` is named and dropped rather than left to `options`, which becomes the
+    headers: protocol 1 carries it in the body, protocol 2 has no such header.
+    """
     kwargs = {} if not kwargs else kwargs
     from kombu.serialization import dumps
 
