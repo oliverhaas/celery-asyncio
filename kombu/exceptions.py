@@ -6,23 +6,16 @@ from types import TracebackType
 
 __all__ = (
     "ChannelError",
-    "ChannelLimitExceeded",
     "ConnectionError",
-    "ConnectionLimitExceeded",
     "ContentDisallowed",
     "DecodeError",
     "EncodeError",
-    "HttpError",
     "InconsistencyError",
     "KombuError",
-    "LimitExceeded",
     "MessageStateError",
-    "NotBoundError",
     "OperationalError",
-    "ResourceError",
     "SerializationError",
     "SerializerNotInstalled",
-    "VersionMismatch",
     "reraise",
 )
 
@@ -58,28 +51,8 @@ class DecodeError(SerializationError):
     """Cannot decode object."""
 
 
-class NotBoundError(KombuError):
-    """Trying to call channel dependent method on unbound entity."""
-
-
 class MessageStateError(KombuError):
     """The message has already been acknowledged."""
-
-
-class LimitExceeded(KombuError):
-    """Limit exceeded."""
-
-
-class ConnectionLimitExceeded(LimitExceeded):
-    """Maximum number of simultaneous connections exceeded."""
-
-
-class ChannelLimitExceeded(LimitExceeded):
-    """Maximum number of simultaneous channels exceeded."""
-
-
-class VersionMismatch(KombuError):
-    """Library dependency version mismatch."""
 
 
 class SerializerNotInstalled(KombuError):
@@ -98,25 +71,8 @@ class ChannelError(KombuError):
     """Channel error."""
 
 
-class ResourceError(KombuError):
-    """Resource error."""
-
-
 class InconsistencyError(ConnectionError):
     """Data or environment has been found to be inconsistent.
 
     Depending on the cause it may be possible to retry the operation.
     """
-
-
-class HttpError(Exception):
-    """HTTP Client Error."""
-
-    def __init__(self, code: int, message: str = "", response: object = None):
-        self.code = code
-        self.message = message
-        self.response = response
-        super().__init__(code, message, response)
-
-    def __str__(self) -> str:
-        return f"HTTP {self.code}: {self.message}"
