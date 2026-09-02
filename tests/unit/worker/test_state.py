@@ -1,7 +1,7 @@
+import importlib.util
 import os
 import pickle
 import sys
-from importlib import import_module
 from time import time
 from unittest.mock import Mock, patch
 
@@ -197,9 +197,18 @@ class test_state:
 class test_state_configuration:
     @staticmethod
     def import_state():
-        with patch.dict(sys.modules):
-            del sys.modules["celery.worker.state"]
-            return import_module("celery.worker.state")
+        """Execute celery/worker/state.py into a throwaway module object.
+
+        Re-importing it under its own name rebinds the ``state`` attribute of
+        the ``celery.worker`` package, and every later ``from celery.worker
+        import state`` then resolves to the replacement while the modules that
+        imported it at startup keep the original. Loading it off to the side
+        reads the environment afresh without touching either.
+        """
+        spec = importlib.util.find_spec("celery.worker.state")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
     @patch.dict(
         os.environ,
@@ -223,3 +232,12 @@ class test_state_configuration:
         assert state.SUCCESSFUL_MAX == 1000
         assert state.REVOKE_EXPIRES == 10800
         assert state.SUCCESSFUL_EXPIRES == 10800
+
+    def test_import_state_leaves_the_package_attribute_alone(self):
+        import celery.worker
+
+        loaded = self.import_state()
+
+        assert loaded is not state
+        assert celery.worker.state is state
+        assert sys.modules["celery.worker.state"] is state

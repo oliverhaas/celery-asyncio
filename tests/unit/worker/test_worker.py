@@ -207,17 +207,15 @@ class test_WorkController(ConsumerCase):
         await worker2.start()
         assert sec.stop.call_count
 
-    def test_statedb(self):
-        from celery.worker import state
+    def test_statedb(self, tmp_path):
+        # Patched on the module the StateDB bootstep reaches it through
+        # (``w.state.Persistent``), so nothing opens the shelve for real.
+        with patch("celery.worker.worker.state.Persistent") as Persistent:
+            worker = self.create_worker(statedb=str(tmp_path / "statefilename"))
 
-        Persistent = state.Persistent
-
-        state.Persistent = Mock()
-        try:
-            worker = self.create_worker(statedb="statefilename")
-            assert worker._persistence
-        finally:
-            state.Persistent = Persistent
+        assert worker._persistence is Persistent.return_value
+        Persistent.assert_called_once_with(worker.state, str(tmp_path / "statefilename"), worker.app.clock)
+        assert list(tmp_path.iterdir()) == []
 
     async def test_signal_consumer_close(self):
         worker = self.worker
