@@ -418,9 +418,15 @@ class TestChannelQueue:
         await channel.queue_bind("q1", "", routing_key="rk")
         # No error, no action — default exchange bindings are implicit
 
-    async def test_queue_bind_unknown_queue_skipped(self, channel):
-        await channel.queue_bind("nonexistent", "ex1", routing_key="rk")
-        # No error, no action
+    async def test_queue_bind_asks_the_broker_about_an_undeclared_queue(self, channel, aio_channel):
+        aio_q = _make_aio_queue("elsewhere")
+        aio_channel.get_queue = AsyncMock(return_value=aio_q)
+        aio_channel.get_exchange = AsyncMock(return_value=_make_aio_exchange("ex1"))
+
+        await channel.queue_bind("elsewhere", "ex1", routing_key="rk")
+
+        aio_channel.get_queue.assert_awaited_once_with("elsewhere", ensure=False)
+        aio_q.bind.assert_awaited_once()
 
     async def test_queue_bind_with_arguments(self, channel):
         aio_q = _make_aio_queue("q1")
@@ -446,14 +452,15 @@ class TestChannelQueue:
 
         aio_q.unbind.assert_awaited_once_with(aio_ex, routing_key="rk1", arguments=None)
 
-    async def test_queue_unbind_missing_exchange_skipped(self, channel):
-        channel._declared_queues["q1"] = _make_aio_queue("q1")
-        # No exchange declared — should be a no-op
-        await channel.queue_unbind("q1", "missing_ex")
+    async def test_queue_unbind_asks_the_broker_about_what_it_has_not_declared(self, channel, aio_channel):
+        aio_q = _make_aio_queue("q1")
+        aio_ex = _make_aio_exchange("ex1")
+        aio_channel.get_queue = AsyncMock(return_value=aio_q)
+        aio_channel.get_exchange = AsyncMock(return_value=aio_ex)
 
-    async def test_queue_unbind_missing_queue_skipped(self, channel):
-        channel._declared_exchanges["ex1"] = _make_aio_exchange("ex1")
-        await channel.queue_unbind("missing_q", "ex1")
+        await channel.queue_unbind("q1", "ex1", routing_key="rk")
+
+        aio_q.unbind.assert_awaited_once_with(aio_ex, routing_key="rk", arguments=None)
 
     async def test_queue_purge(self, channel):
         aio_q = _make_aio_queue("q1")
@@ -465,8 +472,14 @@ class TestChannelQueue:
         assert count == 5
         aio_q.purge.assert_awaited_once()
 
-    async def test_queue_purge_unknown_returns_zero(self, channel):
-        assert await channel.queue_purge("nonexistent") == 0
+    async def test_queue_purge_asks_the_broker_about_an_undeclared_queue(self, channel, aio_channel):
+        aio_q = _make_aio_queue("elsewhere")
+        aio_q.purge.return_value = SimpleNamespace(message_count=4)
+        aio_channel.get_queue = AsyncMock(return_value=aio_q)
+
+        assert await channel.queue_purge("elsewhere") == 4
+
+        aio_channel.get_queue.assert_awaited_once_with("elsewhere", ensure=False)
 
     async def test_queue_purge_result_without_message_count(self, channel):
         aio_q = _make_aio_queue("q1")
@@ -783,9 +796,20 @@ class TestChannelGet:
 
         assert msg is None
 
-    async def test_get_unknown_queue(self, channel):
-        msg = await channel.get("nonexistent")
-        assert msg is None
+    async def test_get_asks_the_broker_about_a_queue_it_has_not_declared(self, channel, aio_channel):
+        """A queue this channel did not declare may still exist on the broker.
+
+        Answering with None would make an existing queue look empty and a
+        missing one look the same, instead of the broker's 404.
+        """
+        aio_q = _make_aio_queue("elsewhere")
+        aio_q.get = AsyncMock(return_value=None)
+        aio_channel.get_queue = AsyncMock(return_value=aio_q)
+
+        assert await channel.get("elsewhere") is None
+
+        aio_channel.get_queue.assert_awaited_once_with("elsewhere", ensure=False)
+        aio_q.get.assert_awaited_once_with(no_ack=False, fail=False)
 
     async def test_get_forwards_accept_to_the_message(self, channel):
         incoming = _make_incoming_message(
@@ -1081,10 +1105,13 @@ class TestChannelDrainEvents:
             channel=channel,
         )
         channel._consumers["tag1"] = ("q1", MagicMock(), False)
+        incoming = _make_incoming_message(delivery_tag=99)
+        channel._delivery_tag_map["99"] = incoming
         await channel._message_queue.put(("other_queue", msg))
 
-        result = await channel.drain_events(timeout=1.0)
-        assert result is True  # message was pulled from queue, just not delivered
+        assert await channel.drain_events(timeout=1.0) is True
+        # Nobody wanted it, so the broker gets it back instead of losing it.
+        incoming.reject.assert_awaited_once_with(requeue=True)
 
     async def test_drain_events_reports_a_body_it_cannot_decode(self, channel, caplog):
         """The callback still gets the message, but the reason is not lost."""

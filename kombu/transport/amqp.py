@@ -422,8 +422,6 @@ class Channel:
     ) -> None:
         if not exchange:
             return  # Default exchange: bindings are implicit in AMQP
-        if queue not in self._declared_queues:
-            return
 
         binding: dict[str, Any] = {
             "queue": queue,
@@ -442,12 +440,30 @@ class Channel:
         routing_key: str,
         arguments: dict | None,
     ) -> None:
+        aio_queue = await self._queue(queue)
         aio_exchange = await self._get_exchange(exchange)
-        await self._declared_queues[queue].bind(
-            aio_exchange,
-            routing_key=routing_key,
-            arguments=arguments,
-        )
+        await aio_queue.bind(aio_exchange, routing_key=routing_key, arguments=arguments)
+
+    async def _queue(self, queue: str) -> aio_pika.abc.AbstractQueue:
+        """Return the cached queue object, or a handle to an existing one."""
+        aio_queue = self._declared_queues.get(queue)
+        if aio_queue is None:
+            aio_queue = await self._resolve_queue(queue)
+            self._declared_queues[queue] = aio_queue
+        return aio_queue
+
+    async def _resolve_queue(self, queue: str) -> aio_pika.abc.AbstractQueue:
+        """Return a handle to a queue on this channel.
+
+        A queue this channel declared itself is declared again, so that a
+        non-durable one the broker dropped comes back. Any other queue is only
+        addressed; the broker answers a name that does not exist with 404 when
+        the operation reaches it.
+        """
+        declaration = self._queue_declarations.get(queue)
+        if declaration is not None:
+            return await self._aio_channel.declare_queue(**declaration)
+        return await self._aio_channel.get_queue(queue, ensure=False)
 
     async def queue_unbind(
         self,
@@ -456,10 +472,9 @@ class Channel:
         routing_key: str = "",
         arguments: dict | None = None,
     ) -> None:
-        aio_queue = self._declared_queues.get(queue)
-        aio_exchange = self._declared_exchanges.get(exchange)
-        if aio_queue and aio_exchange:
-            await aio_queue.unbind(aio_exchange, routing_key=routing_key, arguments=arguments)
+        aio_queue = await self._queue(queue)
+        aio_exchange = await self._get_exchange(exchange)
+        await aio_queue.unbind(aio_exchange, routing_key=routing_key, arguments=arguments)
 
         binding = {
             "queue": queue,
@@ -471,11 +486,9 @@ class Channel:
             self._bindings.remove(binding)
 
     async def queue_purge(self, queue: str) -> int:
-        aio_queue = self._declared_queues.get(queue)
-        if aio_queue:
-            result = await aio_queue.purge()
-            return getattr(result, "message_count", 0)
-        return 0
+        await self._ensure_open()
+        result = await (await self._queue(queue)).purge()
+        return getattr(result, "message_count", 0)
 
     async def queue_delete(
         self,
@@ -568,9 +581,7 @@ class Channel:
         accept: AbstractSet[str] | None = None,
     ) -> Message | None:
         await self._ensure_open()
-        aio_queue = self._declared_queues.get(queue)
-        if not aio_queue:
-            return None
+        aio_queue = await self._queue(queue)
 
         # fail=False makes aio-pika answer an empty queue with None rather
         # than raising; every other error is the caller's to see.
@@ -606,25 +617,9 @@ class Channel:
         await self._start_aio_consumer(consumer_tag, queue, no_ack)
         return consumer_tag
 
-    async def _resolve_queue(self, queue: str) -> aio_pika.abc.AbstractQueue:
-        """Return a handle to a queue on this channel.
-
-        A queue this channel declared itself is declared again, so that a
-        non-durable one the broker dropped comes back. Any other queue is only
-        addressed; the broker answers a name that does not exist with 404 when
-        the operation reaches it.
-        """
-        declaration = self._queue_declarations.get(queue)
-        if declaration is not None:
-            return await self._aio_channel.declare_queue(**declaration)
-        return await self._aio_channel.get_queue(queue, ensure=False)
-
     async def _start_aio_consumer(self, consumer_tag: str, queue: str, no_ack: bool) -> None:
         """Attach the buffering callback drain_events pulls from."""
-        aio_queue = self._declared_queues.get(queue)
-        if aio_queue is None:
-            aio_queue = await self._resolve_queue(queue)
-            self._declared_queues[queue] = aio_queue
+        aio_queue = await self._queue(queue)
 
         async def _on_incoming(incoming: aio_pika.abc.AbstractIncomingMessage) -> None:
             tag = str(incoming.delivery_tag)
@@ -725,6 +720,16 @@ class Channel:
                 if asyncio.iscoroutine(result):
                     await result
                 return
+
+        # The consumer was cancelled between the delivery and this drain.
+        # Hand the message back rather than dropping it.
+        logger.warning(
+            "No consumer left on queue %s for delivery %s, requeueing it",
+            queue,
+            message.delivery_tag,
+        )
+        if message.delivery_tag is not None:
+            await self.basic_reject(message.delivery_tag, requeue=True)
 
     # ---- ack / reject / recover -------------------------------------------
 
