@@ -121,8 +121,6 @@ class test_asynloop_startup(LoopCase):
 
 class test_asynloop_connection_errors(LoopCase):
     async def test_broker_oserror_propagates_while_the_blueprint_runs(self):
-        # Swallowing it returned into Consumer.start with the blueprint still
-        # in RUN, which started a second set of bootsteps on top of the first.
         blueprint = BlueprintState()
         coro, _, connection, _, _ = self.make_loop(
             ConnectionResetError("broker went away"),
@@ -174,8 +172,6 @@ class test_asynloop_qos(LoopCase):
             applied.append("eta")
             qos.decrement_eventually()
 
-        # What strategy.default does for a task with an ETA: hold a prefetch
-        # slot open for it and hand it to the timer.
         qos.increment_eventually()
         timer.call_at(time.time() - 1, apply_eta_task)
 
@@ -183,8 +179,6 @@ class test_asynloop_qos(LoopCase):
         await coro
 
         assert applied == ["eta"]
-        # Up while the task waited on the timer, back down once it ran. Before
-        # the loop pushed changes, the increment held a slot for good.
         assert pushed == [2, 3, 2]
         assert qos.value == 2
 
@@ -212,9 +206,6 @@ class test_asynloop_qos(LoopCase):
 
 class test_enter_draining:
     async def test_stops_consuming_and_keeps_the_tasks_in_hand(self):
-        # Handing a prefetched task back would run it twice: once on the
-        # worker that gets the redelivery, and once here as soon as the pool
-        # frees a slot, because nothing can promise it will not start.
         queued = FakeRequest("queued")
         running = FakeRequest("running")
         for req in (queued, running):

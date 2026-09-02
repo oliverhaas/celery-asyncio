@@ -10,9 +10,8 @@ __all__ = ("spawn", "spawn_threadsafe")
 
 logger = get_logger(__name__)
 
-#: The loop keeps only a weak reference to a running task, so one that nothing
-#: else holds can be collected before it reaches its first await. Every task
-#: started here stays in this set until it is done.
+#: The loop holds running tasks only weakly, so every task started here
+#: stays in this set until it is done.
 _running: set[asyncio.Task] = set()
 
 

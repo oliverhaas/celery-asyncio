@@ -80,12 +80,8 @@ async def _enter_draining(consumer, reason: str) -> None:
     # Stop fetching new messages from the broker.
     await consumer.cancel()
 
-    # The prefetched tasks stay here rather than going back to the queue.
-    # Once the pool has a job there is no way to be told it will not start,
-    # so rejecting the message would run the task twice: once on the worker
-    # that gets the redelivery and once here, as soon as a slot frees up.
-    # The drain waits on the reserved set, which covers the tasks that are
-    # running and the ones still queued behind the pool's concurrency limit.
+    # Prefetched tasks stay here: once the pool has a job, rejecting the message
+    # would run it twice. The drain waits on the reserved set, running and queued alike.
 
 
 def _check_restart_conditions(obj, pool) -> str | None:
@@ -161,9 +157,8 @@ async def asynloop(
     while blueprint.state == RUN:
         maybe_shutdown()
 
-        # Push out prefetch changes the strategy and the ETA timer only
-        # recorded. Without this an ETA task's increment_eventually() holds a
-        # prefetch slot for the lifetime of the worker.
+        # Push out prefetch changes the strategy and the ETA timer only recorded,
+        # or an ETA task's increment_eventually() holds a slot for the worker's lifetime.
         if qos is not None and qos.prev != qos.value:
             await qos.update()
 
@@ -198,12 +193,8 @@ async def asynloop(
         except TimeoutError:
             pass
         except OSError:
-            # A broken broker socket. Letting it out hands the consumer's
-            # recoverable-error handler the decision, and that stops the
-            # running bootsteps before starting them again. Breaking out of
-            # the loop returned into Consumer.start with the blueprint still
-            # in RUN, which started a second Heart, Tasks and Evloop on top of
-            # the first and left the dead connection open.
+            # A broken broker socket. Letting it out reaches the recoverable-error
+            # handler, which stops the running bootsteps; a break here stacked a second set.
             if blueprint.state == RUN:
                 raise
             break

@@ -318,8 +318,6 @@ class test_Consumer(ConsumerTestCase):
 
         await c.start()
 
-        # Without the restart in between, the second start would put a second
-        # Heart, Tasks and Evloop on top of the ones still running.
         assert calls == ["start", "restart", "start"]
 
     @pytest.mark.parametrize("broker_channel_error_retry", [True, False])
@@ -819,8 +817,6 @@ class test_Events:
         return dispatcher
 
     async def test_start_closes_the_dispatcher_the_last_connection_left(self):
-        # Every reconnect comes through here, and a connection close that is
-        # scheduled and never waited for leaves one open per reconnect.
         step = Events(self.c)
         previous = self.previous_dispatcher(step)
 
@@ -1276,8 +1272,6 @@ class test_Connection:
 
 class test_Consumer_TaskQueues(ConsumerTestCase):
     def setup_method(self):
-        # The memory transport keeps its queues for the life of the process,
-        # so every test needs names of its own.
         self.first = f"first-{uuid4().hex}"
         self.extra = f"extra-{uuid4().hex}"
 
@@ -1308,13 +1302,9 @@ class test_Consumer_TaskQueues(ConsumerTestCase):
                 except TimeoutError:
                     break
 
-        # Once each: adding a queue must not re-register the queues the
-        # consumer was already serving.
         assert received == [{"to": "first"}, {"to": "extra"}]
 
     async def test_cancel_task_queue_stops_consuming_from_it(self):
-        # cancel_by_queue is a coroutine: calling it without awaiting left the
-        # worker consuming from a queue it had reported as cancelled.
         async with KombuConnection("memory://") as conn:
             c = await self.consumer_on(conn, [])
             await c.add_task_queue(self.extra)
@@ -1384,8 +1374,6 @@ class test_Consumer_undeliverable_messages(ConsumerTestCase):
         assert message.rejected == 1
 
     async def test_acks_a_message_it_cannot_decode(self):
-        # Nothing can be done with it, and leaving it unacked has the broker
-        # redeliver a message that will fail to decode again.
         message = FakeMessage()
 
         self.get_consumer().on_decode_error(message, ValueError("not json"))

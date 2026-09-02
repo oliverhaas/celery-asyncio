@@ -47,18 +47,15 @@ class Events(bootsteps.StartStopStep):
             # remember changes from remote control commands:
             self.groups = dispatcher.groups
 
-            # Awaited, not scheduled: a task nothing holds on to can be
-            # collected before it closes anything, and every reconnect went
-            # through here, so the dispatcher connections piled up.
+            # Awaited, not scheduled: a task nothing holds can be collected
+            # before it closes anything, and connections piled up on reconnect.
             if dispatcher.connection:
                 try:
                     await dispatcher.connection.close()
                 except (OSError, *c.connection_errors, *c.channel_errors):
                     logger.warning("Failed to close the event dispatcher connection", exc_info=True)
-            # disable(), not close(): close() only drops the producer, so
-            # the on_disabled callbacks never fire and Heart's timer keeps
-            # ticking against a dead dispatcher after every reconnect
-            # (upstream 8b4b29c93).
+            # disable(), not close(): close() only drops the producer, so the
+            # on_disabled callbacks never fire and Heart keeps ticking (upstream 8b4b29c93).
             dispatcher.disable()
             c.event_dispatcher = None
             return dispatcher

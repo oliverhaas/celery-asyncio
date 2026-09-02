@@ -8,8 +8,6 @@ from celery.worker.background import _running, spawn, spawn_threadsafe
 
 class test_spawn:
     async def test_the_task_survives_a_collection_while_it_waits(self):
-        # The loop holds only a weak reference to a running task, so without
-        # one of its own a fire-and-forget ack could vanish before it is sent.
         started, finished = asyncio.Event(), []
 
         async def work():

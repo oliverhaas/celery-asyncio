@@ -26,9 +26,6 @@ class WorkerCase:
 
 class test_Worker_on_start(WorkerCase):
     async def test_purges_through_the_async_control_api(self):
-        # Blueprint.start calls on_start on the worker's own event loop, and
-        # the blocking Control.purge() cannot run there: it asks the loop it
-        # is running on to run the purge for it.
         worker = self.create_worker(purge=True)
         purged = []
 
@@ -72,8 +69,6 @@ class test_Worker_on_start(WorkerCase):
 
 class test_Worker_blueprint(WorkerCase):
     async def test_awaits_a_coroutine_on_start(self):
-        # An unawaited on_start() left the worker running with none of the
-        # work it does, and Python only logged a warning about it.
         worker = self.create_worker()
         started = []
 
@@ -109,8 +104,6 @@ class test_stop_pool:
         assert pool.stopped_on is not threading.current_thread()
 
     async def test_the_loop_keeps_running_while_the_pool_comes_down(self):
-        # The pool joins each of its threads for up to ten seconds. Doing that
-        # on the loop thread stalls the rest of the shutdown for as long.
         release = threading.Event()
         ticks = []
 
@@ -158,7 +151,6 @@ class test_shutdown_signals(WorkerCase):
     def _restore(self):
         names = ("SIGTERM", "SIGINT", "SIGQUIT")
         saved = {name: platforms.signals[name] for name in names}
-        # Independent of whichever name the process happens to carry.
         process_name = current_process()._name
         current_process()._name = "MainProcess"
         yield
@@ -213,9 +205,6 @@ class test_shutdown_signals(WorkerCase):
         worker.consumer.cancel_active_requests.assert_called_once_with()
 
     def test_the_soft_shutdown_escalates_without_a_consumer(self):
-        # It runs from a signal handler, and the consumer is gone once the
-        # blueprint has torn it down. Raising AttributeError there left the
-        # next signal on the handler that got half way through.
         worker = self.create_worker()
         worker.consumer = None
 
@@ -231,7 +220,6 @@ class test_shutdown_signals(WorkerCase):
 
         on_cold_shutdown(worker)
 
-        # Scheduled, not joined here: this runs on the worker's event loop.
         assert worker.consumer.pool.stopped_on is None
         for _ in range(200):
             await asyncio.sleep(0.01)

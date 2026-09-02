@@ -26,7 +26,6 @@ def MockStep(step=None):
 
 def mock_consumer():
     consumer = AsyncMock(name="consumer")
-    # on_stopped calls this one straight, so it must not hand back a coroutine.
     consumer.perform_pending_operations = Mock(name="perform_pending_operations")
     return consumer
 
@@ -215,8 +214,6 @@ class test_WorkController(ConsumerCase):
         assert sec.stop.call_count
 
     def test_statedb(self, tmp_path):
-        # Patched on the module the StateDB bootstep reaches it through
-        # (``w.state.Persistent``), so nothing opens the shelve for real.
         with patch("celery.worker.worker.state.Persistent") as Persistent:
             worker = self.create_worker(statedb=str(tmp_path / "statefilename"))
 
@@ -239,8 +236,6 @@ class test_WorkController(ConsumerCase):
         await worker.signal_consumer_close()
 
     async def test_signal_consumer_close_does_not_hide_a_broken_consumer(self):
-        # The AttributeError this used to catch was meant for a worker with no
-        # consumer yet, and hid every one raised inside close() as well.
         worker = self.worker
         worker.consumer = mock_consumer()
         worker.consumer.close.side_effect = AttributeError("close is broken")

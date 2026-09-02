@@ -172,9 +172,8 @@ class Worker(WorkController):
         )
 
     async def purge_messages(self):
-        # The blueprint starts this on the worker's own event loop, so the
-        # blocking Control.purge() cannot run here: it would ask the loop it
-        # is running on to run something for it.
+        # This runs on the worker's own event loop, so the blocking
+        # Control.purge() would ask the loop it is on to run something for it.
         count = await self.app.control.apurge()
         if count:  # pragma: no cover
             print(f"purge: Erased {count} {pluralize(count, 'message')} from the queue.\n", flush=True)
@@ -385,10 +384,8 @@ def on_cold_shutdown(worker: Worker):
     if worker.consumer:
         worker.consumer.cancel_active_requests()
 
-        # Stop the pool so that successful tasks still get to call on_success().
-        # This handler runs on the worker's event loop, and the pool brings its
-        # threads down with a join of up to ten seconds each, so the stop goes
-        # to a helper thread and the loop is told to wait for it.
+        # Stop the pool so finished tasks still reach on_success(). The pool joins
+        # its threads, so the stop goes to a helper thread the loop waits on.
         if worker.consumer.pool:
             _stop_pool_off_the_loop(worker.consumer.pool)
 
