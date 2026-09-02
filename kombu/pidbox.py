@@ -16,7 +16,7 @@ from .common import maybe_declare, oid_from
 from .exceptions import InconsistencyError
 from .log import get_logger
 from .matcher import match
-from .utils.functional import maybe_evaluate, reprcall
+from .utils.functional import reprcall
 from .utils.objects import cached_property
 from .utils.uuid import uuid
 
@@ -221,7 +221,6 @@ class Mailbox:
         queue_exclusive: bool | None = None,
         reply_queue_ttl: float | None = None,
         reply_queue_expires: float = 10.0,
-        **kwargs: Any,
     ):
         self.namespace = namespace
         self.connection = connection
@@ -496,7 +495,3 @@ class Mailbox:
     @property
     def oid(self):
         return oid_from(self)
-
-    @cached_property
-    def producer_pool(self):
-        return maybe_evaluate(self._producer_pool) if hasattr(self, "_producer_pool") else None

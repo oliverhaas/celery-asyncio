@@ -6,9 +6,8 @@ from functools import partial
 from itertools import count
 from typing import TYPE_CHECKING, Any
 
-from .common import ignore_errors
 from .log import get_logger
-from .messaging import Consumer, Producer
+from .messaging import Consumer
 from .utils.encoding import safe_repr
 from .utils.limits import TokenBucket
 from .utils.objects import cached_property
@@ -17,7 +16,7 @@ if TYPE_CHECKING:
     from .connection import Connection
     from .transport.base import Channel
 
-__all__ = ("ConsumerMixin", "ConsumerProducerMixin")
+__all__ = ("ConsumerMixin",)
 
 # ConsumerMixin.Consumer shadows the imported name inside the class body, which
 # makes the bare name ambiguous in annotations there.
@@ -242,14 +241,6 @@ class ConsumerMixin:
 
         debug("consume exiting")
 
-    async def maybe_conn_error(self, fun) -> Any:
-        """Execute function ignoring connection errors."""
-        async with ignore_errors(self.connection):
-            result = fun()
-            if asyncio.iscoroutine(result):
-                return await result
-            return result
-
     def create_connection(self) -> Connection:
         """Create a new connection (clone of current)."""
         return self.connection.clone()
@@ -306,70 +297,3 @@ class ConsumerMixin:
     def restart_limit(self) -> TokenBucket:
         """Rate limiter for connection restarts."""
         return TokenBucket(1)
-
-
-class ConsumerProducerMixin(ConsumerMixin):
-    """Consumer and Producer mixin.
-
-    Version of ConsumerMixin with separate connection for publishing.
-
-    Example:
-        class Worker(ConsumerProducerMixin):
-
-            def __init__(self, connection):
-                self.connection = connection
-
-            def get_consumers(self, Consumer, channel):
-                return [Consumer(queues=[Queue('foo')],
-                                 callbacks=[self.handle_message])]
-
-            async def handle_message(self, body, message):
-                await self.producer.publish(
-                    {'message': 'hello to you'},
-                    exchange='',
-                    routing_key=message.properties['reply_to'],
-                )
-                await message.ack()
-    """
-
-    _producer_connection: Connection | None = None
-    _producer: Producer | None = None
-
-    async def on_consume_end(self, connection: Connection, channel: Channel) -> None:
-        """Clean up producer connection on consume end."""
-        if self._producer_connection is not None:
-            await self._producer_connection.close()
-            self._producer_connection = None
-            self._producer = None
-
-    @property
-    def producer(self) -> Producer:
-        """Get producer instance (creates connection if needed).
-
-        Note: You should call ensure_producer() before using this
-        in an async context.
-        """
-        if self._producer is None:
-            raise RuntimeError("Producer not initialized. Call ensure_producer() first.")
-        return self._producer
-
-    async def ensure_producer(self) -> Producer:
-        """Ensure producer is ready and return it.
-
-        Creates producer connection if not already connected.
-        """
-        if self._producer is None:
-            conn = await self._get_producer_connection()
-            self._producer = Producer(conn)
-        return self._producer
-
-    async def _get_producer_connection(self) -> Connection:
-        """Get or create producer connection."""
-        if self._producer_connection is None:
-            conn = self.connection.clone()
-            await conn.ensure_connection(
-                errback=self.on_connection_error,
-                max_retries=self.connect_max_retries,
-            )
-            self._producer_connection = conn
-        return self._producer_connection

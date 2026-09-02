@@ -330,9 +330,8 @@ class Consumer:
             consuming starts.
 
     Example:
-        async with connection.Consumer([queue], callbacks=[on_message]) as consumer:
-            async for _ in consumer:
-                pass  # Messages delivered via callbacks
+        async with connection.Consumer([queue], callbacks=[on_message]):
+            await connection.drain_events(timeout=1.0)
     """
 
     def __init__(
@@ -368,7 +367,6 @@ class Consumer:
         self._consumer_tags: dict[str, str] = {}
         self._running = False
         self._declared: set[str] = set()
-        self._iter_timeout: float = 1.0
         self.on_decode_error = kwargs.get("on_decode_error")
 
     @property
@@ -467,11 +465,6 @@ class Consumer:
         channel = await self._ensure_channel()
         await channel.basic_qos(prefetch_count=prefetch_count)
 
-    async def recover(self, requeue: bool = True) -> None:
-        """Recover unacknowledged messages."""
-        if self._channel:
-            await self._channel.basic_recover(requeue=requeue)
-
     async def purge(self) -> int:
         """Purge all queues.
 
@@ -505,58 +498,6 @@ class Consumer:
     async def close(self) -> None:
         """Close the consumer."""
         await self.cancel()
-
-    def __aiter__(self) -> Consumer:
-        """Return async iterator."""
-        return self
-
-    async def __anext__(self) -> None:
-        """Async iteration - wait for and deliver messages.
-
-        Messages are delivered via callbacks, this yields None.
-        """
-        if not self._running:
-            raise StopAsyncIteration
-
-        try:
-            drainer = self._connection or self._channel
-            await drainer.drain_events(timeout=self._iter_timeout)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
-        except TimeoutError:
-            pass
-
-    async def iterate(
-        self,
-        limit: int | None = None,
-        timeout: float | None = None,
-    ):
-        """Async generator for consuming messages.
-
-        Args:
-            limit: Maximum number of messages to consume.
-            timeout: Overall timeout in seconds.
-
-        Yields:
-            None after each message is delivered (messages go to callbacks).
-        """
-        count = 0
-        start_time = asyncio.get_event_loop().time() if timeout else None
-
-        while True:
-            if limit is not None and count >= limit:
-                break
-
-            if timeout and start_time:
-                elapsed = asyncio.get_event_loop().time() - start_time
-                if elapsed >= timeout:
-                    break
-
-            try:
-                drainer = self._connection or self._channel
-                await drainer.drain_events(timeout=1.0)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
-                count += 1
-                yield
-            except TimeoutError:
-                yield
 
     async def __aenter__(self) -> Consumer:
         """Async context manager entry."""

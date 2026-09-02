@@ -6,14 +6,3 @@ Currently supported transports:
 - memory: In-memory transport using asyncio.Queue
 - filesystem: File-system based transport using asyncio.to_thread
 """
-
-TRANSPORT_ALIASES = {
-    "valkey": "kombu.transport.valkey_redis:Transport",
-    "valkeys": "kombu.transport.valkey_redis:Transport",
-    "redis": "kombu.transport.valkey_redis:Transport",
-    "rediss": "kombu.transport.valkey_redis:Transport",
-    "memory": "kombu.transport.memory:Transport",
-    "filesystem": "kombu.transport.filesystem:Transport",
-}
-
-__all__ = ("TRANSPORT_ALIASES",)

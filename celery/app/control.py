@@ -21,7 +21,6 @@ TERM_SIGNAME = "SIGTERM"
 from kombu.matcher import match
 from kombu.pidbox import Mailbox
 from kombu.utils.eventloop import default_loop_runner
-from kombu.utils.functional import lazy
 from kombu.utils.objects import cached_property
 
 from celery.exceptions import DuplicateNodenameWarning, ImproperlyConfigured
@@ -478,7 +477,6 @@ class Control:
             type="fanout",
             accept=app.conf.accept_content,
             serializer=app.conf.task_serializer,
-            producer_pool=lazy(lambda: self.app.amqp.producer_pool),
             queue_ttl=app.conf.control_queue_ttl,
             reply_queue_ttl=app.conf.control_queue_ttl,
             queue_expires=app.conf.control_queue_expires,

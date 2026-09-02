@@ -468,18 +468,6 @@ class Connection:
         # Default: assume all standard types are supported
         return exchange_type in {"direct", "fanout", "topic"}
 
-    @property
-    def qos_semantics_matches_spec(self) -> bool:
-        """Whether the transport's QoS semantics match the AMQP spec.
-
-        RabbitMQ 3.3+ changed basic_qos semantics (global vs per-consumer).
-        Returns False for AMQP transports to trigger the global flag.
-        For Redis/Memory, returns True (spec-like semantics).
-        """
-        if self._transport is not None:
-            return getattr(self._transport, "qos_semantics_matches_spec", True)
-        return True
-
     # Aliases for backwards compatibility concepts
     @property
     def client(self) -> Connection:

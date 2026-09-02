@@ -46,7 +46,7 @@ from .connection import Connection  # noqa: E402
 from .entity import Exchange, Queue, binding  # noqa: E402
 from .message import Message  # noqa: E402
 from .messaging import Consumer, Producer  # noqa: E402
-from .mixins import ConsumerMixin, ConsumerProducerMixin  # noqa: E402
+from .mixins import ConsumerMixin  # noqa: E402
 from .serialization import (  # noqa: E402
     disable_insecure_serializers,
     enable_insecure_serializers,
@@ -62,7 +62,6 @@ __all__ = (
     "Consumer",
     # Mixins
     "ConsumerMixin",
-    "ConsumerProducerMixin",
     # Entities
     "Exchange",
     # Message
