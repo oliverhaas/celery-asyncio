@@ -12,6 +12,17 @@ __all__ = ("LamportClock", "timetuple")
 R_CLOCK = "_lamport(clock={0}, timestamp={1}, id={2} {3!r})"
 
 
+def _before(a: tuple, b: tuple) -> bool:
+    """Return whether event ``a`` happened before event ``b``."""
+    # 0: clock 1: timestamp 2: process id
+    A, B = a[0], b[0]
+    if A and B:  # use the logical clock when both events carry one
+        if A == B:  # equal clocks are ordered by process id
+            return a[2] < b[2]
+        return A < B
+    return a[1] < b[1]  # ... or fall back to the timestamp
+
+
 class timetuple(tuple):
     """Tuple of event clock information.
 
@@ -36,27 +47,32 @@ class timetuple(tuple):
     def __getnewargs__(self) -> tuple:
         return tuple(self)
 
+    # The three below cannot delegate to `other < self` or `not other < self`:
+    # `other` is usually a plain tuple, and Python offers the subclass its
+    # reflected operation first, which lands back here and recurses forever.
     def __lt__(self, other: tuple) -> bool:
-        # 0: clock 1: timestamp 3: process id
         try:
-            A, B = self[0], other[0]
-            # uses logical clock value first
-            if A and B:  # use logical clock if available
-                if A == B:  # equal clocks use lower process id
-                    return self[2] < other[2]
-                return A < B
-            return self[1] < other[1]  # ... or use timestamp
+            return _before(self, other)
         except IndexError:
             return NotImplemented
 
     def __gt__(self, other: tuple) -> bool:
-        return other < self
+        try:
+            return _before(other, self)
+        except IndexError:
+            return NotImplemented
 
     def __le__(self, other: tuple) -> bool:
-        return not other < self
+        try:
+            return not _before(other, self)
+        except IndexError:
+            return NotImplemented
 
     def __ge__(self, other: tuple) -> bool:
-        return not self < other
+        try:
+            return not _before(self, other)
+        except IndexError:
+            return NotImplemented
 
     clock = property(itemgetter(0))
     timestamp = property(itemgetter(1))
@@ -134,7 +150,7 @@ class LamportClock:
 
         Will return the latest event.
         """
-        if h[0][0] == h[1][0]:
+        if len(h) > 1 and h[0][0] == h[1][0]:
             same = []
             for PN in zip(h, islice(h, 1, None), strict=False):
                 if PN[0][0] != PN[1][0]:
