@@ -13,6 +13,7 @@ Example:
         ...
 """
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -97,6 +98,7 @@ class Connection:
         self._transport_options = transport_options or {}
         self._transport: BaseTransport | None = None
         self._default_channel: Channel | None = None
+        self._default_channel_lock = asyncio.Lock()
         self._closed = False
 
         # Parse URL and validate scheme
@@ -132,16 +134,21 @@ class Connection:
         return self
 
     async def close(self) -> None:
-        """Close the connection."""
+        """Close the connection.
+
+        A close that fails leaves the connection open rather than closed: the
+        transport is still there to try again on, where marking the connection
+        closed first would have made a second :meth:`close` a no-op and left
+        the transport running with nothing able to reach it.
+        """
         if self._closed:
             return
-        self._closed = True
-
-        if self._transport:
-            await self._transport.close()
-            self._transport = None
 
         self._default_channel = None
+        if self._transport is not None:
+            await self._transport.close()
+            self._transport = None
+        self._closed = True
 
     async def channel(self) -> Channel:
         """Create a new channel.
@@ -158,10 +165,15 @@ class Connection:
     async def default_channel(self) -> Channel:
         """Get or create the default channel.
 
-        The default channel is reused for convenience operations.
+        The default channel is reused for convenience operations. Opening one
+        is an await, so the check and the assignment are held under a lock:
+        without it two concurrent first callers each opened a channel and one
+        of them was left behind, still registered on the broker.
         """
         if self._default_channel is None:
-            self._default_channel = await self.channel()
+            async with self._default_channel_lock:
+                if self._default_channel is None:
+                    self._default_channel = await self.channel()
         return self._default_channel
 
     def Producer(
@@ -278,8 +290,6 @@ class Connection:
         Returns:
             self
         """
-        import asyncio as aio
-
         retries = 0
         interval = interval_start
 
@@ -306,7 +316,7 @@ class Connection:
                     interval,
                     exc,
                 )
-                await aio.sleep(interval)
+                await asyncio.sleep(interval)
 
                 retries += 1
                 interval = min(interval + interval_step, interval_max)

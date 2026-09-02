@@ -285,3 +285,52 @@ class test_sync_context_manager:
         assert not conn.is_connected
         assert loops[0] is loops[1]
         assert loops[0] is not caller_loop
+
+
+class test_Connection_default_channel:
+    async def test_concurrent_first_callers_share_one_channel(self):
+        conn = Connection("memory://")
+        await conn.connect()
+        create_channel = conn.transport.create_channel
+        opened = 0
+
+        async def slow_create_channel():
+            nonlocal opened
+            opened += 1
+            # A real transport talks to the broker here; the memory one does not.
+            await asyncio.sleep(0)
+            return await create_channel()
+
+        conn.transport.create_channel = slow_create_channel
+        try:
+            first, second = await asyncio.gather(conn.default_channel(), conn.default_channel())
+            assert first is second
+            assert opened == 1
+        finally:
+            await conn.close()
+
+
+class test_Connection_close:
+    async def test_a_failing_close_leaves_the_connection_retryable(self):
+        conn = Connection("memory://")
+        await conn.connect()
+        transport = conn.transport
+        attempts = []
+
+        async def flaky_close():
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise OSError("broker went away")
+            transport._connected = False
+
+        transport.close = flaky_close
+
+        with pytest.raises(OSError, match="broker went away"):
+            await conn.close()
+
+        assert conn.transport is transport
+        assert conn.is_connected
+
+        await conn.close()
+        assert conn.transport is None
+        assert not conn.is_connected
