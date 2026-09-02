@@ -1756,6 +1756,65 @@ class test_async_task_body(TasksCase):
         assert ret.info.state == states.RETRY
         assert [(h["task"], h["retries"]) for h in published] == [(retrying.name, 1)]
 
+    async def test_async_body_replace_publishes_the_replacement(self):
+        @self.app.task(bind=True, shared=False)
+        async def replacing(self_):
+            return self_.replace(self.mytask.s())
+
+        with collect_published() as published:
+            ret = await self.trace(replacing)
+
+        assert ret.info.state == states.IGNORED
+        assert [h["task"] for h in published] == [self.mytask.name]
+
+    async def test_async_body_areplace_publishes_the_replacement(self):
+        @self.app.task(bind=True, shared=False)
+        async def replacing(self_):
+            return await self_.areplace(self.mytask.s())
+
+        with collect_published() as published:
+            ret = await self.trace(replacing)
+
+        assert ret.info.state == states.IGNORED
+        assert [h["task"] for h in published] == [self.mytask.name]
+
+    async def test_async_body_add_to_chord_publishes_the_signature(self):
+        self.app.backend.add_to_chord = Mock(name="add_to_chord")
+
+        @self.app.task(bind=True, shared=False)
+        async def extending(self_):
+            return self_.add_to_chord(self.mytask.s())
+
+        with collect_published() as published:
+            await self.trace(extending, chord=self.mytask.s(), group="gid")
+
+        assert [h["task"] for h in published] == [self.mytask.name]
+        self.app.backend.add_to_chord.assert_called_once()
+
+    async def test_async_body_aadd_to_chord_publishes_the_signature(self):
+        self.app.backend.add_to_chord = Mock(name="add_to_chord")
+
+        @self.app.task(bind=True, shared=False)
+        async def extending(self_):
+            return await self_.aadd_to_chord(self.mytask.s())
+
+        with collect_published() as published:
+            await self.trace(extending, chord=self.mytask.s(), group="gid")
+
+        assert [h["task"] for h in published] == [self.mytask.name]
+
+    async def test_add_to_chord_lazy_publishes_nothing(self):
+        self.app.backend.add_to_chord = Mock(name="add_to_chord")
+
+        @self.app.task(bind=True, shared=False)
+        async def extending(self_):
+            return self_.add_to_chord(self.mytask.s(), lazy=True)
+
+        with collect_published() as published:
+            await self.trace(extending, chord=self.mytask.s(), group="gid")
+
+        assert published == []
+
 
 class test_calling_an_async_task(TasksCase):
     async def test_calling_an_async_task_keeps_the_request_pushed(self):

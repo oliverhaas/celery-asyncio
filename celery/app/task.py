@@ -1365,7 +1365,23 @@ class Task:
             ~@Ignore: This is always raised when called in asynchronous context.
             It is best to always use ``return self.replace(...)`` to convey
             to the reader that the task won't continue after being replaced.
+
+        Note:
+            From an ``async def`` task body this stalls the loop the body runs
+            on while the replacement is published. ``return await
+            self.areplace(...)`` does the same without stalling it.
         """
+        return self.on_replace(self._prepare_replace(sig))
+
+    async def areplace(self, sig):
+        """Async version of :meth:`replace`.
+
+        Arguments and return value are the same as :meth:`replace`.
+        """
+        return await self.aon_replace(self._prepare_replace(sig))
+
+    def _prepare_replace(self, sig):
+        """Build the replacement signature without sending it."""
         chord = self.request.chord
         if "chord" in sig.options:
             raise ImproperlyConfigured("A signature replacing a task must not be part of a chord")
@@ -1413,7 +1429,7 @@ class Task:
             chain_task = signature(t, app=self.app)
             chain_task.set(replaced_task_nesting=replaced_task_nesting)
             sig |= chain_task
-        return self.on_replace(sig)
+        return sig
 
     def add_to_chord(self, sig, lazy=False):
         """Add signature to the chord the current task is a member of.
@@ -1426,7 +1442,27 @@ class Task:
             sig (Signature): Signature to extend chord with.
             lazy (bool): If enabled the new task won't actually be called,
                 and ``sig.delay()`` must be called manually.
+
+        Note:
+            From an ``async def`` task body this stalls the loop the body runs
+            on while the signature is published. :meth:`aadd_to_chord` does the
+            same without stalling it.
         """
+        result = self._prepare_add_to_chord(sig)
+        self.backend.add_to_chord(self.request.group, result)
+        return sig if lazy else _publish_from_any_context(sig)
+
+    async def aadd_to_chord(self, sig, lazy=False):
+        """Async version of :meth:`add_to_chord`.
+
+        Arguments and return value are the same as :meth:`add_to_chord`.
+        """
+        result = self._prepare_add_to_chord(sig)
+        self.backend.add_to_chord(self.request.group, result)
+        return sig if lazy else await sig.aapply_async()
+
+    def _prepare_add_to_chord(self, sig):
+        """Stamp `sig` with the current chord and freeze it."""
         if not self.request.chord:
             raise ValueError("Current task is not member of any chord")
         sig.set(
@@ -1435,9 +1471,7 @@ class Task:
             chord=self.request.chord,
             root_id=self.request.root_id,
         )
-        result = sig.freeze()
-        self.backend.add_to_chord(self.request.group, result)
-        return sig.delay() if not lazy else sig
+        return sig.freeze()
 
     def update_state(self, task_id=None, state=None, meta=None, **kwargs):
         """Update task state.
@@ -1539,12 +1573,25 @@ class Task:
         Arguments:
             sig (Signature): signature to replace with.
         """
-        # Finally, either apply or delay the new signature!
+        # Finally, either apply or send the new signature!
         if self.request.is_eager:
             return sig.apply().get()
-        else:
-            sig.delay()
-            raise Ignore("Replaced by new task")
+        _publish_from_any_context(sig)
+        raise Ignore("Replaced by new task")
+
+    async def aon_replace(self, sig):
+        """Async handler called when the task is replaced.
+
+        Override this alongside :meth:`on_replace` for an async task body, and
+        return ``await super().aon_replace(sig)``.
+
+        Arguments:
+            sig (Signature): signature to replace with.
+        """
+        if self.request.is_eager:
+            return (await sig.aapply()).get()
+        await sig.aapply_async()
+        raise Ignore("Replaced by new task")
 
     def add_trail(self, result):
         if self.trail:
