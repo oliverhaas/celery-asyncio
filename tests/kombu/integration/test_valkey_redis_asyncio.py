@@ -262,8 +262,6 @@ class TestSimpleQueue:
             for i in range(5):
                 await queue.put({"index": i})
 
-            # Get all messages (order within same-score is lexicographic by
-            # delivery tag, and with UUID tags that is not strictly FIFO)
             received = set()
             for _ in range(5):
                 msg = await queue.get(timeout=5)

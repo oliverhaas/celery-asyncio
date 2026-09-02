@@ -190,7 +190,6 @@ class TestTopicMatch:
         assert _topic_match(key, key) is True
 
     def test_a_metacharacter_does_not_widen_the_pattern(self):
-        # `+` used to reach the regex engine, so `a+b` matched `aab`.
         assert _topic_match("aab", "a+b") is False
         assert _topic_match("ab", "a?b") is False
 
@@ -275,8 +274,6 @@ class TestChannelInit:
     @pytest.mark.parametrize("option", ["requeue_check_interval", "block_timeout", "visibility_timeout"])
     @pytest.mark.parametrize("bad", [0, -1, -0.5])
     def test_a_non_positive_duration_is_refused(self, option, bad):
-        # Zero turns a wait into a busy loop and a negative value puts every
-        # deadline in the past, so neither is quietly accepted.
         with pytest.raises(ValueError, match=f"{option} must be greater than 0"):
             _make_channel(**{option: bad})
 
@@ -549,8 +546,6 @@ class TestPublish:
                 break
 
     async def test_a_delayed_message_is_not_due_before_its_eta(self):
-        # The sweep looks one check interval into the future, so an eta stored
-        # without that margin came due, and was delivered, that much too early.
         ch = _make_channel(visibility_timeout=300, requeue_check_interval=60)
         pipe = _stub_pipeline(ch, [None])
         body = b'{"body": "later", "properties": {"eta": 5000.0}, "headers": {}}'
@@ -566,7 +561,6 @@ class TestPublish:
             for score in call.args[1].values()
         ]
         assert index_scores == [5000.0 + 60]
-        # A delayed message waits in the index, not in the queue.
         assert not [call for call in pipe.zadd.call_args_list if call.args[0].startswith("queue:")]
 
     async def test_the_sweep_dates_a_restore_a_full_visibility_timeout_out(self):
@@ -577,9 +571,6 @@ class TestPublish:
 
         await ch._enqueue_due_messages()
 
-        # The sweep's own threshold reaches one interval ahead, so the deadline
-        # it writes has to carry the same margin or the next run counts the
-        # redelivery an interval early.
         assert script.call_args.kwargs["args"][2] == 360
 
     async def test_put_message_stores_delivery_count(self):
@@ -971,8 +962,6 @@ class TestGet:
 
         msg = await ch.get("q1", no_ack=True, accept={"application/json"})
         assert msg is not None
-        # accept is what keeps a body the application never agreed to read
-        # from being deserialised, so dropping it silently widened it to any.
         assert msg.accept == {"application/json"}
         with pytest.raises(ContentDisallowed):
             msg.decode()
@@ -1089,9 +1078,6 @@ class TestTransport:
         assert kw["socket_timeout"] == 30
 
     def test_the_socket_timeout_outlasts_the_block_by_default(self):
-        # The client libraries read a blocking reply under their own socket
-        # timeout (5s by default), so a block of 10s used to end in a read
-        # timeout and a dropped connection every single time.
         t = Transport(url="redis://localhost:6379")
         assert t._client_kwargs()["socket_timeout"] == DEFAULT_BLOCK_TIMEOUT + SOCKET_TIMEOUT_HEADROOM
 
@@ -1105,8 +1091,6 @@ class TestTransport:
             t._client_kwargs()
 
     def test_a_socket_timeout_on_the_url_is_read_too(self):
-        # from_url lets URL query parameters win over keyword arguments, so a
-        # short one there would silently undo the derived value.
         t = Transport(url="redis://localhost:6379/0?socket_timeout=2")
         with pytest.raises(ValueError, match="must be greater than block_timeout"):
             t._client_kwargs()
@@ -1186,7 +1170,6 @@ class TestTransportLifecycle:
         with pytest.raises(RedisConnectionError):
             await t.connect()
 
-        # Both pools were built, so both have to be closed.
         clients[0].aclose.assert_awaited_once()
         clients[1].aclose.assert_awaited_once()
         assert t._client is None
@@ -1246,8 +1229,6 @@ class TestTransportLifecycle:
 
         await first.close()
 
-        # Celery opens a channel per unit of work on some paths, so a
-        # transport that only ever appends grows for the life of the process.
         assert t._channels == [second]
 
     async def test_closing_a_channel_twice_leaves_the_others_alone(self):
@@ -1280,8 +1261,6 @@ class TestTransportLifecycle:
 
 _DOCSTRING_OPTION = re.compile(r"^\* ``(?P<name>[a-z_]+)``:", re.MULTILINE)
 
-#: Documented options that name a keyword argument of the client library, so
-#: the transport is supposed to hand them to from_url untouched.
 _CLIENT_OPTIONS = frozenset(
     {
         "health_check_interval",
@@ -1291,8 +1270,6 @@ _CLIENT_OPTIONS = frozenset(
     },
 )
 
-#: A usable value for every documented option, so a transport can be built
-#: with all of them at once.
 _OPTION_VALUES = {
     "block_timeout": 1.0,
     "credential_provider": None,
@@ -1322,8 +1299,6 @@ class TestDocumentedTransportOptions:
         assert set(t._client_kwargs()) == set(_CLIENT_OPTIONS)
 
     async def test_the_client_accepts_every_forwarded_option(self):
-        # from_url builds the connection pool eagerly, so an option this
-        # transport should have consumed raises TypeError right here.
         t = Transport(url="redis://localhost:6379/0", **_OPTION_VALUES)
         client = t._aiolib.from_url(t._url, decode_responses=False, **t._client_kwargs())
         try:
@@ -1936,7 +1911,6 @@ class TestXreadWait:
         ch.active_fanout_queues.add("fq1")
 
         ch._transport._subclient.xread = AsyncMock(side_effect=ConnectionError("lost"))
-        # A broker that has gone away is not an empty stream.
         with pytest.raises(ConnectionError):
             await ch._xread_wait(1.0)
 
@@ -2075,7 +2049,6 @@ class TestDrainExpiredAndDeliver:
 
         result = await ch._drain_expired_and_deliver("q1")
         assert result is False
-        # The expired tag is dropped from the visibility index too.
         ch.client.zrem.assert_called_once()
 
 
@@ -2143,8 +2116,6 @@ class TestDrainEventsFull:
         ch._consumers["tag1"] = ("q1", MagicMock(), True)
         ch._consume_regular = AsyncMock(side_effect=RuntimeError("boom"))
 
-        # The consumer has to see the failure to reconnect; returning False
-        # would look like an idle queue for as long as the broker stays down.
         with pytest.raises(RuntimeError, match="boom"):
             await ch.drain_events(timeout=0.1)
 
@@ -2169,8 +2140,6 @@ class TestDrainEventsTimeout:
         return ch
 
     async def test_a_positive_timeout_is_honoured(self):
-        # The whole point: the celery worker loop asks for min(eta_delay, 1.0)
-        # and used to be held for block_timeout instead.
         ch = self._channel_with_a_hung_iteration(block_timeout=10.0)
 
         loop = asyncio.get_running_loop()
@@ -2239,8 +2208,6 @@ class TestDrainEventsTimeout:
         ch._xread_wait.assert_awaited_once_with(0)
 
     async def test_timeout_zero_leaves_an_outstanding_fanout_read_alone(self):
-        # Two reads from the same stream offset would deliver the same
-        # message twice.
         ch = _make_channel()
         ch._consumers["tag1"] = ("fq1", MagicMock(), True)
         ch._fanout_queues["fq1"] = ("fan", "*")
@@ -2267,7 +2234,6 @@ class TestDrainEventsTimeout:
         start = loop.time()
         assert await ch.drain_events() is False
         assert loop.time() - start < 1.0
-        # One iteration only: no deadline means no reason to start another.
         assert ch._consume_regular.await_count == 1
         assert ch._consume_regular.await_args.args[1] == 0.05
 
@@ -2298,8 +2264,6 @@ class TestPersistentConsumerTasks:
         assert cancelled is False
 
     async def test_a_timed_out_drain_leaves_its_iteration_pending(self):
-        # A drain that runs out of time must leave the iteration pending, not
-        # cancel it, so any in-flight broker state stays in sync.
         ch = _make_channel()
         ch._consumers["tag1"] = ("q1", MagicMock(), True)
 
@@ -2327,8 +2291,6 @@ class TestPersistentConsumerTasks:
         await will_finish.wait()
 
     async def test_pending_iteration_reused_by_next_drain(self):
-        # The iteration a timed-out drain left behind is reused by the next
-        # call: _consume_regular runs only once.
         ch = _make_channel()
         ch._consumers["tag1"] = ("q1", MagicMock(), True)
 
@@ -2489,7 +2451,6 @@ class TestPersistentConsumerTasks:
 
         ch._consume_regular = fail_slowly
 
-        # Times out first, leaving the iteration running.
         assert await ch.drain_events(timeout=0.01) is False
         await asyncio.sleep(0.1)
 
@@ -2514,7 +2475,6 @@ class TestPersistentConsumerTasks:
             with pytest.raises(RedisConnectionError):
                 await ch.drain_events(timeout=1.0)
 
-        # Only one can be raised, so the other still has to be visible.
         assert [rec.message for rec in caplog.records] == ["Consumer iteration failed."]
 
 
@@ -3117,8 +3077,6 @@ class TestFailingCallback:
 
         assert await ch._deliver_to_consumer("q1", msg) is True
 
-        # The requeue script is the only path that bumps delivery_count and so
-        # the only one delivery_limit can ever act on.
         ch._requeue_by_tag.assert_awaited_once_with("dtag1")
         ch.client.zadd.assert_not_called()
         assert "dtag1" not in ch._delivered
@@ -3152,8 +3110,6 @@ class TestFailingCallback:
         assert await ch._deliver_claimed("q1", "dtag1", payload, 0) is True
 
         ch._requeue_by_tag.assert_awaited_once_with("dtag1")
-        # _restore_to_queue would put the tag back without counting the
-        # redelivery, which is what let a poison message cycle forever.
         ch.client.zadd.assert_not_called()
 
     async def test_a_cancelled_delivery_still_restores_without_counting(self):

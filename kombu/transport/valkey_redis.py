@@ -100,9 +100,8 @@ class IterationOutcome(NamedTuple):
     """What the consumer iterations that finished in one wait produced."""
 
     delivered: bool = False
-    #: Whether one of them ran to completion with nothing to deliver. Only
-    #: then is starting another worthwhile; one that failed or was cancelled
-    #: hands control back to the caller instead.
+    #: Whether one ran to completion with nothing to deliver; only then is
+    #: another worth starting, a failed or cancelled one returns to the caller.
     exhausted: bool = False
 
 
@@ -159,20 +158,16 @@ MIN_BINDING_LIFETIME = 300
 # iteration. Overridable via the `block_timeout` transport option.
 DEFAULT_BLOCK_TIMEOUT = 10.0
 
-# How much longer than `block_timeout` a socket read is given before it is
-# treated as a timeout. The client libraries read every reply under a socket
-# timeout of their own and pass no separate deadline for a blocking command,
-# so a socket timeout shorter than the block aborts every blocking consume.
+# Socket reads get this much longer than `block_timeout`: the client reads every
+# reply under its own socket timeout, and one shorter than the block aborts the consume.
 SOCKET_TIMEOUT_HEADROOM = 5.0
 
-# How long past its own `block_timeout` a consumer iteration may stay pending
-# before it is reported as stalled. Redis returns within BLOCK, so anything
-# beyond this means the client connection or the server has hung.
+# How long past its `block_timeout` a consumer iteration may stay pending before
+# it is reported as stalled; Redis returns within BLOCK, so beyond this something hung.
 CONSUMER_STALL_HEADROOM = 30.0
 
 # How long drain_events waits when there is nothing to wait for, so a caller
-# that ignores the return value cannot spin. Never longer than the timeout the
-# caller asked for.
+# that ignores the return value cannot spin. Capped at the caller's timeout.
 IDLE_POLL_INTERVAL = 0.1
 
 # Additional headroom layered on top of `block_timeout` for close()'s graceful
@@ -355,12 +350,8 @@ class Channel:
             "visibility_timeout",
             DEFAULT_VISIBILITY_TIMEOUT,
         )
-        # Both how often timed-out and delayed messages are restored and the
-        # grace margin added to every visibility deadline, so nothing becomes
-        # eligible for restore before the sweep that would pick it up has run.
-        # It is configurable because a low visibility_timeout otherwise looks
-        # ignored: the real wait is bounded by the sweep, not by the timeout
-        # (upstream kombu 9ee8595b).
+        # How often timed-out and delayed messages are restored, and the margin on
+        # every visibility deadline; configurable since it bounds the real wait (upstream 9ee8595b).
         self._requeue_check_interval: float = _duration_option(
             opts,
             "requeue_check_interval",
@@ -386,9 +377,8 @@ class Channel:
         # FAST/SLOW consume mode
         self._consume_fast_mode: bool = True
 
-        # Server-side block duration for BZMPOP/XREAD inside a single consumer
-        # iteration, and the ceiling on how long one drain_events wait blocks
-        # in Redis. Zero would spin.
+        # Server-side block for BZMPOP/XREAD in one consumer iteration, and the
+        # ceiling on how long one drain_events wait blocks in Redis. Zero would spin.
         self._block_timeout: float = _duration_option(opts, "block_timeout", DEFAULT_BLOCK_TIMEOUT)
 
         # Long-lived consumer iteration tasks; created lazily by drain_events.
@@ -953,11 +943,8 @@ class Channel:
         raw_eta = props.get("eta")
         eta_timestamp = None if raw_eta is None else float(raw_eta)
 
-        # queue_at is when the sweep picks this message up. Its threshold
-        # reaches one check interval into the future so that nothing falls due
-        # between two runs, so both branches carry that same margin. Without it
-        # on the delayed branch the message is enqueued, and delivered, up to a
-        # full check interval before its eta.
+        # queue_at is when the sweep picks this up. The sweep looks one check
+        # interval ahead, so both branches carry that margin or an eta fires early.
         if eta_timestamp is not None and eta_timestamp - now > self._requeue_check_interval:
             # Native delayed delivery, for delays longer than the sweep interval.
             is_native_delayed = True
@@ -1100,8 +1087,7 @@ class Channel:
                 return False
 
             # An earlier call may have run out of time and left its iteration
-            # running. Collect it before starting anything, so its result is
-            # not dropped on the floor along with any failure it carries.
+            # running; collect it first so its result and any failure are kept.
             finished = {t for t in (self._consume_iter_task, self._xread_iter_task) if t is not None and t.done()}
             if finished and self._collect_iterations(finished).delivered:
                 return True
@@ -1112,18 +1098,16 @@ class Channel:
                 await self._idle_sleep(remaining)
                 return False
 
-            # With no deadline of its own the wait rides on the iteration's
-            # block; the backstop is only there for a client or server that
-            # has stopped answering altogether.
+            # With no deadline the wait rides on the iteration's block; the
+            # backstop only catches a client or server that stopped answering.
             done, _pending = await asyncio.wait(
                 tasks,
                 return_when=asyncio.FIRST_COMPLETED,
                 timeout=self._block_timeout + CONSUMER_STALL_HEADROOM if remaining is None else remaining,
             )
 
-            # Per-task stall warning. asyncio.wait with FIRST_COMPLETED
-            # returns as soon as ANY task completes, so a single hung
-            # iteration alongside a healthy one would otherwise be silent.
+            # Per-task stall warning: FIRST_COMPLETED returns as soon as any
+            # task finishes, so a hung iteration beside a healthy one would be silent.
             self._warn_stalled_iterations()
 
             if not done:
@@ -1131,10 +1115,8 @@ class Channel:
             outcome = self._collect_iterations(done)
             if outcome.delivered:
                 return True
-            # An iteration that came back empty. Start another one if the
-            # caller still has time to spare. One that failed or was cancelled
-            # returns straight away, so a broker that is down is reported
-            # rather than retried for the rest of the window.
+            # An empty iteration starts another while time remains; a failed or
+            # cancelled one returns at once so a dead broker is reported, not retried.
             if not outcome.exhausted or deadline is None:
                 return False
 
@@ -1320,13 +1302,8 @@ class Channel:
         try:
             delivered = await self._deliver_to_consumer(queue_name, message)
         except BaseException:
-            # The Lua script already popped this tag from the queue ZSET, so a
-            # cancellation here (close() running out of headroom, say) would
-            # leave the message invisible until the visibility timeout. Put it
-            # straight back instead, at its original score and without
-            # counting a redelivery: nobody has seen it. A callback that
-            # raises is a different matter and is dealt with in
-            # _deliver_to_consumer.
+            # The script already popped this tag, so a cancellation here would hide
+            # the message until the visibility timeout. Put it back uncounted: nobody saw it.
             self._delivered.pop(delivery_tag, None)
             await self._restore_to_queue(queue_name, delivery_tag)
             raise
@@ -1378,9 +1355,8 @@ class Channel:
         try:
             await self.client.zadd(queue_key, {delivery_tag: score})
         except Exception:
-            # Reported rather than raised so the original cancellation is not
-            # masked. The message stays in messages_index and the visibility
-            # sweep re-enqueues it, so it is delayed rather than lost.
+            # Reported rather than raised so the cancellation is not masked; the
+            # message stays in messages_index and the sweep re-enqueues it.
             logger.warning(
                 "Could not restore message %s to queue %r.",
                 delivery_tag,
@@ -1654,9 +1630,8 @@ class Channel:
                 try:
                     body = message.decode()
                 except Exception:
-                    # The consumer gets the raw body and decides what to do
-                    # with it; the transport cannot know which content types
-                    # this consumer accepts.
+                    # The consumer gets the raw body; the transport cannot know
+                    # which content types this consumer accepts.
                     logger.warning(
                         "Could not decode message %s on queue %r; passing the raw body.",
                         delivery_tag,
@@ -2078,20 +2053,12 @@ class Channel:
             return
         self._closed = True
         self._closing = True
-        # Deregister first: celery opens a channel per unit of work on some
-        # paths, and the transport would otherwise hold every one of them
-        # until it is closed itself. Doing it here rather than at the end also
-        # covers a close that is cancelled while draining.
+        # Deregister first: celery opens a channel per unit of work on some paths,
+        # and doing it here also covers a close cancelled while draining.
         self._transport.forget_channel(self)
 
-        # Let consumer iterations finish naturally, bounded by
-        # `block_timeout`. They are never cancelled in the hot path, so any
-        # in-flight FAST script / BZMPOP finalisation runs to completion and
-        # the message is delivered rather than stranded in messages_index.
-        # If an iteration is hung (Redis unresponsive), we cancel it after
-        # `block_timeout + CLOSE_DRAIN_HEADROOM` as a last resort: stranding
-        # at shutdown is acceptable since visibility-timeout restore recovers
-        # those messages on the next worker startup.
+        # Let iterations finish within `block_timeout` so an in-flight pop is
+        # delivered, then cancel a hung one; the visibility sweep recovers what that strands.
         consumer_tasks = [t for t in (self._consume_iter_task, self._xread_iter_task) if t is not None and not t.done()]
         if consumer_tasks:
             drain_timeout = self._block_timeout + CLOSE_DRAIN_HEADROOM
@@ -2204,16 +2171,12 @@ class Transport(BaseTransport):
         self._channels: list[Channel] = []
         self._connected = False
         self._db = _parse_db_from_url(url)
-        #: Serialises connect against close and against a second connect, so
-        #: two callers racing for the first channel cannot each build a pair
-        #: of clients and leave one pair connected with nothing referencing it.
+        #: Serialises connect against close and a second connect, so two callers
+        #: racing for the first channel cannot each build and orphan a client pair.
         self._lock = asyncio.Lock()
 
-    #: Options this transport consumes itself. Anything else in
-    #: ``transport_options`` is a client keyword argument and is forwarded to
-    #: ``from_url``, which rejects names it does not know. Every option the
-    #: module docstring lists has to appear either here or in the client's
-    #: signature; ``tests/kombu/unit/transport/test_valkey_redis.py`` checks it.
+    #: Options this transport consumes itself; the rest of ``transport_options``
+    #: goes to ``from_url``. Every documented option is here or in the client signature.
     _TRANSPORT_ONLY_OPTIONS = frozenset(
         {
             "block_timeout",
@@ -2308,10 +2271,8 @@ class Transport(BaseTransport):
             client_kw = self._client_kwargs()
             client_kw.update(self._process_credential_provider())
 
-            # Built into locals and published only once both answer. Each one
-            # owns a connection pool that nothing else can reach until then, so
-            # a failure has to close them here or the sockets stay open for the
-            # life of the process.
+            # Built into locals and published only once both answer; until then
+            # nothing else can reach their pools, so a failure must close them here.
             clients: list[Any] = []
             try:
                 for _ in range(2):
@@ -2347,9 +2308,8 @@ class Transport(BaseTransport):
             try:
                 await client.aclose()
             except Exception:
-                # Reported rather than raised: this runs while another error is
-                # already on its way out, or while the rest of the shutdown
-                # still has to happen.
+                # Reported rather than raised: another error may already be on
+                # its way out, or the rest of the shutdown still has to happen.
                 logger.warning("Could not close a Redis client.", exc_info=True)
 
     def forget_channel(self, channel: _Channel) -> None:
