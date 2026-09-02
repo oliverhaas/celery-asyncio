@@ -259,11 +259,9 @@ NAMESPACES = Namespace(
         log_color=Option(type="bool"),
         log_datefmt=Option(None, type="string"),
         log_format=Option(DEFAULT_PROCESS_LOG_FMT),
-        lost_wait=Option(10.0, type="float", old={"celeryd_worker_lost_wait"}),
         max_memory_per_child=Option(type="int"),
         max_tasks_per_child=Option(type="int"),
         pool=Option(DEFAULT_POOL),
-        pool_putlocks=Option(True, type="bool"),
         pool_restarts=Option(False, type="bool"),
         prefetch_multiplier=Option(4, type="int"),
         enable_prefetch_count_reduction=Option(True, type="bool"),
@@ -287,8 +285,6 @@ NAMESPACES = Namespace(
         loop_workers=Option(1, type="int"),
         loop_concurrency=Option(10, type="int"),
         sync_workers=Option(1, type="int"),
-        timer=Option(type="string"),
-        timer_precision=Option(1.0, type="float"),
     ),
 )
 
