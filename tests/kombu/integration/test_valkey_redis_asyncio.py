@@ -14,7 +14,7 @@ from kombu.utils.json import dumps as json_dumps
 
 pytestmark = pytest.mark.asyncio(loop_scope="function")
 
-REDIS_URL = os.environ.get("KOMBU_TEST_REDIS_URL", "redis://localhost:6379")
+REDIS_URL = os.environ.get("KOMBU_TEST_REDIS_URL", "redis://localhost:6379/15")
 
 
 @pytest.fixture

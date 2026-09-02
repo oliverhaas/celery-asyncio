@@ -24,24 +24,27 @@ from tests.integration.tasks import get_redis_connection
 
 logger = logging.getLogger(__name__)
 
-# Redis ships 16 databases. Each xdist worker takes one of its own, so parallel
-# workers do not share broker queues, fanout channels or the keys the test tasks
-# push to. Without this, `inspect` sees every worker's embedded worker and the
-# queue assertions read each other's messages.
-REDIS_DATABASES = 16
+# Each xdist worker takes a Redis database of its own, so parallel workers do not
+# share broker queues, fanout channels or the keys the test tasks push to.
+# Without this, `inspect` sees every worker's embedded worker and the queue
+# assertions read each other's messages. The suite deletes what it finds, so it
+# stays in the top six of the sixteen databases Redis ships and leaves the low
+# ones, database 0 above all, to whatever else is on the machine.
+FIRST_REDIS_DATABASE = 10
+REDIS_DATABASES = 16 - FIRST_REDIS_DATABASE
 
 
 def _worker_database() -> int:
     worker = os.environ.get("PYTEST_XDIST_WORKER", "")
     if not worker.startswith("gw"):
-        return 0
+        return FIRST_REDIS_DATABASE
     index = int(worker.removeprefix("gw"))
     if index >= REDIS_DATABASES:
         raise RuntimeError(
             f"pytest-xdist worker {worker} has no Redis database of its own; "
             f"run tests/integration with at most {REDIS_DATABASES} workers."
         )
-    return index
+    return FIRST_REDIS_DATABASE + index
 
 
 def _on_database(url: str, database: int) -> str:

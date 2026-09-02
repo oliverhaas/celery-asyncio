@@ -24,7 +24,8 @@ def create_app(queue_name: str) -> Celery:
     redis_port = os.environ.get("REDIS_PORT", "6379")
 
     broker_url = os.environ.get("TEST_BROKER", f"pyamqp://{rabbitmq_user}:{rabbitmq_pass}@localhost:5672//")
-    backend_url = os.environ.get("TEST_BACKEND", f"redis://{redis_host}:{redis_port}/0")
+    redis_db = os.environ.get("REDIS_DB", "10")
+    backend_url = os.environ.get("TEST_BACKEND", f"redis://{redis_host}:{redis_port}/{redis_db}")
 
     app = Celery("quorum_qos_race", broker=broker_url, backend=backend_url)
 

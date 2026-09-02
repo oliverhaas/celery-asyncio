@@ -27,7 +27,7 @@ def get_redis_connection():
     port = os.environ.get("REDIS_PORT", 6379)
     # conftest sets REDIS_DB per xdist worker so parallel runs do not push to
     # each other's keys.
-    database = int(os.environ.get("REDIS_DB", 0))
+    database = int(os.environ.get("REDIS_DB", 10))
     return StrictRedis(host=host, port=port, db=database)
 
 

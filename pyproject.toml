@@ -61,7 +61,7 @@ yaml = ["PyYAML>=3.10"]
 valkey = ["valkey>=6.1.0"]
 redis = ["redis>=7.1.0"]
 # 9.5 is the floor CI runs against; nothing verifies the 9.0-9.4 aiormq/pamqp line.
-amqp = ["aio-pika>=9.5.0"]
+amqp = ["aio-pika>=9.5.0,<11"]
 # Optimized C parsers
 hiredis = ["redis[hiredis]>=7.1.0"]
 libvalkey = ["valkey[libvalkey]>=6.1.0"]
@@ -107,7 +107,7 @@ dev = [
   # the suite instead of skipped. ephem covers the solar schedules in
   # tests/unit/app/test_schedules.py, tblib the remote-traceback path in
   # tests/unit/tasks/test_result.py.
-  "aio-pika==9.5.7",
+  "aio-pika==10.0.1",
   "brotli==1.2.0",
   "ephem==4.2.1",
   "msgpack==1.2.2",
