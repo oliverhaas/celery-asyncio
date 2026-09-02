@@ -127,8 +127,6 @@ class TestPublishRetry:
         reported = []
 
         try:
-            # Hang up on the broker behind the producer's back, the way a
-            # restarted or overloaded broker does.
             await amqp_connection.transport._connection.close()
 
             producer = amqp_connection.Producer(auto_declare=False)
@@ -145,8 +143,6 @@ class TestPublishRetry:
             )
 
             assert len(reported) == 1
-            # The reconnect left a new channel behind, which has to declare the
-            # queue before it can get from it.
             channel = await amqp_connection.default_channel()
             await channel.declare_queue(Queue(queue_name))
             message = await channel.get(queue_name, no_ack=True)

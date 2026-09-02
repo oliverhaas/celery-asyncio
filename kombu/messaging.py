@@ -218,9 +218,8 @@ class Producer:
         if self.auto_declare and not self._declared:
             await self.declare()
 
-        # A declare that fails means the entity on the broker does not match the
-        # one being published to, which the caller has to hear about: the channel
-        # is dead afterwards anyway.
+        # A failed declare means the broker's entity does not match this one,
+        # which the caller has to hear about; the channel is dead afterwards anyway.
         if declare:
             for entity in declare:
                 await entity.declare(channel)
@@ -424,9 +423,8 @@ class Consumer:
     async def _on_message(self, body: Any, message: Message) -> None:
         """Handle received message."""
         if self._accept is not None:
-            # The transport decoded the body before it could know what this
-            # consumer accepts, so hand the message the restriction and let it
-            # decode again under it.
+            # The transport decoded the body before it knew what this consumer
+            # accepts, so hand the message the restriction and decode again under it.
             message.accept = self._accept
 
         if self._on_message_callback is not None:
@@ -438,9 +436,8 @@ class Consumer:
         try:
             if message.errors:
                 message._reraise_error()
-            # The transport hands over whatever it could make of the body and
-            # keeps a failed decode to itself, so the decode is repeated here,
-            # a cache hit when it worked, to have the failure to report.
+            # The transport keeps a failed decode to itself, so the decode is
+            # repeated here, a cache hit when it worked, to have the failure to report.
             body = message.decode()
         except Exception as exc:
             if self.on_decode_error is None:

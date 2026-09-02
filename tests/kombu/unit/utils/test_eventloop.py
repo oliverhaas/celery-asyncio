@@ -79,10 +79,6 @@ class test_LoopRunner:
         assert runner.run(which_loop()) is not first
 
     def test_stop_cancels_what_is_still_running(self, runner):
-        # A transport leaves long-lived background tasks on the loop
-        # (consumer iterations, heartbeats). Closing the loop with those still
-        # pending is what produces "Task was destroyed but it is pending!" at
-        # interpreter exit, so stop() has to unwind them first.
         cancelled = threading.Event()
 
         async def forever():
@@ -150,7 +146,6 @@ class test_run_from_any_thread:
             runner.stop()
 
     async def test_refuses_to_block_the_loop_it_runs_on(self):
-        # The runner's loop would be waiting on work that only it can run.
         runner = LoopRunner(name="test-loop")
         try:
 

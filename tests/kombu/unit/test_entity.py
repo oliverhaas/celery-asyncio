@@ -99,9 +99,6 @@ class test_Queue:
     """Tests for Queue class."""
 
     def test_an_option_the_queue_does_not_implement_is_rejected(self):
-        # Queue ended its signature in **kwargs, so an option it has no
-        # support for, `bindings` from upstream kombu among them, was taken
-        # and dropped and the queue came out bound to nothing.
         with pytest.raises(TypeError, match="bindings"):
             Queue("test", bindings=[binding(Exchange("ex"), "rk")])
 

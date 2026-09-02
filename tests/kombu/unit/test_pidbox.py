@@ -187,8 +187,6 @@ async def test_dispatch_reports_an_async_handler_that_raises():
 
 
 async def test_collect_consumes_on_the_channel_it_was_given():
-    # The reply consumer resolved a channel of its own, so a caller that had
-    # already opened one collected its replies somewhere else.
     async with Connection("memory://") as conn:
         channel = await conn.channel()
         consumed = []
@@ -208,9 +206,6 @@ async def test_collect_consumes_on_the_channel_it_was_given():
 
 
 def test_oid_stays_the_same_on_another_thread():
-    # The oid is the routing key replies are sent to, and it mixes in the
-    # calling thread, so a mailbox read from two threads used to hand out two
-    # different reply queues and the collecting thread waited on the empty one.
     mailbox = Mailbox("testns")
     seen = []
     thread = threading.Thread(target=lambda: seen.append(mailbox.oid))

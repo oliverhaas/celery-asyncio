@@ -101,9 +101,8 @@ class Message:
 
     @accept.setter
     def accept(self, accept: Iterable[str] | None) -> None:
-        # Serializer names ("json", "pickle") are accepted alongside content
-        # types, and a decode already made under a different restriction is no
-        # longer an answer to this one.
+        # Serializer names are accepted alongside content types, and a decode
+        # made under a different restriction is no longer an answer to this one.
         self._accept = prepare_accept_content(accept)
         self._decoded_cache = None
 

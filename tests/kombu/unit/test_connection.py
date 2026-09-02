@@ -95,9 +95,6 @@ class test_Connection:
         assert cloned is not conn
 
     def test_a_broker_setting_that_belongs_in_the_url_is_rejected(self):
-        # The constructor ended in **kwargs, so a caller passing the settings
-        # upstream kombu takes as arguments, and this fork takes in the URL,
-        # got a connection to somewhere else without being told.
         with pytest.raises(TypeError, match="userid"):
             Connection("memory://", userid="guest")
 
@@ -178,10 +175,6 @@ class test_Connection:
         assert all(issubclass(e, Exception) for e in errors)
 
     def test_error_tuples_are_the_transports_before_connecting(self):
-        # Whoever asks which errors are recoverable is usually about to
-        # connect for the first time, or has just been disconnected, so a
-        # generic default here sent transport-specific connection errors past
-        # the very handler that was meant to retry them.
         from kombu.transport.valkey_redis import Transport
 
         conn = Connection("redis://localhost:6379")
@@ -304,7 +297,6 @@ class test_Connection_default_channel:
         async def slow_create_channel():
             nonlocal opened
             opened += 1
-            # A real transport talks to the broker here; the memory one does not.
             await asyncio.sleep(0)
             return await create_channel()
 
