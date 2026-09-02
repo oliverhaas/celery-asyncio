@@ -2,13 +2,11 @@
 # https://github.com/celery/kombu
 """Functional Utilities."""
 
-import inspect
-import random
 import threading
 from collections import OrderedDict, UserDict
 from collections.abc import Callable, Iterable, Mapping
 from functools import wraps
-from itertools import count, repeat
+from itertools import count
 from time import sleep, time
 from typing import Any, Protocol, cast
 
@@ -37,28 +35,6 @@ class _Memoized(Protocol):
     original_func: Callable[..., Any]
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
-
-
-class ChannelPromise:
-    def __init__(self, contract):
-        self.__contract__ = contract
-
-    def __call__(self):
-        try:
-            return self.__value__
-        except AttributeError:
-            pass
-        # Outside the except block on purpose: a contract that raises would
-        # otherwise be chained onto this AttributeError and the caller would
-        # see "During handling of the above exception" over an internal detail.
-        value = self.__value__ = self.__contract__()
-        return value
-
-    def __repr__(self):
-        try:
-            return repr(self.__value__)
-        except AttributeError:
-            return f"<promise: 0x{id(self.__contract__):x}>"
 
 
 class LRUCache(UserDict):
@@ -266,14 +242,6 @@ def dictfilter(d=None, **kw):
     return {k: v for k, v in d.items() if v is not None}
 
 
-def shufflecycle(it):
-    it = list(it)  # don't modify callers list
-    shuffle = random.shuffle
-    for _ in repeat(None):
-        shuffle(it)
-        yield it[0]
-
-
 def fxrange(start=1.0, stop=None, step=1.0, repeatlast=False):
     cur = start * 1.0
     while 1:
@@ -284,19 +252,6 @@ def fxrange(start=1.0, stop=None, step=1.0, repeatlast=False):
             if not repeatlast:
                 break
             yield cur - step
-
-
-def fxrangemax(start=1.0, stop=None, step=1.0, max=100.0):
-    sum_, cur = 0, start * 1.0
-    while 1:
-        if sum_ >= max:
-            break
-        yield cur
-        if stop:
-            cur = min(cur + step, stop)
-        else:
-            cur += step
-        sum_ += cur
 
 
 def retry_over_time(
@@ -381,13 +336,3 @@ def reprcall(name, args=(), kwargs=None, sep=", "):
         ((args and kwargs) and sep) or "",
         reprkwargs(kwargs, sep),
     )
-
-
-def accepts_argument(func, argument_name):
-    argument_spec = inspect.getfullargspec(func)
-    return argument_name in argument_spec.args or argument_name in argument_spec.kwonlyargs
-
-
-# Compat names (before kombu 3.0)
-promise = lazy
-maybe_promise = maybe_evaluate

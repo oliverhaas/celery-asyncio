@@ -2,7 +2,7 @@
 # https://github.com/celery/kombu
 """DEPRECATED - Import from modules below."""
 
-from .functional import fxrange, fxrangemax, maybe_list, reprcall, reprkwargs, retry_over_time
+from .functional import fxrange, maybe_list, reprcall, reprkwargs, retry_over_time
 from .imports import symbol_by_name
 from .objects import cached_property
 from .uuid import uuid
@@ -10,7 +10,6 @@ from .uuid import uuid
 __all__ = (
     "cached_property",
     "fxrange",
-    "fxrangemax",
     "maybe_list",
     "reprcall",
     "reprkwargs",

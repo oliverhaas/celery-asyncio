@@ -6,11 +6,8 @@ import pytest
 
 from kombu.utils import functional as utils
 from kombu.utils.functional import (
-    ChannelPromise,
     LRUCache,
-    accepts_argument,
     fxrange,
-    fxrangemax,
     lazy,
     maybe_evaluate,
     maybe_list,
@@ -19,43 +16,6 @@ from kombu.utils.functional import (
     reprkwargs,
     retry_over_time,
 )
-
-
-def test_channel_promise_repr():
-    obj = Mock(name="cb")
-    assert "promise" in repr(ChannelPromise(obj))
-    obj.assert_not_called()
-
-
-def test_channel_promise_failing_contract_is_not_chained_on_an_internal_error():
-    def failing():
-        raise RuntimeError("failure for test")
-
-    with pytest.raises(RuntimeError, match="failure for test") as excinfo:
-        ChannelPromise(failing)()
-
-    # The AttributeError that drives the memoisation is an implementation
-    # detail and must not show up as "During handling of the above".
-    assert excinfo.value.__context__ is None
-    assert excinfo.value.__cause__ is None
-
-
-class test_shufflecycle:
-    def test_shuffles(self):
-        prev_repeat, utils.repeat = utils.repeat, Mock()
-        try:
-            utils.repeat.return_value = list(range(10))
-            values = {"A", "B", "C"}
-            cycle = utils.shufflecycle(values)
-            seen = set()
-            for _i in range(10):
-                next(cycle)
-            utils.repeat.assert_called_with(None)
-            assert seen.issubset(values)
-            with pytest.raises(StopIteration):
-                next(cycle)
-        finally:
-            utils.repeat = prev_repeat
 
 
 def double(x):
@@ -319,37 +279,9 @@ def test_fxrange__no_repeatlast():
     assert list(fxrange(1.0, 3.0, 1.0)) == [1.0, 2.0, 3.0]
 
 
-@pytest.mark.parametrize(
-    "args,expected",
-    [
-        ((1.0, 3.0, 1.0, 30.0), [1.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]),
-        ((1.0, None, 1.0, 30.0), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]),
-    ],
-)
-def test_fxrangemax(args, expected):
-    assert list(fxrangemax(*args)) == expected
-
-
 def test_reprkwargs():
     assert reprkwargs({"foo": "bar", 1: 2, "k": "v"})
 
 
 def test_reprcall():
     assert reprcall("add", (2, 2), {"copy": True})
-
-
-class test_accepts_arg:
-    def function(self, foo, bar, baz="baz"):
-        pass
-
-    def test_valid_argument(self):
-        assert accepts_argument(self.function, "self")
-        assert accepts_argument(self.function, "foo")
-        assert accepts_argument(self.function, "baz")
-
-    def test_invalid_argument(self):
-        assert not accepts_argument(self.function, "random_argument")
-
-    def test_raise_exception(self):
-        with pytest.raises(Exception):
-            accepts_argument(None, "foo")
