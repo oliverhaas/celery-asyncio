@@ -690,14 +690,19 @@ class BufferMap(OrderedDict, Evictable):
         self.total = sum(len(buf) for buf in self.values())
 
     def put(self, key, item):
-        self._get_or_create_buffer(key).put(item)
-        self.total += 1
+        buf = self._get_or_create_buffer(key)
+        # the buffer evicts on its own once it is full, so count what it kept.
+        before = len(buf)
+        buf.put(item)
+        self.total += len(buf) - before
         self.move_to_end(key)  # least recently used.
         self.maxsize and self._evict()
 
     def extend(self, key, it):
-        self._get_or_create_buffer(key).extend(it)
-        self.total += len(it)
+        buf = self._get_or_create_buffer(key)
+        before = len(buf)
+        buf.extend(it)
+        self.total += len(buf) - before
         self.maxsize and self._evict()
 
     def take(self, key, *default):

@@ -482,6 +482,30 @@ class test_BufferMap:
         with pytest.raises(b.Empty):
             b.take(1)
 
+    def test_total_tracks_what_the_inner_buffers_kept(self):
+        # the inner buffer evicts on its own; total used to count every put
+        # and made _evict() drop whole buffers far too early.
+        b = BufferMap(maxsize=100, bufmaxsize=5)
+        for i in range(20):
+            b.put("k", i)
+        assert b.total == 5
+        assert b.total == sum(len(buf) for buf in b.values())
+        assert list(b["k"]) == [15, 16, 17, 18, 19]
+
+    def test_total_tracks_what_the_inner_buffers_kept_on_extend(self):
+        b = BufferMap(maxsize=100, bufmaxsize=5)
+        b.extend("k", list(range(20)))
+        assert b.total == 5
+        assert b.total == sum(len(buf) for buf in b.values())
+
+    def test_full_buffers_are_not_evicted_early(self):
+        b = BufferMap(maxsize=10, bufmaxsize=5)
+        for i in range(20):
+            b.put("k", i)
+        b.put("other", "x")
+        assert "k" in b
+        assert b.total == 6
+
     def test_repr(self):
         assert repr(Messagebuffer(10, [1, 2, 3]))
 
