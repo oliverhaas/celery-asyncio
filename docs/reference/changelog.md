@@ -248,6 +248,11 @@ of the code and settings nothing calls any more.
   Flower's tornado request handlers call it, so Flower's pages 500'd
 - The sync `Connection` context manager entered from a coroutine running on the
   shared loop deadlocked instead of saying so
+- `ensure_connection` retried on any exception at all, so a transport option
+  that does not exist, which raises `TypeError` before a socket is opened, was
+  retried forever behind one warning per attempt instead of being reported. It
+  now retries what the transport calls a connection error, plus `OSError` for
+  the socket and DNS failures underneath, and raises everything else
 - Two concurrent first callers of `Connection.default_channel` each opened a
   channel, and one was left registered on the broker with nothing able to reach
   it. A `close` that failed left the connection marked closed and unrecoverable

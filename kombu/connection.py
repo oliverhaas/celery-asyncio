@@ -294,11 +294,17 @@ class Connection:
         retries = 0
         interval = interval_start
 
+        # A broker that is not there is worth retrying; a TypeError from a
+        # transport option that does not exist is not, and used to retry
+        # forever behind one warning per attempt. OSError joins the transport's
+        # own tuple to cover the socket and DNS failures underneath it.
+        recoverable = (*self.connection_errors, OSError)
+
         while True:
             try:
                 await self.connect()
                 return self
-            except Exception as exc:
+            except recoverable as exc:
                 if max_retries is not None and retries >= max_retries:
                     raise
 

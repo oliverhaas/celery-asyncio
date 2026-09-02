@@ -81,6 +81,23 @@ These settings no longer apply:
 
 - `worker_pool` choices: `prefork`, `eventlet`, `gevent`, `solo` (only `asyncio`)
 - Eventlet/gevent-specific settings
+- `worker_autoscaler`, with the rest of autoscaling. The asyncio pool has no
+  `grow()` or `shrink()`, so there was nothing for an autoscaler to drive
+- The prefork settings `worker_timer`, `worker_timer_precision`,
+  `worker_pool_putlocks`, `worker_lost_wait`, `worker_proc_alive_timeout` and
+  `worker_eta_task_limit`, and `worker_agent`, which named a class nothing
+  loaded
+- `worker_detect_quorum_queues` and `worker_disable_prefetch`
+- The broker settings the URL carries: `broker_port`, `broker_user`,
+  `broker_password`, `broker_vhost`, `broker_login_method`,
+  `broker_failover_strategy`, `broker_pool_limit` (there is no producer pool;
+  a connection belongs to the loop that opened it) and
+  `broker_native_delayed_delivery_queue_type`
+- `result_compression`, `result_exchange` and `result_exchange_type`
+
+`broker_use_ssl` and `broker_transport` are still accepted, and still ignored.
+TLS and the transport come from the broker URL: `amqps://` or `rediss://`, with
+the certificate paths in the URL query or in `broker_transport_options`.
 
 ### Settings that mean something different
 
@@ -114,6 +131,8 @@ always expand to `0` and to the empty string.
 - `-O` / `--optimization`: the `fair` profile only ever described the prefork
   pool, and nothing read the value.
 - `--disable-prefetch`: prefetching is bounded by the asyncio pool's semaphore.
+- `--autoscale`: it only ever pinned concurrency to the low end of the range,
+  since the asyncio pool cannot grow or shrink.
 
 ## Canvas primitives
 

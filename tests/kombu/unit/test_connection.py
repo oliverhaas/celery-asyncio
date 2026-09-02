@@ -131,6 +131,21 @@ class test_Connection:
         assert result is conn
         assert calls == ["boom", ("errback", 0), "callback"]
 
+    async def test_ensure_connection_does_not_retry_a_bad_argument(self):
+        conn = Connection("memory://")
+        attempts = []
+
+        async def connect_badly():
+            attempts.append(1)
+            raise TypeError("unexpected keyword argument 'nope'")
+
+        conn.connect = connect_badly
+
+        with pytest.raises(TypeError):
+            await conn.ensure_connection(max_retries=None, interval_start=0, interval_step=0)
+
+        assert attempts == [1]
+
     async def test_drain_events_timeout(self):
         async with Connection("memory://") as conn:
             # With no consumers and a timeout, should raise TimeoutError

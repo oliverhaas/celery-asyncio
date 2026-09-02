@@ -12,6 +12,8 @@ from celery.canvas import StampingVisitor
 from celery.exceptions import ImproperlyConfigured, TimeoutError
 from celery.result import AsyncResult, GroupResult, ResultSet
 from celery.signals import before_task_publish, task_received
+from celery.utils.eventloop import current_loop, default_loop_runner
+from kombu import Producer
 
 from . import tasks
 from .conftest import TEST_BACKEND, check_for_logs, get_redis_connection
@@ -838,19 +840,25 @@ class test_chain:
                 "headers": headers,
             }
 
-            with celery_session_app.producer_pool.acquire(block=True) as producer:
-                # Publish t1 to the message broker, just before it's going to be published which causes duplication
-                return producer.publish(
-                    metadata["body"],
-                    exchange=metadata["exchange"],
-                    routing_key=metadata["routing_key"],
-                    retry=None,
-                    retry_policy=retry_policy,
-                    serializer="json",
-                    delivery_mode=None,
-                    headers=headers,
-                    **kwargs,
-                )
+            # The handler runs on the loop the publish is on, so the duplicate
+            # is scheduled there rather than awaited.
+            producer = Producer(celery_session_app.async_connection)
+            republish = producer.publish(
+                metadata["body"],
+                exchange=metadata["exchange"],
+                routing_key=metadata["routing_key"],
+                retry=None,
+                retry_policy=retry_policy,
+                serializer="json",
+                delivery_mode=None,
+                headers=headers,
+                **kwargs,
+            )
+            loop = current_loop()
+            if loop is None:
+                default_loop_runner().run(republish)
+            else:
+                loop.create_task(republish)
 
         # Clean redis key
         redis_connection = get_redis_connection()
