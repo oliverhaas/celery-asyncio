@@ -15,6 +15,7 @@ from celery.app.trace import trace_task_ret
 from celery.concurrency.aio import ApplyResult, AsyncApplyResult, LoopWorker, SyncSoftTimeout, TaskPool
 from celery.concurrency.base import BasePool, apply_target
 from celery.exceptions import SoftTimeLimitExceeded, Terminated, WorkerShutdown, WorkerTerminate
+from celery.result import AsyncResult
 from celery.utils import uuid
 from celery.worker.request import Request
 
@@ -528,6 +529,29 @@ class test_TaskPool:
 
 
 class test_async_task_failures(AioPoolCase):
+    def test_soft_time_limit_fails_the_task(self, caplog):
+        @self.app.task(name="aio.soft_limit", shared=False)
+        async def sleeper():
+            await asyncio.sleep(30)
+
+        pool = self.start_pool()
+        rec = Recorder()
+        with caplog.at_level(logging.ERROR):
+            with collect_signal(signals.task_failure) as failures:
+                task_id = self.apply(pool, "aio.soft_limit", rec, soft_timeout=0.2)
+                assert rec.done.wait(10)
+
+        failed, retval, _ = rec.result
+        assert failed
+        assert isinstance(retval.exception, SoftTimeLimitExceeded)
+        assert self.meta(task_id)["status"] == states.FAILURE
+        assert isinstance(self.meta(task_id)["result"], SoftTimeLimitExceeded)
+        assert [f["task_id"] for f in failures] == [task_id]
+        assert isinstance(failures[0]["exception"], SoftTimeLimitExceeded)
+        assert [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+        with pytest.raises(SoftTimeLimitExceeded):
+            AsyncResult(task_id, app=self.app).get(timeout=5)
+
     def test_an_error_outside_the_tracer_goes_to_the_error_callback(self):
         @self.app.task(name="aio.escaping", shared=False)
         async def escaping():
@@ -633,6 +657,29 @@ class test_async_task_termination(AioPoolCase):
         assert wait_until(lambda: not pool._async_jobs)
         assert not marks["completed"].is_set()
         assert self.meta(req.id)["status"] == states.RETRY
+
+
+class test_async_task_time_limits(AioPoolCase):
+    def test_a_hard_limit_still_fires_after_a_soft_one(self):
+        soft_seen = threading.Event()
+
+        @self.app.task(name="aio.stubborn", shared=False)
+        async def stubborn():
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                soft_seen.set()
+            await asyncio.sleep(30)
+
+        pool = self.start_pool()
+        rec = Recorder()
+        self.apply(pool, "aio.stubborn", rec, soft_timeout=0.2, timeout=0.6)
+
+        assert rec.done.wait(10)
+        assert soft_seen.is_set()
+        assert rec.timeouts == [(False, 0.6)]
+        assert rec.results == []
+        assert rec.failures == []
 
 
 class test_sync_task_time_limits(AioPoolCase):

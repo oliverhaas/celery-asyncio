@@ -12,6 +12,8 @@ import os
 import sys
 import time
 from collections import namedtuple
+from collections.abc import Callable
+from contextvars import ContextVar
 from typing import Any
 from warnings import warn
 
@@ -144,6 +146,16 @@ _localized: list[Any] = []
 _patched: dict[str, Any] = {}
 
 trace_ok_t = namedtuple("trace_ok_t", ("retval", "info", "runtime", "retstr"))
+
+#: Cancellation is the only way asyncio can interrupt a running coroutine, so
+#: the pool running a task uses it for the soft time limit as well as for
+#: termination. The pool leaves a callable here that tells the two apart: it
+#: returns the exception to fail the task with, or None when the cancellation
+#: is a termination and has to carry on outwards.
+async_cancellation_reason: ContextVar[Callable[[], BaseException | None] | None] = ContextVar(
+    "async_cancellation_reason",
+    default=None,
+)
 
 
 def info(fmt, context):
@@ -1089,6 +1101,13 @@ def build_async_tracer(
                 except Exception as exc:
                     I, R, state, retval = await on_error(task_request, exc)
                     traceback_clear(exc)
+                except asyncio.CancelledError:
+                    reason = async_cancellation_reason.get()
+                    cancelled_as = reason() if reason is not None else None
+                    if cancelled_as is None:
+                        raise
+                    I, R, state, retval = await on_error(task_request, cancelled_as)
+                    traceback_clear(cancelled_as)
                 except BaseException:
                     raise
                 else:

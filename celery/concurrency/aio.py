@@ -566,58 +566,69 @@ class TaskPool(BasePool):
         timeout: float | None = None,
         timeout_callback: Callable | None = None,
     ) -> tuple[Any, ...] | None:
-        """Run the async tracer with soft and hard timeout support.
+        """Run the async tracer under the task's time limits.
 
-        Soft timeout: cancels the asyncio Task; the CancelledError is caught
-        and converted to SoftTimeLimitExceeded so it's reported correctly.
-        The user's task code sees CancelledError at the await point (asyncio
-        limitation), but if it propagates uncaught it becomes
-        SoftTimeLimitExceeded for backend recording.
+        Cancellation is the only way asyncio can interrupt a running
+        coroutine, so the soft limit cancels the task the tracer runs in and
+        the tracer turns that back into SoftTimeLimitExceeded, failing the
+        task the way any other exception would. The task body sees
+        CancelledError at its await point; a task that catches it keeps
+        running until the hard limit.
 
-        Hard timeout: cancels the task and reports failure via timeout_callback.
+        The hard limit runs on the job's own task, one level above the
+        tracer, so that a soft limit which has already fired cannot mask it.
         """
+        from celery.app.trace import async_cancellation_reason
         from celery.exceptions import SoftTimeLimitExceeded
 
-        _soft_timed_out = False
-        _soft_handle = None
+        job_task = asyncio.current_task()
+        soft_expired = False
 
-        async def _run_with_soft_timeout() -> tuple:
-            nonlocal _soft_timed_out, _soft_handle
+        def cancellation_reason() -> BaseException | None:
+            # A cancellation of the job's own task is a termination or the
+            # hard limit. Only one that leaves the job's task alone can be
+            # the soft limit.
+            if not soft_expired or (job_task is not None and job_task.cancelling()):
+                return None
+            return SoftTimeLimitExceeded(soft_timeout)
 
-            current = asyncio.current_task()
-            if soft_timeout and current is not None:
+        def fire_soft_timeout() -> None:
+            nonlocal soft_expired
+            soft_expired = True
+            traced.cancel()
 
-                def _fire_soft_timeout():
-                    nonlocal _soft_timed_out
-                    _soft_timed_out = True
-                    current.cancel()
-
-                loop = asyncio.get_event_loop()
-                _soft_handle = loop.call_later(soft_timeout, _fire_soft_timeout)
-
+        # Set before the tracer's task is created so that its copy of the
+        # context carries the reason the tracer asks for.
+        token = async_cancellation_reason.set(cancellation_reason)
+        try:
+            traced = asyncio.get_running_loop().create_task(
+                tracer(uuid, task_args, task_kwargs, request),
+                name=f"celery-trace-{uuid}",
+            )
+            soft_handle = None
+            if soft_timeout:
+                soft_handle = asyncio.get_running_loop().call_later(soft_timeout, fire_soft_timeout)
             try:
-                return await tracer(uuid, task_args, task_kwargs, request)
-            except asyncio.CancelledError:
-                if _soft_timed_out:
-                    raise SoftTimeLimitExceeded(soft_timeout) from None
-                raise
-            finally:
-                if _soft_handle is not None:
-                    _soft_handle.cancel()
-
-        if timeout:
-            try:
-                return await asyncio.wait_for(
-                    _run_with_soft_timeout(),
-                    timeout=timeout,
-                )
+                if timeout:
+                    return await asyncio.wait_for(traced, timeout)
+                return await traced
             except asyncio.TimeoutError:
                 if timeout_callback:
                     timeout_callback(False, timeout)
                 # Don't raise, on_timeout already handled task_ready + mark_as_failure.
                 return None
-        else:
-            return await _run_with_soft_timeout()
+            except asyncio.CancelledError:
+                exc = cancellation_reason()
+                if exc is None:
+                    raise
+                # The soft limit landed outside the task body, where the
+                # tracer reports nothing itself.
+                raise exc from None
+            finally:
+                if soft_handle is not None:
+                    soft_handle.cancel()
+        finally:
+            async_cancellation_reason.reset(token)
 
     def _apply_sync_task(
         self,
