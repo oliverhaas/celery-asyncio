@@ -193,6 +193,7 @@ yaml = [
 dev = [
     { name = "aio-pika" },
     { name = "brotli" },
+    { name = "ephem" },
     { name = "msgpack" },
     { name = "mypy" },
     { name = "pre-commit" },
@@ -208,6 +209,7 @@ dev = [
     { name = "redis" },
     { name = "requests" },
     { name = "ruff" },
+    { name = "tblib" },
     { name = "ty" },
     { name = "valkey" },
 ]
@@ -249,6 +251,7 @@ provides-extras = ["msgpack", "yaml", "valkey", "redis", "amqp", "hiredis", "lib
 dev = [
     { name = "aio-pika", specifier = "==9.5.7" },
     { name = "brotli", specifier = "==1.2.0" },
+    { name = "ephem", specifier = "==4.2.1" },
     { name = "msgpack", specifier = "==1.2.2" },
     { name = "mypy", specifier = "==2.3.1" },
     { name = "pre-commit", specifier = "==4.6.2" },
@@ -264,6 +267,7 @@ dev = [
     { name = "redis", specifier = "==8.1.0" },
     { name = "requests", specifier = "==2.34.2" },
     { name = "ruff", specifier = "==0.16.5" },
+    { name = "tblib", specifier = "==3.2.2" },
     { name = "ty", specifier = "==0.0.77" },
     { name = "valkey", specifier = "==6.1.1" },
 ]

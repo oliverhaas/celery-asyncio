@@ -102,14 +102,19 @@ dev = [
   # tests/integration/test_native_delayed_delivery_binding.py reads RabbitMQ's
   # management API over HTTP.
   "requests==2.34.2",
-  # Optional-extra packages: installed so their transports and serializers are
-  # both type-checked and exercised by the suite instead of skipped.
+  # Optional-extra packages: installed so the transports, serializers and
+  # optional runtime helpers they carry are both type-checked and exercised by
+  # the suite instead of skipped. ephem covers the solar schedules in
+  # tests/unit/app/test_schedules.py, tblib the remote-traceback path in
+  # tests/unit/tasks/test_result.py.
   "aio-pika==9.5.7",
   "brotli==1.2.0",
+  "ephem==4.2.1",
   "msgpack==1.2.2",
   "pyyaml==6.0.3",
   "redis==8.1.0",
   "ruff==0.16.5",
+  "tblib==3.2.2",
   "valkey==6.1.1",
   "ty==0.0.77",
 ]
