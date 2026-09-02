@@ -52,7 +52,7 @@ from celery.utils.eventloop import current_loop, default_loop_runner
 from celery.utils.functional import first, head_from_fun, maybe_list
 from celery.utils.imports import gen_task_name, instantiate, symbol_by_name
 from celery.utils.log import get_logger
-from celery.utils.objects import FallbackContext, mro_lookup
+from celery.utils.objects import mro_lookup
 from celery.utils.promises import starpromise
 from celery.utils.time import maybe_make_aware, timezone, to_utc
 
@@ -387,7 +387,6 @@ class Celery:
     #: Thread local storage.
     _local = None
     _fixups = None
-    _pool = None
     _conf = None
 
     #: Signal sent when app is loading configuration.
@@ -424,7 +423,6 @@ class Celery:
 
         self._local = threading.local()
         self._backend_cache = None
-        self._pool = None
         # One broker connection per event loop, since a connection's transport
         # belongs to the loop that opened it. Weakly keyed so a loop that goes
         # away takes its connection with it.
@@ -544,7 +542,6 @@ class Celery:
             ...     with app.connection_for_write() as conn:
             ...         pass
         """
-        self._pool = None
         self._close_async_connections()
         _deregister_app(self)
 
@@ -1401,24 +1398,6 @@ class Celery:
 
     broker_connection = connection
 
-    def _acquire_connection(self, pool=True):
-        """Helper for :meth:`connection_or_acquire`."""
-        if pool:
-            return self.pool.acquire(block=True)
-        return self.connection_for_write()
-
-    def connection_or_acquire(self, connection=None, pool=True, *_, **__):
-        """Context used to acquire a connection from the pool.
-
-        For use within a :keyword:`with` statement to get a connection
-        from the pool if one is not already provided.
-
-        Arguments:
-            connection (kombu.Connection): If not provided, a connection
-                will be acquired from the connection pool.
-        """
-        return FallbackContext(connection, self._acquire_connection, pool=pool)
-
     @contextmanager
     def producer_or_acquire(self, producer=None):
         """No-op context manager for backward compatibility.
@@ -1725,20 +1704,6 @@ class Celery:
             :class:`celery.result.GroupResult`.
         """
         return self.subclass_with_self("celery.result:GroupResult")
-
-    @property
-    def pool(self):
-        """Broker connection pool (legacy, not used in celery-asyncio).
-
-        In celery-asyncio, use :attr:`async_connection` instead.
-        This property exists for backward compatibility but returns None.
-
-        Note:
-            This attribute is not related to the workers concurrency pool.
-        """
-        # In celery-asyncio, we don't use sync connection pools.
-        # All operations go through the async connection.
-        return None
 
     @property
     def async_connection(self):

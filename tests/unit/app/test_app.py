@@ -1218,11 +1218,6 @@ class test_App:
             " add_periodic_task to silence this warning."
         )
 
-    @pytest.mark.masked_modules("multiprocessing.util")
-    def test_pool_no_multiprocessing(self, mask_modules):
-        pool = self.app.pool
-        assert pool is self.app._pool
-
     def test_bugreport(self):
         assert self.app.bugreport()
 
