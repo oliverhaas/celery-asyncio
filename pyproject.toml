@@ -90,7 +90,7 @@ dev = [
   "mypy==2.3.1",
   "pre-commit==4.6.2",
   # tests/unit/app/test_app.py importorskips pydantic at module level, so
-  # without it the whole module -- not just the pydantic tests -- goes quiet.
+  # without it the whole module goes quiet, not just the pydantic tests.
   "pydantic==2.13.5",
   "pytest==9.1.1",
   "pytest-asyncio==1.4.0",
@@ -144,34 +144,34 @@ extend-exclude = ["*.md"]
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-  "A001",     # Variable shadows a builtin — celery uses type, format, id
-  "A002",     # Argument shadows a builtin — same, in public signatures
+  "A001",     # Variable shadows a builtin: celery uses type, format, id
+  "A002",     # Argument shadows a builtin: same, in public signatures
   "A004",     # Import shadows a builtin
-  "ANN",      # Type annotations — nearly all hits inherited from upstream Celery. mypy gates the package instead.
-  "ARG002",   # Unused method argument — signal handlers, overrides, API compat
+  "ANN",      # Type annotations: nearly all hits inherited from upstream Celery. mypy gates the package instead.
+  "ARG002",   # Unused method argument: signal handlers, overrides, API compat
   "ASYNC109", # timeout param is task TTL, not asyncio.timeout
   "BLE001",   # Blind except: needed for task error handling
   "C901",     # Complex structure: some task functions are inherently complex
   "COM812",   # Conflicts with ruff-format
   "CPY001",   # Copyright notice per file. The LICENSE file covers the package.
-  "D",        # Docstrings — nearly all hits inherited from upstream Celery
+  "D",        # Docstrings: nearly all hits inherited from upstream Celery
   "E501",     # Line length handled by config
   "EM",       # Exception strings inline are fine
   "FBT",      # Boolean params match task APIs (ignore_result, bind, etc.)
-  "FIX002",   # TODO comments — inherited from upstream Celery
+  "FIX002",   # TODO comments: inherited from upstream Celery
   "N801",     # Class naming: celery has its own patterns, e.g. test_Thing
   "N802",     # Function naming: celery has its own patterns
   "N803",     # Argument naming: celery has its own patterns
   "N806",     # Variable naming: celery has its own patterns
   "N812",     # Import alias casing: celery has its own patterns
   "N818",     # Exception names without an Error suffix, as upstream named them
-  "PERF203",  # try/except inside a loop — the broker retry loops need it
+  "PERF203",  # try/except inside a loop: the broker retry loops need it
   "PLC0415",  # Dynamic imports for optional dependencies
   "PLR0912",  # Too many branches: complex task routing logic
-  "PLR0913",  # Too many args — task APIs need many options
+  "PLR0913",  # Too many args: task APIs need many options
   "PLR0917",  # Too many positional args, same reason as PLR0913 above
-  "PLR1704",  # Redefining argument from local — context manager patterns
-  "PLR2004",  # Magic values — task-specific constants
+  "PLR1704",  # Redefining argument from local: context manager patterns
+  "PLR2004",  # Magic values: task-specific constants
   "PLW0603",  # Global statement: needed for module-level state
   "PLW1641",  # eq without hash
   "PLW2901",  # Redefining loop variable
@@ -181,14 +181,14 @@ ignore = [
   "RUF005",   # Tuple concatenation is clearer
   "RUF012",   # Mutable class defaults: intentional for celery state
   "RUF059",   # Unused unpacked variable
-  "S110",     # try/except/pass — best-effort cleanup that must not mask the real error
-  "SIM105",   # contextlib.suppress — the explicit try/except reads better here
-  "SIM108",   # Ternary instead of if/else — style preference
-  "SIM212",   # Operand order in a ternary — style preference
+  "S110",     # try/except/pass: best-effort cleanup that must not mask the real error
+  "SIM105",   # contextlib.suppress: the explicit try/except reads better here
+  "SIM108",   # Ternary instead of if/else: style preference
+  "SIM212",   # Operand order in a ternary: style preference
   "SLF001",   # Private member access needed for internals
-  "TC003",    # Typing-only stdlib import — style preference
-  "TD002",    # TODO without an author — inherited from upstream Celery
-  "TD003",    # TODO without an issue link — inherited from upstream Celery
+  "TC003",    # Typing-only stdlib import: style preference
+  "TD002",    # TODO without an author: inherited from upstream Celery
+  "TD003",    # TODO without an issue link: inherited from upstream Celery
   "TRY003",   # Long messages outside the exception class
   "TRY300",   # return in try rather than else
 ]
@@ -201,44 +201,44 @@ suppress-none-returning = true
 # Inherited from upstream Celery. Branch 2 burns this list down; every entry
 # removed here is a rule celery/ now passes cleanly.
 "celery/**" = [
-  "A",        # Builtin shadowing — celery uses type, format, id as params
-  "ARG",      # Unused arguments — signal handlers, overrides, API compat
-  "ASYNC110", # asyncio.Event suggestion — not always appropriate
-  "B007",     # Unused loop control variable — sometimes intentional
-  "B018",     # Useless expression — intentional in some celery patterns
+  "A",        # Builtin shadowing: celery uses type, format, id as params
+  "ARG",      # Unused arguments: signal handlers, overrides, API compat
+  "ASYNC110", # asyncio.Event suggestion: not always appropriate
+  "B007",     # Unused loop control variable: sometimes intentional
+  "B018",     # Useless expression: intentional in some celery patterns
   "B020",     # Loop variable overrides iterator
   "B024",     # Abstract base class without abstract method
   "B026",     # Star-arg unpacking after keyword arg
   "B027",     # Empty method without abstract decorator
   "COM818",   # Trailing comma on bare tuple
-  "DTZ",      # Datetime timezone — celery uses naive datetimes throughout
-  "E402",     # Module-level import not at top — lazy imports
-  "E741",     # Ambiguous variable name — l, O, I used in celery
-  "ERA001",   # Commented-out code — every remaining hit is prose: an exploit
+  "DTZ",      # Datetime timezone: celery uses naive datetimes throughout
+  "E402",     # Module-level import not at top: lazy imports
+  "E741",     # Ambiguous variable name: l, O, I used in celery
+  "ERA001",   # Commented-out code. Every remaining hit is prose: an exploit
   # illustration, an issue write-up, or shorthand like "chord([A, B], C)"
-  "EXE",  # Shebang — examples have shebangs for convenience
-  "FIX",  # TODO/FIXME/XXX comments — inherited from upstream Celery
-  "G",    # Logging format — celery uses % formatting in logging
+  "EXE",  # Shebang: examples have shebangs for convenience
+  "FIX",  # TODO/FIXME/XXX comments: inherited from upstream Celery
+  "G",    # Logging format: celery uses % formatting in logging
   "I001", # Import sorting: kombu became first-party when it moved into this repo,
   # so 40 celery modules have mis-grouped import blocks. Branch 2 fixes them.
-  "INP001",  # Implicit namespace package — examples are standalone scripts
+  "INP001",  # Implicit namespace package: examples are standalone scripts
   "ISC002",  # Implicit string concatenation
   "N",       # Naming conventions: celery has its own patterns
-  "PERF",    # Performance suggestions — readability over micro-optimization
+  "PERF",    # Performance suggestions: readability over micro-optimization
   "PGH003",  # Blanket type-ignore
   "PGH004",  # Blanket noqa
   "PLC0205", # __slots__ style
   "PLE0704", # Misplaced bare raise
   "PLR0206", # Property with parameters
   "PLR0911", # Too many return statements
-  "PLR0915", # Too many statements — complex functions
+  "PLR0915", # Too many statements: complex functions
   "PLR1714", # Consider merging comparisons
-  "PLW0127", # Self-assigning variable — protocol v1 destructuring
+  "PLW0127", # Self-assigning variable: protocol v1 destructuring
   "PLW1508", # Invalid envvar default
-  "PTH",     # Pathlib — celery uses os.path extensively
+  "PTH",     # Pathlib: celery uses os.path extensively
   "RET503",  # Missing explicit return
   "RET504",  # Unnecessary variable before return
-  "RET505",  # Superfluous else return — style preference
+  "RET505",  # Superfluous else return: style preference
   "RSE102",  # Unnecessary parentheses on raise
   "RUF002",  # Ambiguous unicode in docstrings
   "RUF003",  # Ambiguous unicode
@@ -247,17 +247,17 @@ suppress-none-returning = true
   "RUF015",  # Readability over micro-optimization
   "RUF022",  # __all__ not sorted
   "RUF046",  # Unnecessary cast
-  "S",       # Security — celery needs pickle, subprocess, exec, etc.
-  "SIM",     # Simplify — style preference, readability varies
+  "S",       # Security: celery needs pickle, subprocess, exec, etc.
+  "SIM",     # Simplify: style preference, readability varies
   "SLOT000", # No __slots__ in str subclass
-  "T201",    # Print — the CLI banner, worker status output, and the example
+  "T201",    # Print: the CLI banner, worker status output, and the example
   # scripts all write to stdout on purpose
   "TC",     # Typing-only imports: style preference
-  "TD",     # TODO comment formatting — inherited from upstream Celery
+  "TD",     # TODO comment formatting: inherited from upstream Celery
   "TID252", # Relative imports
-  "TRY",    # tryceratops — style preference throughout
+  "TRY",    # tryceratops: style preference throughout
   "UP007",  # Non-PEP 604 annotation
-  "UP031",  # Printf-style formatting — keep for consistency
+  "UP031",  # Printf-style formatting: keep for consistency
   "UP041",  # Timeout error alias
 ]
 "tests/*.py" = [
