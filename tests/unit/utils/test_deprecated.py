@@ -25,8 +25,6 @@ class test_deprecated_property:
                 self._foo = None
 
         assert X.foo
-        assert X.foo.__set__(None, 1)
-        assert X.foo.__delete__(None)
         x = X()
         x.foo = 10
         warn.assert_called_with(

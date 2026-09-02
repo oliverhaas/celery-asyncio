@@ -23,27 +23,19 @@ class cached_property(_cached_property):
         self.lock = RLock()
 
     def __set__(self, instance, value):
-        if instance is None:
-            return self
-
         with self.lock:
             if self.__set is not None:
                 value = self.__set(instance, value)
 
             cache = instance.__dict__
             cache[self.attrname] = value
-        return None
 
     def __delete__(self, instance):
-        if instance is None:
-            return self
-
         with self.lock:
             value = instance.__dict__.pop(self.attrname, _NOT_FOUND)
 
             if self.__del and value is not _NOT_FOUND:
                 self.__del(instance, value)
-        return None
 
     def setter(self, fset):
         return self.__class__(self.func, fset, self.__del)

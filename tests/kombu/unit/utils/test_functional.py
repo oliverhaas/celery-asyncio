@@ -4,7 +4,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from kombu.utils import functional as utils
 from kombu.utils.functional import (
     LRUCache,
     fxrange,
@@ -171,19 +170,11 @@ class test_retry_over_time:
 
     @patch("kombu.utils.functional.sleep", return_value=None)
     def test_simple(self, mock_sleep):
-        prev_count, utils.count = utils.count, Mock()
-        try:
-            utils.count.return_value = list(range(1))
-            x = retry_over_time(self.myfun, self.Predicate, errback=None, interval_max=14)
-            assert x is None
-            utils.count.return_value = list(range(10))
-            cb = Mock()
-            x = retry_over_time(self.myfun, self.Predicate, errback=self.errback, callback=cb, interval_max=14)
-            assert x == 42
-            assert self.index == 9
-            cb.assert_called_with()
-        finally:
-            utils.count = prev_count
+        cb = Mock()
+        x = retry_over_time(self.myfun, self.Predicate, errback=self.errback, callback=cb, interval_max=14)
+        assert x == 42
+        assert self.index == 9
+        cb.assert_called_with()
 
     def test_retry_timeout(self):
         with pytest.raises(self.Predicate):

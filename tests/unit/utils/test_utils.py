@@ -23,5 +23,3 @@ def test_cached_property():
 
     x = cached_property(fun)
     assert x.__get__(None) is x
-    assert x.__set__(None, None) is x
-    assert x.__delete__(None) is x

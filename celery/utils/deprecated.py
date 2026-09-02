@@ -66,16 +66,12 @@ class _deprecated_property:
         return self.__get(obj)
 
     def __set__(self, obj, value):
-        if obj is None:
-            return self
         if self.__set is None:
             raise AttributeError("cannot set attribute")
         warn(**self.depreinfo)
         self.__set(obj, value)
 
     def __delete__(self, obj):
-        if obj is None:
-            return self
         if self.__del is None:
             raise AttributeError("cannot delete attribute")
         warn(**self.depreinfo)

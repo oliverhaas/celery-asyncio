@@ -298,7 +298,7 @@ class Connection:
         # transport option that does not exist is not, and used to retry
         # forever behind one warning per attempt. OSError joins the transport's
         # own tuple to cover the socket and DNS failures underneath it.
-        recoverable = (*self.connection_errors, OSError)
+        recoverable: tuple[type[BaseException], ...] = (*self.connection_errors, OSError)
 
         while True:
             try:

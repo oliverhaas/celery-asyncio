@@ -6,7 +6,6 @@ import threading
 from collections import OrderedDict, UserDict
 from collections.abc import Callable, Iterable, Mapping
 from functools import wraps
-from itertools import count
 from time import sleep, time
 from typing import Any, Protocol, cast
 
@@ -306,7 +305,8 @@ def retry_over_time(
     args = [] if not args else args
     interval_range = fxrange(interval_start, interval_max + interval_start, interval_step, repeatlast=True)
     end = time() + timeout if timeout else None
-    for retries in count():
+    retries = 0
+    while True:
         try:
             return fun(*args, **kwargs)
         except catch as exc:
@@ -324,7 +324,7 @@ def retry_over_time(
                     sleep(1.0)
                 # sleep remainder after int truncation above.
                 sleep(abs(int(tts) - tts))
-    return None
+            retries += 1
 
 
 def reprkwargs(kwargs, sep=", ", fmt="{0}={1}"):
