@@ -12,6 +12,7 @@ This is the default pool for celery-asyncio workers.
 """
 
 import asyncio
+import ctypes
 import inspect
 import os
 import threading
@@ -163,6 +164,73 @@ class LoopWorker:
                     self._index,
                     self._active_count,
                 )
+
+
+def _raise_in_thread(thread_id: int, exc: type[BaseException] | None) -> int:
+    """Set or clear the asynchronous exception of a thread.
+
+    Returns the number of thread states modified, so 0 means the thread was
+    already gone. The exception is delivered at the thread's next bytecode
+    boundary, which for a task blocked in C code (``time.sleep``, a socket
+    read) is when that call returns.
+    """
+    return ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_ulong(thread_id),
+        ctypes.py_object(exc) if exc is not None else None,
+    )
+
+
+class SyncSoftTimeout:
+    """Shared state between a sync task's thread and its soft limit timer.
+
+    Injection and completion have to agree on which one happened first.
+    Without that, the timer can fire into a thread that has already left the
+    task body and the exception lands in the pool's own bookkeeping or in
+    whatever the thread picks up next.
+    """
+
+    def __init__(self) -> None:
+        self._mutex = Lock()
+        self._ready = threading.Event()
+        self._thread_id: int | None = None
+        self._finished = False
+        self._injected = False
+
+    def start(self, thread_id: int) -> None:
+        """Register the thread running the task."""
+        with self._mutex:
+            self._thread_id = thread_id
+        self._ready.set()
+
+    def finish(self) -> None:
+        """Mark the task complete and drop an injection that has not landed."""
+        with self._mutex:
+            if self._finished:
+                return
+            self._finished = True
+            if self._injected and self._thread_id is not None:
+                _raise_in_thread(self._thread_id, None)
+
+    def fire(self, exc: type[BaseException], wait: float = 2.0) -> bool:
+        """Raise ``exc`` in the task's thread unless the task already finished."""
+        if not self._ready.wait(timeout=wait):
+            return False
+        with self._mutex:
+            if self._finished or self._thread_id is None:
+                return False
+            self._injected = _raise_in_thread(self._thread_id, exc) == 1
+            return self._injected
+
+    def guard(self, target: Callable) -> Callable:
+        """Wrap the task body so completion is recorded as it returns."""
+
+        def _guarded(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return target(*args, **kwargs)
+            finally:
+                self.finish()
+
+        return _guarded
 
 
 class TaskPool(BasePool):
@@ -460,9 +528,7 @@ class TaskPool(BasePool):
         app = self.app
 
         # Shared state so the soft timeout timer can find the thread.
-        soft_state = None
-        if soft_timeout:
-            soft_state = {"thread_id": None, "ready": threading.Event()}
+        soft_state = SyncSoftTimeout() if soft_timeout else None
 
         if self._executor is None:
             raise RuntimeError("pool has not been started")
@@ -490,33 +556,16 @@ class TaskPool(BasePool):
     def _schedule_sync_soft_timeout(
         self,
         future: Future,
-        soft_state: dict,
+        soft_state: SyncSoftTimeout,
         soft_timeout: float,
     ) -> None:
-        """Schedule a soft timeout for a sync task running in a thread.
-
-        Uses PyThreadState_SetAsyncExc to inject SoftTimeLimitExceeded
-        into the worker thread.  The exception is delivered at the next
-        bytecode boundary after the current blocking call (e.g.
-        time.sleep) returns.
-        """
-        import ctypes
-
+        """Schedule a soft timeout for a sync task running in a thread."""
         from celery.exceptions import SoftTimeLimitExceeded
 
         def _fire():
             if future.done():
                 return
-            # Wait for the thread to register its ID.
-            if not soft_state["ready"].wait(timeout=2.0):
-                return
-            thread_id = soft_state["thread_id"]
-            if thread_id is None or future.done():
-                return
-            ctypes.pythonapi.PyThreadState_SetAsyncExc(
-                ctypes.c_ulong(thread_id),
-                ctypes.py_object(SoftTimeLimitExceeded),
-            )
+            soft_state.fire(SoftTimeLimitExceeded)
 
         timer = threading.Timer(soft_timeout, _fire)
         timer.daemon = True
@@ -559,13 +608,17 @@ class TaskPool(BasePool):
         kwargs: dict,
         callback: Callable | None,
         accept_callback: Callable | None,
-        soft_state: dict | None = None,
+        soft_state: SyncSoftTimeout | None = None,
     ) -> Any:
         app.set_current()
         if soft_state is not None:
-            soft_state["thread_id"] = threading.get_ident()
-            soft_state["ready"].set()
-        return apply_target(target, args, kwargs, callback, accept_callback)
+            soft_state.start(threading.get_ident())
+            target = soft_state.guard(target)
+        try:
+            return apply_target(target, args, kwargs, callback, accept_callback)
+        finally:
+            if soft_state is not None:
+                soft_state.finish()
 
     def _get_info(self) -> dict[str, Any]:
         info = super()._get_info()

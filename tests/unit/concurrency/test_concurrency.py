@@ -5,14 +5,16 @@ import time
 from concurrent.futures import Future
 from contextlib import contextmanager
 from itertools import count
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 
-from celery import concurrency, signals
-from celery.concurrency.aio import ApplyResult, LoopWorker, TaskPool
+from celery import concurrency, signals, states
+from celery.app.trace import trace_task_ret
+from celery.concurrency.aio import ApplyResult, LoopWorker, SyncSoftTimeout, TaskPool
 from celery.concurrency.base import BasePool, apply_target
-from celery.exceptions import WorkerShutdown, WorkerTerminate
+from celery.exceptions import SoftTimeLimitExceeded, WorkerShutdown, WorkerTerminate
+from celery.utils import uuid
 
 
 def wait_until(predicate, timeout=10.0):
@@ -40,6 +42,76 @@ def collect_signal(signal):
         yield received
     finally:
         signal.disconnect(receiver)
+
+
+class Recorder:
+    """Collects what the pool reports back for one task."""
+
+    def __init__(self):
+        self.done = threading.Event()
+        self.results = []
+        self.failures = []
+        self.timeouts = []
+        self.accepted = []
+
+    def on_success(self, result):
+        self.results.append(result)
+        self.done.set()
+
+    def on_failure(self, exc_info, **kwargs):
+        self.failures.append(exc_info)
+        self.done.set()
+
+    def on_accepted(self, pid, time_accepted):
+        self.accepted.append((pid, time_accepted))
+
+    def on_timeout(self, soft, timeout):
+        self.timeouts.append((soft, timeout))
+        self.done.set()
+
+    @property
+    def result(self):
+        assert len(self.results) == 1, self.results
+        return self.results[0]
+
+    @property
+    def failure(self):
+        assert len(self.failures) == 1, self.failures
+        return self.failures[0].exception
+
+
+class AioPoolCase:
+    """Runs tasks through a started pool the way the worker does."""
+
+    def setup_method(self):
+        self._pools = []
+
+    def teardown_method(self):
+        for pool in self._pools:
+            pool.stop()
+
+    def start_pool(self, **kwargs):
+        pool = TaskPool(10, app=self.app, **kwargs)
+        pool.start()
+        self._pools.append(pool)
+        return pool
+
+    def apply(self, pool, name, recorder, args=(), kwargs=None, task_id=None, **options):
+        task_id = task_id or uuid()
+        request = {"id": task_id, "task": name, "hostname": "testhost", "delivery_info": {}}
+        pool.apply_async(
+            trace_task_ret,
+            args=(name, task_id, request, (args, kwargs or {}, {}), None, None),
+            accept_callback=recorder.on_accepted,
+            timeout_callback=recorder.on_timeout,
+            callback=recorder.on_success,
+            error_callback=recorder.on_failure,
+            **options,
+        )
+        return task_id
+
+    def meta(self, task_id):
+        return self.app.backend.get_task_meta(task_id)
 
 
 class test_BasePool:
@@ -439,6 +511,117 @@ class test_TaskPool:
         assert info["loop-concurrency"] == 5
         assert info["sync-workers"] == 3
         assert info["loop-active"] == [1, 2]
+
+
+class test_sync_task_time_limits(AioPoolCase):
+    def test_a_soft_limit_is_raised_inside_the_task(self):
+        @self.app.task(name="sync.soft_limit", shared=False)
+        def sleeper():
+            for _ in range(3000):
+                time.sleep(0.01)
+
+        pool = self.start_pool(sync_workers=1)
+        rec = Recorder()
+        task_id = self.apply(pool, "sync.soft_limit", rec, soft_timeout=0.2)
+
+        assert rec.done.wait(10)
+        failed, retval, _ = rec.result
+        assert failed
+        assert isinstance(retval.exception, SoftTimeLimitExceeded)
+        assert self.meta(task_id)["status"] == states.FAILURE
+
+    def test_a_hard_limit_is_reported_for_a_stuck_task(self):
+        release = threading.Event()
+
+        @self.app.task(name="sync.hard_limit", shared=False)
+        def stuck():
+            release.wait(10)
+
+        pool = self.start_pool(sync_workers=1)
+        rec = Recorder()
+        self.apply(pool, "sync.hard_limit", rec, timeout=0.3)
+        try:
+            assert rec.done.wait(10)
+            assert rec.timeouts == [(False, 0.3)]
+            assert pool._stuck_thread_count == 1
+        finally:
+            release.set()
+
+    def test_a_soft_limit_does_not_land_in_the_next_task(self):
+        @self.app.task(name="sync.slow_one", shared=False)
+        def slow_one():
+            for _ in range(3000):
+                time.sleep(0.01)
+
+        @self.app.task(name="sync.quick_one", shared=False)
+        def quick_one():
+            return "ok"
+
+        pool = self.start_pool(sync_workers=1)
+        first = Recorder()
+        self.apply(pool, "sync.slow_one", first, soft_timeout=0.2)
+        assert first.done.wait(10)
+
+        second = Recorder()
+        task_id = self.apply(pool, "sync.quick_one", second)
+        assert second.done.wait(10)
+        assert second.result[0] == 0
+        assert self.meta(task_id)["status"] == states.SUCCESS
+        assert self.meta(task_id)["result"] == "ok"
+
+
+class test_SyncSoftTimeout:
+    def test_fire_raises_in_the_registered_thread(self):
+        soft = SyncSoftTimeout()
+        outcome = []
+
+        def body():
+            soft.start(threading.get_ident())
+            try:
+                for _ in range(1000):
+                    time.sleep(0.01)
+            except SoftTimeLimitExceeded:
+                outcome.append("soft limit")
+            finally:
+                soft.finish()
+
+        thread = threading.Thread(target=body)
+        thread.start()
+        try:
+            assert soft.fire(SoftTimeLimitExceeded) is True
+        finally:
+            thread.join(10)
+        assert outcome == ["soft limit"]
+
+    def test_fire_does_nothing_once_the_task_has_finished(self):
+        soft = SyncSoftTimeout()
+        with patch("celery.concurrency.aio._raise_in_thread", return_value=1) as inject:
+            soft.start(4242)
+            soft.finish()
+            assert soft.fire(SoftTimeLimitExceeded) is False
+        inject.assert_not_called()
+
+    def test_finishing_clears_an_injection_that_has_not_landed(self):
+        soft = SyncSoftTimeout()
+        with patch("celery.concurrency.aio._raise_in_thread", return_value=1) as inject:
+            soft.start(4242)
+            assert soft.fire(SoftTimeLimitExceeded) is True
+            soft.finish()
+        assert inject.call_args_list == [call(4242, SoftTimeLimitExceeded), call(4242, None)]
+
+    def test_fire_gives_up_on_a_task_that_never_starts(self):
+        soft = SyncSoftTimeout()
+        with patch("celery.concurrency.aio._raise_in_thread", return_value=1) as inject:
+            assert soft.fire(SoftTimeLimitExceeded, wait=0.01) is False
+        inject.assert_not_called()
+
+    def test_the_guard_records_completion_when_the_task_raises(self):
+        soft = SyncSoftTimeout()
+        soft.start(threading.get_ident())
+        guarded = soft.guard(Mock(side_effect=KeyError("x")))
+        with pytest.raises(KeyError):
+            guarded()
+        assert soft.fire(SoftTimeLimitExceeded) is False
 
 
 class test_process_signals:
