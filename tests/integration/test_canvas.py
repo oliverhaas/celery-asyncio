@@ -817,7 +817,11 @@ class test_chain:
         if manager.app.conf.broker_url.startswith("redis"):
             raise pytest.xfail("Redis broker does not duplicate the task (t1)")
 
-        # Republish t1 to cause the chain to be executed twice
+        # Republish t1, and only t1, to cause the chain to be executed twice.
+        # The worker runs in this process, so its own publishes reach this
+        # handler as well, and duplicating those multiplies the chain out.
+        duplicated = False
+
         @before_task_publish.connect
         def before_task_publish_handler(
             sender=None,
@@ -831,6 +835,10 @@ class test_chain:
             **kwargs,
         ):
             """We want to republish t1 to ensure that the chain is executed twice"""
+            nonlocal duplicated
+            if duplicated:
+                return
+            duplicated = True
 
             metadata = {
                 "body": body,
@@ -847,12 +855,9 @@ class test_chain:
                 metadata["body"],
                 exchange=metadata["exchange"],
                 routing_key=metadata["routing_key"],
-                retry=None,
                 retry_policy=retry_policy,
                 serializer="json",
-                delivery_mode=None,
-                headers=headers,
-                **kwargs,
+                headers=metadata["headers"],
             )
             loop = current_loop()
             if loop is None:
