@@ -1,5 +1,7 @@
 """Tests for kombu.messaging - async Producer and Consumer."""
 
+from itertools import count
+
 from kombu import Connection, Exchange, Queue
 from kombu.messaging import Consumer, Producer
 
@@ -234,3 +236,80 @@ class test_Consumer:
 
             assert len(received1) == 1
             assert len(received2) == 1
+
+
+class RecordingChannel:
+    """A channel that records what a Consumer asks the broker to do."""
+
+    no_ack_consumers = None
+
+    def __init__(self):
+        self.declared = []
+        self.bound = []
+        self.consumed = []
+        self.cancelled = []
+        self._tags = count()
+
+    async def declare_exchange(self, exchange):
+        pass
+
+    async def declare_queue(self, queue):
+        self.declared.append(queue.name)
+        return queue.name
+
+    async def queue_bind(self, queue, exchange, routing_key="", arguments=None):
+        self.bound.append((queue, exchange, routing_key))
+
+    async def basic_consume(self, queue, callback, consumer_tag=None, no_ack=False):
+        self.consumed.append(queue)
+        return f"tag-{next(self._tags)}"
+
+    async def basic_cancel(self, consumer_tag):
+        self.cancelled.append(consumer_tag)
+
+
+class test_Consumer_consume:
+    """consume() after add_queue()."""
+
+    def _queue(self, name):
+        return Queue(name, exchange=Exchange("ex", type="direct"), routing_key=name)
+
+    async def test_declares_and_consumes_a_queue_added_after_the_first_consume(self):
+        channel = RecordingChannel()
+        consumer = Consumer(channel, queues=[self._queue("one")])
+        await consumer.consume()
+        consumer.add_queue(self._queue("two"))
+        await consumer.consume()
+
+        assert channel.declared == ["one", "two"]
+        assert channel.bound == [("one", "ex", "one"), ("two", "ex", "two")]
+        assert channel.consumed == ["one", "two"]
+
+    async def test_does_not_register_a_second_consumer_for_a_queue(self):
+        channel = RecordingChannel()
+        consumer = Consumer(channel, queues=[self._queue("one")])
+        await consumer.consume()
+        await consumer.consume()
+        await consumer.consume()
+
+        assert channel.consumed == ["one"]
+        assert channel.declared == ["one"]
+
+    async def test_a_queue_added_later_delivers_messages(self):
+        received = []
+
+        async with Connection("memory://") as conn:
+            exchange = Exchange("ex", type="direct")
+            consumer = conn.Consumer(
+                [Queue("one", exchange=exchange, routing_key="one")],
+                callbacks=[lambda body, message: received.append(body)],
+            )
+            await consumer.consume()
+            consumer.add_queue(Queue("two", exchange=exchange, routing_key="two"))
+            await consumer.consume()
+
+            async with conn.Producer(exchange=exchange) as producer:
+                await producer.publish({"for": "two"}, routing_key="two")
+            await conn.drain_events(timeout=1.0)
+
+        assert received == [{"for": "two"}]

@@ -274,9 +274,9 @@ class Consumer:
         self._no_ack = no_ack
         self._accept = set(accept) if accept else None
         self._prefetch_count = prefetch_count
-        self._consumer_tags: list[str] = []
+        self._consumer_tags: dict[str, str] = {}
         self._running = False
-        self._declared = False
+        self._declared: set[str] = set()
         self._iter_timeout: float = 1.0
         self.on_decode_error = kwargs.get("on_decode_error")
 
@@ -296,35 +296,36 @@ class Consumer:
         return self._channel
 
     async def declare(self) -> None:
-        """Declare all queues and their exchanges."""
-        if self._declared:
-            return
-
+        """Declare the queues that have not been declared yet, and their exchanges."""
         channel = await self._ensure_channel()
         for queue in self._queues:
+            if queue.name in self._declared:
+                continue
             if queue.exchange:
                 await queue.exchange.declare(channel)
             await queue.declare(channel)
             if queue.exchange:
                 await queue.bind(channel)
-
-        self._declared = True
+            self._declared.add(queue.name)
 
     async def consume(self) -> None:
-        """Start consuming from queues."""
+        """Start consuming from every queue that has no broker consumer yet.
+
+        Called again after :meth:`add_queue`, it declares and consumes the new
+        queue and leaves the queues it is already consuming alone.
+        """
         channel = await self._ensure_channel()
 
-        # Declare queues if not already done
         await self.declare()
 
-        # Register consumers
         for queue in self._queues:
-            tag = await channel.basic_consume(
+            if queue.name in self._consumer_tags:
+                continue
+            self._consumer_tags[queue.name] = await channel.basic_consume(
                 queue=queue.name,
                 callback=self._on_message,
                 no_ack=self._no_ack,
             )
-            self._consumer_tags.append(tag)
 
         self._running = True
 
@@ -346,7 +347,7 @@ class Consumer:
         self._running = False
 
         if self._channel:
-            for tag in self._consumer_tags:
+            for tag in self._consumer_tags.values():
                 await self._channel.basic_cancel(tag)
         self._consumer_tags.clear()
 
