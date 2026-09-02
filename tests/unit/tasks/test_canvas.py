@@ -1119,6 +1119,23 @@ class test_group(CanvasCase):
         g2 = group(self.add.s(8, 8), g1, self.add.s(16, 16), app=self.app)
         g2.apply_async()
 
+    def test_group_in_group_keeps_the_declared_order(self):
+        g1 = group(self.add.s(2, 2), self.add.s(4, 4), app=self.app)
+        g2 = group(self.add.s(8, 8), g1, self.add.s(16, 16), app=self.app)
+
+        results = g2.freeze()
+
+        assert [task.args for task in g2.tasks] == [(8, 8), (2, 2), (4, 4), (16, 16)]
+        assert [r.id for r in results] == [task.options["task_id"] for task in g2.tasks]
+
+    def test_chord_header_group_in_group_keeps_the_declared_order(self):
+        header = group(self.add.s(2, 2), group(self.add.s(4, 4), self.add.s(8, 8)), app=self.app)
+        c = chord(header, self.add.s(), app=self.app)
+
+        c.freeze()
+
+        assert [task.args for task in c.tasks.tasks] == [(2, 2), (4, 4), (8, 8)]
+
     def test_set_immutable(self):
         g1 = group(Mock(name="t1"), Mock(name="t2"), app=self.app)
         g1.set_immutable(True)

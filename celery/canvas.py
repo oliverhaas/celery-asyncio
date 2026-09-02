@@ -2370,7 +2370,10 @@ class group(Signature):
             task = maybe_signature(stack.popleft(), app=self._app).clone()
             # if this is a group, flatten it by adding all of the group's tasks to the stack
             if isinstance(task, group):
-                stack.extendleft(task.tasks)
+                # extendleft() pushes one at a time, so the nested tasks land in
+                # reverse. Reversing first puts them back in declaration order,
+                # which is the order the chord body sees its results in.
+                stack.extendleft(reversed(task.tasks))
             else:
                 new_tasks.append(task)
                 yield task.freeze(
