@@ -439,7 +439,8 @@ class Backend:
                         try:
                             backend._call_task_errbacks(fake_request, original_exc, None)
                         except Exception:
-                            # continue on exception to be sure to iter to all the group tasks
+                            # One callback raising must not cost the rest of
+                            # the group its error callbacks.
                             pass
 
                         # Mark the individual task as failed with original exception

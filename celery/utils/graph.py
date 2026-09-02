@@ -28,8 +28,8 @@ class DOT:
 class DependencyGraph:
     """A directed acyclic graph of objects and their dependencies.
 
-    Supports a robust topological sort
-    to detect the order in which they must be handled.
+    Sorts topologically, which is what gives the order the objects have
+    to be handled in.
 
     Takes an optional iterator of ``(obj, dependencies)``
     tuples to build the graph from.
