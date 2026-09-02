@@ -387,14 +387,10 @@ def on_cold_shutdown(worker: Worker):
         # Stop the pool so finished tasks still reach on_success(). The pool joins
         # its threads, so the stop goes to a helper thread the loop waits on.
         if worker.consumer.pool:
-            _stop_pool_off_the_loop(worker.consumer.pool)
-
-
-def _stop_pool_off_the_loop(pool):
-    if current_loop() is None:
-        pool.stop()
-    else:
-        spawn(stop_pool(pool), name="celery-pool-stop")
+            if current_loop() is None:
+                worker.consumer.pool.stop()
+            else:
+                spawn(stop_pool(worker.consumer.pool), name="celery-pool-stop")
 
 
 # Allow SIGTERM to be remapped to SIGQUIT to initiate cold shutdown instead of warm shutdown using SIGTERM
