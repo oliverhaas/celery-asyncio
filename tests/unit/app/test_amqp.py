@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from kombu import Exchange, Queue
@@ -214,6 +214,13 @@ class test_AMQP_Base:
             create_sent_event=False,
         )
 
+    def producer(self):
+        """A producer whose publish and channel lookup can be awaited."""
+        prod = Mock(name="producer")
+        prod.publish = AsyncMock(name="publish")
+        prod._ensure_channel = AsyncMock(name="_ensure_channel")
+        return prod
+
 
 class test_AMQP(test_AMQP_Base):
     def test_kwargs_must_be_mapping(self):
@@ -232,12 +239,12 @@ class test_AMQP(test_AMQP_Base):
         x = self.app.amqp.Queues({}, max_priority=23)
         assert x.max_priority == 23
 
-    def test_send_task_message__no_kwargs(self):
-        self.app.amqp.send_task_message(Mock(), "foo", self.simple_message)
+    async def test_send_task_message__no_kwargs(self):
+        await self.app.amqp.asend_task_message(self.producer(), "foo", self.simple_message)
 
-    def test_send_task_message__properties(self):
-        prod = Mock(name="producer")
-        self.app.amqp.send_task_message(
+    async def test_send_task_message__properties(self):
+        prod = self.producer()
+        await self.app.amqp.asend_task_message(
             prod,
             "foo",
             self.simple_message_no_sent_event,
@@ -246,9 +253,25 @@ class test_AMQP(test_AMQP_Base):
         )
         assert prod.publish.call_args[1]["foo"] == 1
 
-    def test_send_task_message__headers(self):
-        prod = Mock(name="producer")
-        self.app.amqp.send_task_message(
+    async def test_send_task_message__publish_options_are_not_properties(self):
+        # Anything the sender does not name lands in the message properties,
+        # and these two steer the publish rather than describe the message.
+        prod = self.producer()
+        await self.app.amqp.asend_task_message(
+            prod,
+            "foo",
+            self.simple_message_no_sent_event,
+            retry=True,
+            retry_policy={"max_retries": 5},
+        )
+        kwargs = prod.publish.call_args[1]
+        assert kwargs["retry"] is True
+        assert kwargs["retry_policy"]["max_retries"] == 5
+        assert "retry" not in self.simple_message_no_sent_event[1]
+
+    async def test_send_task_message__headers(self):
+        prod = self.producer()
+        await self.app.amqp.asend_task_message(
             prod,
             "foo",
             self.simple_message_no_sent_event,
@@ -257,9 +280,9 @@ class test_AMQP(test_AMQP_Base):
         )
         assert prod.publish.call_args[1]["headers"]["x1x"] == "y2x"
 
-    def test_send_task_message__queue_string(self):
-        prod = Mock(name="producer")
-        self.app.amqp.send_task_message(
+    async def test_send_task_message__queue_string(self):
+        prod = self.producer()
+        await self.app.amqp.asend_task_message(
             prod,
             "foo",
             self.simple_message_no_sent_event,
@@ -270,12 +293,25 @@ class test_AMQP(test_AMQP_Base):
         assert kwargs["routing_key"] == "foo"
         assert kwargs["exchange"] == ""
 
-    def test_send_task_message__broadcast_without_exchange(self):
+    async def test_send_task_message__declares_the_queue(self):
+        # A task sent before the worker ever ran went to a queue that did not
+        # exist yet, and the broker dropped it.
+        prod = self.producer()
+        channel = prod._ensure_channel.return_value
+        await self.app.amqp.asend_task_message(
+            prod,
+            "foo",
+            self.simple_message_no_sent_event,
+            queue="foo",
+        )
+        assert channel.declare_queue.await_args.args[0].name == "foo"
+
+    async def test_send_task_message__broadcast_without_exchange(self):
         from kombu.common import Broadcast
 
         evd = Mock(name="evd")
-        self.app.amqp.send_task_message(
-            Mock(),
+        await self.app.amqp.asend_task_message(
+            self.producer(),
             "foo",
             self.simple_message,
             retry=False,
@@ -288,9 +324,9 @@ class test_AMQP(test_AMQP_Base):
         assert event["routing_key"] == "xyz"
         assert event["exchange"] == "abc"
 
-    def test_send_event_exchange_direct_with_exchange(self):
-        prod = Mock(name="prod")
-        self.app.amqp.send_task_message(
+    async def test_send_event_exchange_direct_with_exchange(self):
+        prod = self.producer()
+        await self.app.amqp.asend_task_message(
             prod,
             "foo",
             self.simple_message_no_sent_event,
@@ -304,9 +340,9 @@ class test_AMQP(test_AMQP_Base):
         assert pub["routing_key"] == "bar"
         assert pub["exchange"] == ""
 
-    def test_send_event_exchange_direct_with_routing_key(self):
-        prod = Mock(name="prod")
-        self.app.amqp.send_task_message(
+    async def test_send_event_exchange_direct_with_routing_key(self):
+        prod = self.producer()
+        await self.app.amqp.asend_task_message(
             prod,
             "foo",
             self.simple_message_no_sent_event,
@@ -320,10 +356,10 @@ class test_AMQP(test_AMQP_Base):
         assert pub["routing_key"] == "bar"
         assert pub["exchange"] == ""
 
-    def test_send_event_exchange_string(self):
+    async def test_send_event_exchange_string(self):
         evd = Mock(name="evd")
-        self.app.amqp.send_task_message(
-            Mock(),
+        await self.app.amqp.asend_task_message(
+            self.producer(),
             "foo",
             self.simple_message,
             retry=False,
@@ -336,7 +372,7 @@ class test_AMQP(test_AMQP_Base):
         assert event["routing_key"] == "xyb"
         assert event["exchange"] == "xyz"
 
-    def test_send_task_message__no_default_queue(self):
+    async def test_send_task_message__no_default_queue(self):
         # Reading amqp.default_queue creates it. Capturing it when the sender
         # was built therefore raised KeyError for a setup that routes every
         # task explicitly and has missing-queue creation turned off.
@@ -344,8 +380,8 @@ class test_AMQP(test_AMQP_Base):
         conf.task_create_missing_queues = False
         conf.task_queues = {Queue("my_queue")}
 
-        prod = Mock(name="producer")
-        self.app.amqp.send_task_message(
+        prod = self.producer()
+        await self.app.amqp.asend_task_message(
             prod,
             "foo",
             self.simple_message_no_sent_event,
@@ -356,9 +392,9 @@ class test_AMQP(test_AMQP_Base):
         assert kwargs["routing_key"] == "my_queue"
         assert kwargs["exchange"] == ""
 
-    def test_send_task_message__with_delivery_mode(self):
-        prod = Mock(name="producer")
-        self.app.amqp.send_task_message(
+    async def test_send_task_message__with_delivery_mode(self):
+        prod = self.producer()
+        await self.app.amqp.asend_task_message(
             prod,
             "foo",
             self.simple_message_no_sent_event,
@@ -366,26 +402,6 @@ class test_AMQP(test_AMQP_Base):
             retry=False,
         )
         assert prod.publish.call_args[1]["delivery_mode"] == 33
-
-    def test_send_task_message__with_timeout(self):
-        prod = Mock(name="producer")
-        self.app.amqp.send_task_message(
-            prod,
-            "foo",
-            self.simple_message_no_sent_event,
-            timeout=1,
-        )
-        assert prod.publish.call_args[1]["timeout"] == 1
-
-    def test_send_task_message__with_confirm_timeout(self):
-        prod = Mock(name="producer")
-        self.app.amqp.send_task_message(
-            prod,
-            "foo",
-            self.simple_message_no_sent_event,
-            confirm_timeout=1,
-        )
-        assert prod.publish.call_args[1]["confirm_timeout"] == 1
 
     def test_routes(self):
         r1 = self.app.amqp.routes
@@ -456,18 +472,18 @@ class test_as_task_v2(test_AMQP_Base):
         )
         assert m.headers["eta"] == eta.isoformat()
 
-    def test_compression(self):
+    async def test_compression(self):
         self.app.conf.task_compression = "gzip"
 
-        prod = Mock(name="producer")
-        self.app.amqp.send_task_message(prod, "foo", self.simple_message_no_sent_event, compression=None)
+        prod = self.producer()
+        await self.app.amqp.asend_task_message(prod, "foo", self.simple_message_no_sent_event, compression=None)
         assert prod.publish.call_args[1]["compression"] == "gzip"
 
-    def test_compression_override(self):
+    async def test_compression_override(self):
         self.app.conf.task_compression = "gzip"
 
-        prod = Mock(name="producer")
-        self.app.amqp.send_task_message(prod, "foo", self.simple_message_no_sent_event, compression="bz2")
+        prod = self.producer()
+        await self.app.amqp.asend_task_message(prod, "foo", self.simple_message_no_sent_event, compression="bz2")
         assert prod.publish.call_args[1]["compression"] == "bz2"
 
     def test_callbacks_errbacks_chord(self):

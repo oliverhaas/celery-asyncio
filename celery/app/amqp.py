@@ -7,10 +7,11 @@ import threading
 from collections import namedtuple
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from weakref import WeakValueDictionary
+from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from kombu import Connection, Consumer, Exchange, Producer, Queue
 from kombu.common import Broadcast
+from kombu.utils.eventloop import current_loop, default_loop_runner
 from kombu.utils.functional import maybe_list
 from kombu.utils.objects import cached_property
 
@@ -288,10 +289,6 @@ class AMQP:
     #: Cached and prepared routing table.
     _rtable = None
 
-    #: Underlying producer pool instance automatically
-    #: set by the :attr:`producer_pool`.
-    _producer_pool = None
-
     # Exchange class/function used when defining automatic queues.
     # For example, you can use ``autoexchange = lambda n: None`` to use the
     # AMQP default exchange: a shortcut to bypass routing
@@ -312,6 +309,7 @@ class AMQP:
             2: self.as_task_v2,
         }
         self.app._conf.bind_to(self._handle_conf_update)
+        self._event_dispatchers = WeakKeyDictionary()
 
         # Register ETA signal handler (once, idempotent)
         global _eta_signal_connected
@@ -324,10 +322,6 @@ class AMQP:
     @cached_property
     def create_task_message(self):
         return self.task_protocols[self.app.conf.task_protocol]
-
-    @cached_property
-    def send_task_message(self):
-        return self._create_task_sender()
 
     def Queues(
         self,
@@ -600,11 +594,8 @@ class AMQP:
             raise ValueError(f"{what} is out of range: {s!r}")
         return s
 
-    def _create_task_sender(self):
-        # `amqp.default_queue` is looked up per send, not captured here:
-        # reading it creates the default queue, which a setup that routes
-        # every task explicitly never wants and may not even have configured
-        # (upstream 1a4768959).
+    def _create_async_task_sender(self):
+        """Build the coroutine function that publishes a task message."""
         amqp = self
         default_retry = self.app.conf.task_publish_retry
         default_policy = self.app.conf.task_publish_retry_policy
@@ -615,14 +606,13 @@ class AMQP:
         send_after_publish = signals.after_task_publish.send
         after_receivers = signals.after_task_publish.receivers
 
-        default_evd = self._event_dispatcher
         default_exchange = self.default_exchange
 
         default_rkey = self.app.conf.task_default_routing_key
         default_serializer = self.app.conf.task_serializer
         default_compressor = self.app.conf.task_compression
 
-        def send_task_message(
+        async def asend_task_message(
             producer,
             name,
             message,
@@ -638,141 +628,17 @@ class AMQP:
             declare=None,
             headers=None,
             exchange_type=None,
-            timeout=None,
-            confirm_timeout=None,
             **kwargs,
         ):
-            retry = default_retry if retry is None else retry
-            headers2, properties, body, sent_event = message
-            if headers:
-                headers2.update(headers)
-            if kwargs:
-                properties.update(kwargs)
+            """Publish one task message.
 
-            qname = queue
-            if queue is None and exchange is None:
-                queue = amqp.default_queue
-            if queue is not None:
-                if isinstance(queue, str):
-                    qname, queue = queue, queues[queue]
-                else:
-                    qname = queue.name
-
-            if delivery_mode is None:
-                try:
-                    delivery_mode = queue.exchange.delivery_mode
-                except AttributeError:
-                    pass
-                delivery_mode = delivery_mode or default_delivery_mode
-
-            if exchange_type is None:
-                try:
-                    exchange_type = queue.exchange.type
-                except AttributeError:
-                    exchange_type = "direct"
-
-            # convert to anon-exchange, when exchange not set and direct ex.
-            if (not exchange or not routing_key) and exchange_type == "direct":
-                exchange, routing_key = "", qname
-            elif exchange is None:
-                # not topic exchange, and exchange not undefined
-                exchange = queue.exchange.name or default_exchange
-                routing_key = routing_key or queue.routing_key or default_rkey
-            if declare is None and queue and not isinstance(queue, Broadcast):
-                declare = [queue]
-
-            # merge default and custom policy
+            Anything left in `kwargs` becomes a message property, so every
+            option that steers the publish rather than describing the message
+            is named above: unnamed, `retry` and `retry_policy` went out on the
+            wire as properties of the message.
+            """
             retry = default_retry if retry is None else retry
             _rp = dict(default_policy, **retry_policy) if retry_policy else default_policy
-
-            if before_receivers:
-                send_before_publish(
-                    sender=name,
-                    body=body,
-                    exchange=exchange,
-                    routing_key=routing_key,
-                    declare=declare,
-                    headers=headers2,
-                    properties=properties,
-                    retry_policy=retry_policy,
-                )
-            ret = producer.publish(
-                body,
-                exchange=exchange,
-                routing_key=routing_key,
-                serializer=serializer or default_serializer,
-                compression=compression or default_compressor,
-                retry=retry,
-                retry_policy=_rp,
-                delivery_mode=delivery_mode,
-                declare=declare,
-                headers=headers2,
-                timeout=timeout,
-                confirm_timeout=confirm_timeout,
-                **properties,
-            )
-            if after_receivers:
-                send_after_publish(sender=name, body=body, headers=headers2, exchange=exchange, routing_key=routing_key)
-            if sent_event:
-                evd = event_dispatcher or default_evd
-                exname = exchange
-                if isinstance(exname, Exchange):
-                    exname = exname.name
-                sent_event.update(
-                    {
-                        "queue": qname,
-                        "exchange": exname,
-                        "routing_key": routing_key,
-                    }
-                )
-                evd.publish("task-sent", sent_event, producer, retry=retry, retry_policy=retry_policy)
-            return ret
-
-        return send_task_message
-
-    def _create_async_task_sender(self):
-        """Create async version of send_task_message for native asyncio.
-
-        This creates a coroutine function that uses kombu's native
-        async Producer.publish() instead of wrapping sync calls.
-        """
-        amqp = self
-        default_delivery_mode = self.app.conf.task_default_delivery_mode
-        queues = self.queues
-        send_before_publish = signals.before_task_publish.send
-        before_receivers = signals.before_task_publish.receivers
-        send_after_publish = signals.after_task_publish.send
-        after_receivers = signals.after_task_publish.receivers
-
-        default_evd = self._event_dispatcher
-        default_exchange = self.default_exchange
-
-        default_rkey = self.app.conf.task_default_routing_key
-        default_serializer = self.app.conf.task_serializer
-        default_compressor = self.app.conf.task_compression
-
-        async def asend_task_message(
-            producer,
-            name,
-            message,
-            exchange=None,
-            routing_key=None,
-            queue=None,
-            event_dispatcher=None,
-            serializer=None,
-            delivery_mode=None,
-            compression=None,
-            declare=None,
-            headers=None,
-            exchange_type=None,
-            **kwargs,
-        ):
-            """Async version of send_task_message using native asyncio.
-
-            Note: retry, retry_policy, timeout, confirm_timeout are not supported
-            in the native async version. Retry logic should be handled at a higher
-            level if needed.
-            """
             headers2, properties, body, sent_event = message
             if headers:
                 headers2.update(headers)
@@ -809,7 +675,13 @@ class AMQP:
                 exchange = queue.exchange.name or default_exchange
                 routing_key = routing_key or queue.routing_key or default_rkey
 
-            # Handle declare - in kombu, we need to declare queues explicitly
+            if declare is None and queue is not None and not isinstance(queue, Broadcast):
+                # The queue the message is routed to, declared as part of
+                # sending it. Without this a task published before the worker
+                # has ever run went to a queue that does not exist yet, and the
+                # broker dropped it.
+                declare = [queue]
+
             if declare:
                 channel = await producer._ensure_channel()
                 for entity in declare:
@@ -825,16 +697,17 @@ class AMQP:
                     declare=declare,
                     headers=headers2,
                     properties=properties,
-                    retry_policy=None,
+                    retry_policy=retry_policy,
                 )
 
-            # Native async publish
             await producer.publish(
                 body,
                 exchange=exchange,
                 routing_key=routing_key,
                 serializer=serializer or default_serializer,
                 compression=compression or default_compressor,
+                retry=retry,
+                retry_policy=_rp,
                 delivery_mode=delivery_mode,
                 headers=headers2,
                 **properties,
@@ -843,7 +716,7 @@ class AMQP:
             if after_receivers:
                 send_after_publish(sender=name, body=body, headers=headers2, exchange=exchange, routing_key=routing_key)
             if sent_event:
-                evd = event_dispatcher or default_evd
+                evd = event_dispatcher or amqp._event_dispatcher
                 exname = exchange
                 if isinstance(exname, Exchange):
                     exname = exname.name
@@ -854,8 +727,7 @@ class AMQP:
                         "routing_key": routing_key,
                     }
                 )
-                # Note: async event publish would need to be implemented
-                evd.publish("task-sent", sent_event, producer)
+                evd.publish("task-sent", sent_event, producer, retry=retry, retry_policy=retry_policy)
 
         return asend_task_message
 
@@ -903,11 +775,22 @@ class AMQP:
     def utc(self):
         return self.app.conf.enable_utc
 
-    @cached_property
+    @property
     def _event_dispatcher(self):
-        # We call Dispatcher.publish with a custom producer
-        # so don't need the dispatcher to be enabled.
-        return self.app.events.Dispatcher(enabled=False)
+        """The `task-sent` dispatcher for the loop this runs on.
+
+        A dispatcher publishes on the loop it was built on and drops what it is
+        handed once that loop is gone, so one cached dispatcher meant every
+        `task-sent` event after the first loop closed went nowhere.
+        """
+        loop = current_loop() or default_loop_runner().loop
+        dispatcher = self._event_dispatchers.get(loop)
+        if dispatcher is None:
+            # publish() is called with the task's own producer, so this needs
+            # no connection of its own and never has to be enabled.
+            dispatcher = self._event_dispatchers[loop] = self.app.events.Dispatcher(enabled=False)
+            dispatcher._event_loop = loop
+        return dispatcher
 
     def _handle_conf_update(self, *args, **kwargs):
         if "task_routes" in kwargs or "task_routes" in args:
