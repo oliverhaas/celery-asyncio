@@ -1,3 +1,4 @@
+import importlib
 import os
 import re
 from unittest.mock import patch
@@ -11,9 +12,27 @@ from celery.bin.base import handle_remote_command_error
 from celery.bin.control import _compile_arguments
 from celery.bin.celery import celery
 from celery.platforms import EX_UNAVAILABLE
+from celery.worker.control import Panel
 
 _GLOBAL_OPTIONS = ["-A", "tests.unit.bin.proj.app_with_custom_cmds", "--broker", "memory://"]
 _INSPECT_OPTIONS = ["--timeout", "0"]  # Avoid waiting for the zero workers to reply
+
+
+@pytest.fixture(autouse=True, scope="module")
+def custom_remote_commands():
+    """Keep the commands of the app under test out of the global registry.
+
+    The app registers them when it is imported, which happens once per session,
+    and they stayed in `Panel` afterwards: a later test asserting that every
+    registered command has a client method then failed on them.
+    """
+    data, meta = dict(Panel.data), dict(Panel.meta)
+    importlib.import_module("tests.unit.bin.proj.app_with_custom_cmds")
+    yield
+    Panel.data.clear()
+    Panel.data.update(data)
+    Panel.meta.clear()
+    Panel.meta.update(meta)
 
 
 @pytest.fixture(autouse=True)
