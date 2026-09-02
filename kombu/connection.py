@@ -85,14 +85,15 @@ class Connection:
         hostname: Broker URL (e.g., 'redis://localhost:6379', 'memory://').
 
     Keyword Arguments:
-        transport_options: Additional options for the transport.
+        transport_options: Additional options for the transport. Everything
+            else a broker needs, credentials, virtual host, port, TLS, is
+            part of the URL.
     """
 
     def __init__(
         self,
         hostname: str = "redis://localhost:6379",
         transport_options: dict | None = None,
-        **kwargs: Any,
     ):
         self._url = hostname
         self._transport_options = transport_options or {}

@@ -94,6 +94,13 @@ class test_Connection:
         assert cloned._transport_options == conn._transport_options
         assert cloned is not conn
 
+    def test_a_broker_setting_that_belongs_in_the_url_is_rejected(self):
+        # The constructor ended in **kwargs, so a caller passing the settings
+        # upstream kombu takes as arguments, and this fork takes in the URL,
+        # got a connection to somewhere else without being told.
+        with pytest.raises(TypeError, match="userid"):
+            Connection("memory://", userid="guest")
+
     def test_clone_override(self):
         conn = Connection("memory://")
         cloned = conn.clone(hostname="redis://localhost")
