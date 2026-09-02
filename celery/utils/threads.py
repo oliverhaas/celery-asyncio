@@ -3,12 +3,10 @@
 """Threading primitives and utilities."""
 
 import os
-import socket
 import sys
 import threading
 import traceback
 import types
-from contextlib import contextmanager
 from contextvars import ContextVar
 from threading import TIMEOUT_MAX as THREAD_TIMEOUT_MAX
 from threading import get_ident
@@ -21,19 +19,7 @@ __all__ = (
     "LocalStack",
     "LocalManager",
     "get_ident",
-    "default_socket_timeout",
 )
-
-
-@contextmanager
-def default_socket_timeout(timeout):
-    """Context temporarily setting the default socket timeout."""
-    prev = socket.getdefaulttimeout()
-    socket.setdefaulttimeout(timeout)
-    try:
-        yield
-    finally:
-        socket.setdefaulttimeout(prev)
 
 
 class bgThread(threading.Thread):

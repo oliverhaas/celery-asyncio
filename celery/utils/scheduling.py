@@ -1,10 +1,8 @@
 """Scheduling primitives for celery-asyncio.
 
-Provides Timer, Hub, and related scheduling components for the asyncio-based
-worker. These are native asyncio implementations.
+Provides the timer the worker and the pools schedule delayed work on.
 """
 
-import asyncio
 import heapq
 import logging
 import threading
@@ -17,79 +15,13 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 __all__ = (
-    # Hub and event loop
-    "Hub",
-    "get_event_loop",
-    "set_event_loop",
-    # Semaphores
     "DummyLock",
-    "LaxBoundedSemaphore",
-    # Timer
     "Timer",
     "Entry",
     "to_timestamp",
 )
 
 logger = logging.getLogger(__name__)
-
-# =============================================================================
-# Event Loop / Hub
-# =============================================================================
-
-_current_hub: Hub | None = None
-
-
-class Hub:
-    """Asyncio-based event hub.
-
-    This is a simplified hub that wraps asyncio's event loop.
-    In celery-asyncio, we use native asyncio instead of a custom hub.
-    """
-
-    def __init__(self, timer: Timer | None = None) -> None:
-        self.timer = timer or Timer()
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._callbacks: list[Callable[[], Any]] = []
-
-    @property
-    def loop(self) -> asyncio.AbstractEventLoop:
-        if self._loop is None:
-            try:
-                self._loop = asyncio.get_running_loop()
-            except RuntimeError:
-                self._loop = asyncio.new_event_loop()
-        return self._loop
-
-    def call_soon(self, callback: Callable[[], Any]) -> None:
-        """Schedule callback to be called soon."""
-        self._callbacks.append(callback)
-
-    def call_later(self, delay: float, callback: Callable[[], Any]) -> None:
-        """Schedule callback after delay seconds."""
-        self.timer.call_after(delay, callback)
-
-    def close(self) -> None:
-        """Close the hub."""
-        self._callbacks.clear()
-        if self.timer:
-            self.timer.clear()
-
-
-def get_event_loop() -> Hub | None:
-    """Get the current event loop/hub."""
-    return _current_hub
-
-
-def set_event_loop(hub: Hub) -> Hub:
-    """Set the current event loop/hub."""
-    global _current_hub
-    _current_hub = hub
-    return hub
-
-
-# =============================================================================
-# Semaphores
-# =============================================================================
 
 
 class DummyLock:
@@ -109,57 +41,6 @@ class DummyLock:
 
     def __exit__(self, *args: Any) -> None:
         pass
-
-
-class LaxBoundedSemaphore:
-    """Bounded semaphore that allows releasing more than acquired.
-
-    This is a synchronous semaphore for use in the worker.
-    """
-
-    def __init__(self, value: int = 1) -> None:
-        self._initial_value = value
-        self._value = value
-        self._lock = threading.Lock()
-        self._condition = threading.Condition(self._lock)
-
-    def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
-        """Acquire the semaphore."""
-        with self._condition:
-            if not blocking:
-                if self._value <= 0:
-                    return False
-                self._value -= 1
-                return True
-
-            while self._value <= 0:
-                if not self._condition.wait(timeout):
-                    return False
-            self._value -= 1
-            return True
-
-    def release(self) -> None:
-        """Release the semaphore."""
-        with self._condition:
-            self._value += 1
-            self._value = min(self._value, self._initial_value)
-            self._condition.notify()
-
-    def __enter__(self) -> LaxBoundedSemaphore:
-        self.acquire()
-        return self
-
-    def __exit__(self, *args: Any) -> None:
-        self.release()
-
-    @property
-    def value(self) -> int:
-        return self._value
-
-
-# =============================================================================
-# Timer
-# =============================================================================
 
 
 def to_timestamp(dt: float | None, default_timezone: Any = None) -> float:
