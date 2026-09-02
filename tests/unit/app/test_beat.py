@@ -106,8 +106,6 @@ class test_ScheduleEntry:
     def test_lt_orders_entries_consistently(self):
         e1 = self.create_entry(schedule=timedelta(seconds=10))
         e2 = self.create_entry(schedule=timedelta(seconds=2))
-        # which of the two comes first does not matter, see the comment in
-        # __lt__, only that the order is total and stable
         assert operator.lt(e1, e2) == (id(e1) < id(e2))
         assert operator.lt(e1, e2) != operator.lt(e2, e1)
         assert not operator.lt(e1, e1)
@@ -979,7 +977,6 @@ class test_Service:
             s.start()
         assert s._is_stopped.is_set()
         assert s._is_shutdown.is_set()
-        # stop() must not block waiting for a service that never started.
         s.stop(wait=True)
 
     def test_sync_does_not_build_a_scheduler_that_start_failed_to_build(self):

@@ -188,8 +188,6 @@ class Handler:
 
 class test_bound_method_receivers:
     def test_two_instances_both_receive(self):
-        # bound methods of two instances share a __func__, so keying on the
-        # function alone silently dropped the second connect().
         signal = Signal(name="two-instances")
         first, second = Handler("first"), Handler("second")
         signal.connect(first.on_signal, weak=False)
@@ -232,7 +230,6 @@ class test_caching_senders:
         signal = Signal(name="cached-none", use_caching=True)
         signal.connect(receiver_1_arg, weak=False)
         assert signal.send(sender=None, val="x") == [(receiver_1_arg, "x")]
-        # second send comes out of the cache
         assert signal.send(sender=None, val="x") == [(receiver_1_arg, "x")]
 
     def test_string_sender(self):

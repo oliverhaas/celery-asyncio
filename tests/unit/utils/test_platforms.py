@@ -423,8 +423,6 @@ class test_DaemonContext:
         close.assert_called_once_with(37)
 
     def test_open_closes_fds_and_redirects_stdio(self, tmp_path):
-        # close_open_fds() used to be handed a list and die with AttributeError
-        # in the daemonized grandchild, so run the real thing in its own process.
         script = tmp_path / "daemonize.py"
         script.write_text(
             textwrap.dedent(

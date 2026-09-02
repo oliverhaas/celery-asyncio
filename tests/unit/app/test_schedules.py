@@ -892,8 +892,6 @@ class test_crontab_is_due:
                 datetime(2013, 6, 28, 22, 14),
             )
             assert not due
-            # the next run is 2014-02-26 22:00, and the app timezone is UTC,
-            # so the difference carries no daylight saving offset.
             expected = datetime(2014, 2, 26, 22, 0) - datetime(2013, 6, 28, 14, 30)
             assert remaining == expected.total_seconds()
 

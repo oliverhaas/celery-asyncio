@@ -209,8 +209,6 @@ class test_LimitedSet:
         assert len(s._heap) <= s.maxlen * (100.0 + s.max_heap_percent_overload) / 100
 
     def test_readding_an_item_refreshes_its_expiry(self):
-        # A re-revoked task id used to keep the timestamp of its first revoke,
-        # because add() left the stale heap entry behind.
         s = LimitedSet(expires=10)
         for i, item in enumerate("abcdefghij", start=1):
             s.add(item, now=float(i))
@@ -325,7 +323,6 @@ class test_LimitedSet:
         assert s != 1
         assert not s == "foo"
         assert s.__eq__(1) is NotImplemented
-        # a membership test compares against every element of the list
         assert s not in [1, "foo"]
 
     def test_iterable_and_ordering(self):

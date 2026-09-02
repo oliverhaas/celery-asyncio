@@ -200,10 +200,7 @@ class test_regen:
             assert e == next(iter_g)
         with pytest.raises(AssertionError, match="Iterator errored"):
             next(iter_g)
-        # the failed pass never reached the end of the source
         assert g._regen__done is False
-        # the source is bound once, so a second pass replays what was consumed
-        # and stops there instead of restarting the source and duping it
         iter_g = iter(g)
         for e in original_list:
             assert next(iter_g) == e
