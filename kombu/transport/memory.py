@@ -1,7 +1,9 @@
 """Pure asyncio in-memory transport for Kombu.
 
-Simple transport using asyncio.Queue for storing messages.
-Messages can be passed between coroutines within the same process.
+Messages are held in process-wide deques, so every ``memory://`` connection in
+the process shares them. The deques carry no event loop affinity: a producer
+running under one event loop (or thread) and a consumer running under another
+can exchange messages.
 
 Features
 ========
@@ -20,22 +22,22 @@ Connection String
 """
 
 import asyncio
-import base64
 import re
+import threading
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from kombu.log import get_logger
 from kombu.message import Message
-from kombu.utils.json import dumps as json_dumps
-from kombu.utils.json import loads as json_loads
 
 from .base import Channel as BaseChannel
 from .base import Transport as BaseTransport
+from .base import decode_envelope
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from asyncio import AbstractEventLoop, Future
+    from collections.abc import Callable, Iterable
     from collections.abc import Set as AbstractSet
 
     from kombu.entity import Exchange, Queue
@@ -44,21 +46,44 @@ __all__ = ("Channel", "Transport")
 
 logger = get_logger("kombu.transport.memory")
 
+#: Upper bound on a single wait inside :meth:`Channel.drain_events`. Waking up
+#: this often lets a drain that is already blocked pick up consumers another
+#: task registered in the meantime.
+MAX_WAIT = 1.0
+
+
+def _resolve(waiter: Future[None]) -> None:
+    if not waiter.done():
+        waiter.set_result(None)
+
+
+def _wake(loop: AbstractEventLoop, waiter: Future[None]) -> None:
+    """Resolve a waiter from whichever thread published the message."""
+    if waiter.done() or loop.is_closed():
+        return
+    loop.call_soon_threadsafe(_resolve, waiter)
+
 
 class Channel(BaseChannel):
     """Pure asyncio in-memory channel.
 
-    Uses asyncio.Queue for message storage.
+    Queues are plain deques shared by the whole process. A drain that has to
+    wait registers a future on its own event loop, and publishing resolves that
+    future through the loop it came from, so nothing shared binds to one loop.
     """
 
     # Shared state across all channels
-    _queues: ClassVar[dict[str, asyncio.Queue]] = {}
+    _queues: ClassVar[dict[str, deque[bytes]]] = {}
     _exchanges: ClassVar[dict[str, dict]] = {}
     _bindings: ClassVar[dict[str, list[tuple[str, str]]]] = defaultdict(list)
+    #: Futures waiting for a message, keyed by queue name, each paired with the
+    #: event loop it was created on.
+    _waiters: ClassVar[dict[str, list[tuple[AbstractEventLoop, Future[None]]]]] = defaultdict(list)
+    #: Guards the queues and the waiter registry against publishers running in
+    #: another thread.
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
-    def __init__(self, transport: Transport, connection_id: str):
-        self._transport = transport
-        self._connection_id = connection_id
+    def __init__(self) -> None:
         self._channel_id = str(uuid.uuid4())
         self._consumers: dict[str, tuple[str, Callable, bool]] = {}
         self._closed = False
@@ -75,11 +100,50 @@ class Channel(BaseChannel):
         self._delivery_tag_counter += 1
         return f"{self._channel_id}.{self._delivery_tag_counter}"
 
-    def _get_queue(self, name: str) -> asyncio.Queue:
-        """Get or create an asyncio.Queue for the given name."""
-        if name not in self._queues:
-            self._queues[name] = asyncio.Queue()
-        return self._queues[name]
+    # Shared queue primitives
+
+    @classmethod
+    def _get_queue(cls, name: str) -> deque[bytes]:
+        """Get or create the deque backing the given queue."""
+        with cls._lock:
+            return cls._queues.setdefault(name, deque())
+
+    @classmethod
+    def _put(cls, name: str, data: bytes) -> None:
+        """Append a message and wake everything waiting on that queue."""
+        with cls._lock:
+            cls._queues.setdefault(name, deque()).append(data)
+            waiters = cls._waiters.pop(name, [])
+        for loop, waiter in waiters:
+            _wake(loop, waiter)
+
+    @classmethod
+    def _take(cls, name: str) -> bytes | None:
+        """Pop the oldest message from a queue, or None if it is empty."""
+        with cls._lock:
+            queue = cls._queues.get(name)
+            return queue.popleft() if queue else None
+
+    @classmethod
+    def _register_waiter(
+        cls,
+        names: Iterable[str],
+        loop: AbstractEventLoop,
+        waiter: Future[None],
+    ) -> None:
+        with cls._lock:
+            for name in names:
+                cls._waiters[name].append((loop, waiter))
+
+    @classmethod
+    def _discard_waiter(cls, names: Iterable[str], waiter: Future[None]) -> None:
+        with cls._lock:
+            for name in names:
+                remaining = [entry for entry in cls._waiters.get(name, ()) if entry[1] is not waiter]
+                if remaining:
+                    cls._waiters[name] = remaining
+                else:
+                    cls._waiters.pop(name, None)
 
     async def close(self) -> None:
         """Close the channel."""
@@ -87,16 +151,8 @@ class Channel(BaseChannel):
             return
         self._closed = True
 
-        # Requeue unacked messages
-        for delivery_tag, (queue, data) in self._unacked.items():
-            try:
-                await self._get_queue(queue).put(data)
-            except Exception:
-                logger.warning(
-                    "Failed to requeue message %s to %s",
-                    delivery_tag,
-                    queue,
-                )
+        for queue, data in self._unacked.values():
+            self._put(queue, data)
         self._unacked.clear()
         self._consumers.clear()
 
@@ -161,14 +217,12 @@ class Channel(BaseChannel):
 
     async def queue_purge(self, queue: str) -> int:
         """Purge all messages from a queue."""
-        q = self._get_queue(queue)
-        count = q.qsize()
-        # Clear the queue
-        while not q.empty():
-            try:
-                q.get_nowait()
-            except asyncio.QueueEmpty:
-                break
+        with self._lock:
+            messages = self._queues.get(queue)
+            if not messages:
+                return 0
+            count = len(messages)
+            messages.clear()
         return count
 
     async def queue_delete(
@@ -178,16 +232,14 @@ class Channel(BaseChannel):
         if_empty: bool = False,
     ) -> int:
         """Delete a queue."""
-        if queue not in self._queues:
-            return 0
-
-        q = self._queues[queue]
-
-        if if_empty and not q.empty():
-            return 0
-
-        count = q.qsize()
-        del self._queues[queue]
+        with self._lock:
+            messages = self._queues.get(queue)
+            if messages is None:
+                return 0
+            if if_empty and messages:
+                return 0
+            count = len(messages)
+            del self._queues[queue]
 
         # Remove from all exchange bindings
         for exchange in list(self._bindings.keys()):
@@ -210,13 +262,13 @@ class Channel(BaseChannel):
         exchange_type = exchange_meta.get("type", "direct")
 
         if exchange_type == "fanout":
-            await self._fanout_publish(exchange, message)
+            self._fanout_publish(exchange, message)
         elif exchange_type == "topic":
-            await self._topic_publish(exchange, routing_key, message)
+            self._topic_publish(exchange, routing_key, message)
         else:
-            await self._direct_publish(exchange, routing_key, message)
+            self._direct_publish(exchange, routing_key, message)
 
-    async def _direct_publish(
+    def _direct_publish(
         self,
         exchange: str,
         routing_key: str,
@@ -226,34 +278,26 @@ class Channel(BaseChannel):
         if exchange and exchange in self._bindings:
             for queue, rk in self._bindings[exchange]:
                 if rk == routing_key:
-                    await self._get_queue(queue).put(message)
+                    self._put(queue, message)
         else:
             # Default exchange: routing_key is the queue name
-            await self._get_queue(routing_key).put(message)
+            self._put(routing_key, message)
 
-    async def _fanout_publish(
-        self,
-        exchange: str,
-        message: bytes,
-    ) -> None:
+    def _fanout_publish(self, exchange: str, message: bytes) -> None:
         """Publish to fanout exchange."""
-        if exchange in self._bindings:
-            for queue, _ in self._bindings[exchange]:
-                await self._get_queue(queue).put(message)
+        for queue, _ in self._bindings.get(exchange, ()):
+            self._put(queue, message)
 
-    async def _topic_publish(
+    def _topic_publish(
         self,
         exchange: str,
         routing_key: str,
         message: bytes,
     ) -> None:
         """Publish to topic exchange with pattern matching."""
-        if exchange not in self._bindings:
-            return
-
-        for queue, pattern in self._bindings[exchange]:
+        for queue, pattern in self._bindings.get(exchange, ()):
             if self._topic_match(routing_key, pattern):
-                await self._get_queue(queue).put(message)
+                self._put(queue, message)
 
     def _topic_match(self, routing_key: str, pattern: str) -> bool:
         """Match routing key against topic pattern.
@@ -277,12 +321,10 @@ class Channel(BaseChannel):
         accept: AbstractSet[str] | None = None,
     ) -> Message | None:
         """Get a single message from a queue."""
-        q = self._get_queue(queue)
-        try:
-            data = q.get_nowait()
-            return self._create_message(queue, data, no_ack, accept)
-        except asyncio.QueueEmpty:
+        data = self._take(queue)
+        if data is None:
             return None
+        return self._create_message(queue, data, no_ack, accept)
 
     async def basic_consume(
         self,
@@ -309,71 +351,54 @@ class Channel(BaseChannel):
             self.no_ack_consumers.discard(consumer_tag)
 
     async def drain_events(self, timeout: float | None = None) -> bool:
-        """Wait for and deliver messages to consumers."""
-        if not self._consumers:
-            await asyncio.sleep(0.01)
-            return False
+        """Deliver one queued message to its consumer.
 
-        # Check all consumer queues
-        for queue, callback, no_ack in self._consumers.values():
-            q = self._get_queue(queue)
+        ``timeout=0`` polls: it delivers a message that is already queued and
+        returns straight away. A positive timeout waits at most that long, and
+        ``None`` waits indefinitely. Returns True if a message was delivered.
+
+        Cancelling a call in progress delivers nothing and leaves every queued
+        message where it is.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = None if timeout is None else loop.time() + timeout
+
+        while True:
+            names = {queue for queue, _, _ in self._consumers.values()}
+            waiter: Future[None] = loop.create_future()
+            # Register before reading the queues: a message published in
+            # between then resolves the waiter instead of going unnoticed.
+            self._register_waiter(names, loop, waiter)
             try:
-                # Try non-blocking first
-                data = q.get_nowait()
-                message = self._create_message(queue, data, no_ack)
-                await self._deliver_message(callback, message)
-                return True
-            except asyncio.QueueEmpty:
-                continue
+                if await self._deliver_ready():
+                    return True
 
-        # No messages available, wait with timeout
-        effective_timeout = timeout or 1.0
-        # Capture consumer list once — dict could change during await below
-        consumer_list = list(self._consumers.values())
-        queues = [self._get_queue(q) for q, _, _ in consumer_list]
+                if deadline is None:
+                    wait = MAX_WAIT
+                else:
+                    remaining = deadline - loop.time()
+                    if remaining <= 0:
+                        return False
+                    wait = min(remaining, MAX_WAIT)
 
-        # Create tasks to wait on all queues
-        wait_tasks = [asyncio.create_task(q.get()) for q in queues]
-
-        try:
-            done, pending = await asyncio.wait(
-                wait_tasks,
-                timeout=effective_timeout,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            # Cancel pending tasks
-            for task in pending:
-                task.cancel()
+                handle = loop.call_later(wait, _resolve, waiter)
                 try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+                    await waiter
+                finally:
+                    handle.cancel()
+            finally:
+                self._discard_waiter(names, waiter)
 
-            if done:
-                delivered = False
-                # Put back results from extra completed tasks, deliver only the first
-                for i, task in enumerate(wait_tasks):
-                    if task in done:
-                        data = task.result()
-                        if i < len(consumer_list):
-                            if not delivered:
-                                queue, callback, no_ack = consumer_list[i]
-                                message = self._create_message(queue, data, no_ack)
-                                await self._deliver_message(callback, message)
-                                delivered = True
-                            else:
-                                # Put the message back — it was consumed from the asyncio.Queue
-                                # but we can only deliver one per drain_events call
-                                q_name = consumer_list[i][0]
-                                await self._get_queue(q_name).put(data)
-                return delivered
-            return False
-        except Exception:
-            # Cancel all tasks on error
-            for task in wait_tasks:
-                task.cancel()
-            raise
+    async def _deliver_ready(self) -> bool:
+        """Deliver the first queued message found, if any."""
+        for queue, callback, no_ack in list(self._consumers.values()):
+            data = self._take(queue)
+            if data is None:
+                continue
+            message = self._create_message(queue, data, no_ack)
+            await self._deliver_message(callback, message)
+            return True
+        return False
 
     async def _deliver_message(
         self,
@@ -398,46 +423,23 @@ class Channel(BaseChannel):
         accept: AbstractSet[str] | None = None,
     ) -> Message:
         """Create a Message object from raw data."""
-        try:
-            payload = json_loads(data)
-            body = payload.get("body", data)
-            content_type = payload.get("content-type", "application/json")
-            content_encoding = payload.get("content-encoding", "utf-8")
-            properties = payload.get("properties", {})
-            headers = payload.get("headers", {})
-
-            if isinstance(body, str):
-                if headers.get("body_encoding") == "base64":
-                    body = base64.b64decode(body)
-                elif content_encoding not in ("binary", "ascii-8bit"):
-                    body = body.encode(content_encoding)
-                else:
-                    body = body.encode("utf-8")
-            elif isinstance(body, dict | list):
-                body = json_dumps(body).encode("utf-8")
-        except ValueError, TypeError:  # fmt: skip
-            body = data
-            content_type = "application/data"
-            content_encoding = "binary"
-            properties = {}
-            headers = {}
-
+        envelope = decode_envelope(data, queue)
         delivery_tag = self._next_delivery_tag()
 
         if not no_ack:
             self._unacked[delivery_tag] = (queue, data)
 
         return Message(
-            body=body,
+            body=envelope.body,
             delivery_tag=delivery_tag,
-            content_type=content_type,
-            content_encoding=content_encoding,
+            content_type=envelope.content_type,
+            content_encoding=envelope.content_encoding,
             delivery_info={
                 "exchange": "",
                 "routing_key": queue,
             },
-            properties=properties,
-            headers=headers,
+            properties=envelope.properties,
+            headers=envelope.headers,
             accept=accept,
             channel=self,
         )
@@ -447,28 +449,38 @@ class Channel(BaseChannel):
     async def basic_ack(self, delivery_tag: str, multiple: bool = False) -> None:
         """Acknowledge a message."""
         if multiple:
-            tags_to_ack = []
-            for tag in self._unacked:
-                tags_to_ack.append(tag)
-                if tag == delivery_tag:
-                    break
-            for tag in tags_to_ack:
+            for tag in self._tags_up_to(delivery_tag):
                 self._unacked.pop(tag, None)
         else:
             self._unacked.pop(delivery_tag, None)
+
+    def _tags_up_to(self, delivery_tag: str) -> list[str]:
+        """Return the unacked tags up to and including `delivery_tag`.
+
+        Empty when the tag is not outstanding, so a stale multiple-ack cannot
+        take the whole channel's unacked messages with it.
+        """
+        if delivery_tag not in self._unacked:
+            return []
+        tags = []
+        for tag in self._unacked:
+            tags.append(tag)
+            if tag == delivery_tag:
+                break
+        return tags
 
     async def basic_reject(self, delivery_tag: str, requeue: bool = True) -> None:
         """Reject a message."""
         entry = self._unacked.pop(delivery_tag, None)
         if entry and requeue:
             queue, data = entry
-            await self._get_queue(queue).put(data)
+            self._put(queue, data)
 
     async def basic_recover(self, requeue: bool = True) -> None:
         """Recover unacknowledged messages."""
         if requeue:
-            for _delivery_tag, (queue, data) in list(self._unacked.items()):
-                await self._get_queue(queue).put(data)
+            for queue, data in list(self._unacked.values()):
+                self._put(queue, data)
         self._unacked.clear()
 
 
@@ -478,7 +490,7 @@ _Channel = Channel
 class Transport(BaseTransport):
     """Pure asyncio in-memory transport.
 
-    Uses asyncio.Queue for message storage within a single process.
+    All channels in the process share one set of queues.
     """
 
     Channel = _Channel
@@ -490,7 +502,6 @@ class Transport(BaseTransport):
     def __init__(self, url: str = "memory://", **options: Any):
         super().__init__(url, **options)
         self._channels: list[Channel] = []
-        self._connection_id = str(uuid.uuid4())
         self._connected = False
 
     async def connect(self) -> None:
@@ -510,7 +521,7 @@ class Transport(BaseTransport):
         if not self._connected:
             await self.connect()
 
-        channel = Channel(self, self._connection_id)
+        channel = Channel()
         self._channels.append(channel)
         return channel
 
@@ -525,7 +536,13 @@ class Transport(BaseTransport):
 
     @classmethod
     def reset_state(cls) -> None:
-        """Reset all shared state (useful for testing)."""
-        Channel._queues.clear()
+        """Drop every queue, exchange and binding in the process.
+
+        Test hook: the queues outlive the connections that used them, so a
+        suite that wants each test to start empty calls this between tests.
+        """
+        with Channel._lock:
+            Channel._queues.clear()
+            Channel._waiters.clear()
         Channel._exchanges.clear()
         Channel._bindings.clear()

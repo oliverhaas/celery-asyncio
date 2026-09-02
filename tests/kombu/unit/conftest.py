@@ -19,13 +19,12 @@ def mock_channel(mock_transport):
 
 @pytest.fixture(autouse=True)
 def _reset_memory_transport():
-    """Reset memory transport shared state between tests."""
-    yield
-    try:
-        from kombu.transport.memory import Channel as MemoryChannel
+    """Start every test with empty memory queues.
 
-        MemoryChannel._queues.clear()
-        MemoryChannel._exchanges.clear()
-        MemoryChannel._bindings.clear()
-    except ImportError:
-        pass
+    The queues are process-wide by design, so messages and bindings a test
+    leaves behind would otherwise reach the next one.
+    """
+    from kombu.transport.memory import Transport as MemoryTransport
+
+    yield
+    MemoryTransport.reset_state()
