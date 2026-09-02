@@ -119,12 +119,7 @@ class test_lookup_route(RouteCase):
     def test_expands_queue_in_options(self):
         set_queues(self.app)
         R = routes.prepare(())
-        router = Router(
-            self.app,
-            R,
-            self.app.amqp.queues,
-            create_missing=True,
-        )
+        router = Router(self.app, R, self.app.amqp.queues)
         # apply_async forwards all arguments, even exchange=None etc,
         # so need to make sure it's merged correctly.
         route = router.route(

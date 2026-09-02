@@ -368,14 +368,9 @@ class AMQP:
             default_routing_key=default_routing_key,
         )
 
-    def Router(self, queues=None, create_missing=None):
+    def Router(self, queues=None):
         """Return the current task router."""
-        return _routes.Router(
-            self.routes,
-            queues or self.queues,
-            self.app.either("task_create_missing_queues", create_missing),
-            app=self.app,
-        )
+        return _routes.Router(self.routes, queues or self.queues, app=self.app)
 
     def flush_routes(self):
         self._rtable = _routes.prepare(self.app.conf.task_routes)

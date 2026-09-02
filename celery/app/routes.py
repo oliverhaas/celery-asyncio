@@ -55,11 +55,10 @@ class MapRoute:
 class Router:
     """Route tasks based on the :setting:`task_routes` setting."""
 
-    def __init__(self, routes=None, queues=None, create_missing=False, app=None):
+    def __init__(self, routes=None, queues=None, app=None):
         self.app = app
         self.queues = {} if queues is None else queues
         self.routes = [] if routes is None else routes
-        self.create_missing = create_missing
 
     def route(self, options, name, args=(), kwargs=None, task_type=None):
         kwargs = {} if not kwargs else kwargs
