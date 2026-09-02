@@ -17,6 +17,7 @@ from collections import UserDict, defaultdict, deque
 from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime
 from operator import attrgetter
+from urllib.parse import urlparse
 
 from click.exceptions import Exit
 from dateutil.parser import isoparse
@@ -1291,38 +1292,23 @@ class Celery:
                 parent.add_trail(result)
         return result
 
-    def connection_for_read(self, url=None, **kwargs):
+    def connection_for_read(self, url=None, transport_options=None, heartbeat=None):
         """Establish connection used for consuming.
 
         See Also:
-            :meth:`connection` for supported arguments.
+            :meth:`connection` for the arguments.
         """
-        return self._connection(url or self.conf.broker_read_url, **kwargs)
+        return self._connection(url or self.conf.broker_read_url, transport_options, heartbeat)
 
-    def connection_for_write(self, url=None, **kwargs):
+    def connection_for_write(self, url=None, transport_options=None, heartbeat=None):
         """Establish connection used for producing.
 
         See Also:
-            :meth:`connection` for supported arguments.
+            :meth:`connection` for the arguments.
         """
-        return self._connection(url or self.conf.broker_write_url, **kwargs)
+        return self._connection(url or self.conf.broker_write_url, transport_options, heartbeat)
 
-    def connection(
-        self,
-        hostname=None,
-        userid=None,
-        password=None,
-        virtual_host=None,
-        port=None,
-        ssl=None,
-        connect_timeout=None,
-        transport=None,
-        transport_options=None,
-        heartbeat=None,
-        login_method=None,
-        failover_strategy=None,
-        **kwargs,
-    ):
+    def connection(self, hostname=None, transport_options=None, heartbeat=None):
         """Establish a connection to the message broker.
 
         Please use :meth:`connection_for_read` and
@@ -1330,71 +1316,33 @@ class Celery:
         of use for this connection.
 
         Arguments:
-            url: Either the URL or the hostname of the broker to use.
-            hostname (str): URL, Hostname/IP-address of the broker.
-                If a URL is used, then the other argument below will
-                be taken from the URL instead.
-            userid (str): Username to authenticate as.
-            password (str): Password to authenticate with
-            virtual_host (str): Virtual host to use (domain).
-            port (int): Port to connect to.
-            ssl (bool, Dict): Defaults to the :setting:`broker_use_ssl`
-                setting.
-            transport (str): defaults to the :setting:`broker_transport`
-                setting.
-            transport_options (Dict): Dictionary of transport specific options.
-            heartbeat (int): AMQP Heartbeat in seconds (``pyamqp`` only).
-            login_method (str): Custom login method to use (AMQP only).
-            failover_strategy (str, Callable): Custom failover strategy.
-            **kwargs: Additional arguments to :class:`kombu.Connection`.
+            hostname (str): Broker URL, defaults to :setting:`broker_write_url`.
+                Credentials, virtual host and port are part of it.
+            transport_options (Dict): Transport specific options, merged over
+                :setting:`broker_transport_options`.
+            heartbeat (int): Heartbeat interval in seconds (AMQP only),
+                defaults to :setting:`broker_heartbeat`.
 
         Returns:
-            kombu.Connection: the lazy connection instance.
+            kombu.Connection: the connection, not yet connected.
         """
         return self.connection_for_write(
             hostname or self.conf.broker_write_url,
-            userid=userid,
-            password=password,
-            virtual_host=virtual_host,
-            port=port,
-            ssl=ssl,
-            connect_timeout=connect_timeout,
-            transport=transport,
             transport_options=transport_options,
             heartbeat=heartbeat,
-            login_method=login_method,
-            failover_strategy=failover_strategy,
-            **kwargs,
         )
 
-    def _connection(
-        self,
-        url,
-        userid=None,
-        password=None,
-        virtual_host=None,
-        port=None,
-        ssl=None,
-        connect_timeout=None,
-        transport=None,
-        transport_options=None,
-        heartbeat=None,
-        login_method=None,
-        failover_strategy=None,
-        **kwargs,
-    ):
-        """Create a connection to the broker.
-
-        In kombu, most parameters are embedded in the URL.
-        Only hostname (URL) and transport_options are used.
-        """
+    def _connection(self, url, transport_options=None, heartbeat=None):
         conf = self.conf
-        # Merge transport options
-        merged_transport_options = dict(conf.broker_transport_options or {}, **(transport_options or {}))
-        return self.amqp.Connection(
-            hostname=url,
-            transport_options=merged_transport_options,
-        )
+        options = dict(conf.broker_transport_options or {}, **(transport_options or {}))
+        if heartbeat is None:
+            heartbeat = conf.broker_heartbeat
+        if heartbeat and urlparse(url).scheme in ("amqp", "amqps"):
+            # A protocol-level heartbeat, which only AMQP has. The Redis
+            # transport hands every option it does not recognise to its
+            # client, which would reject this one.
+            options.setdefault("heartbeat", heartbeat)
+        return self.amqp.Connection(hostname=url, transport_options=options)
 
     broker_connection = connection
 

@@ -1602,6 +1602,45 @@ class test_broker_connection_reuse:
         assert not app._async_connections
 
 
+class test_connection_options:
+    """What reaches the transport when a connection is built."""
+
+    def _app(self, broker, **conf):
+        app = self.Celery(set_as_current=False, broker=broker)
+        app.conf.update(conf)
+        return app
+
+    def test_the_heartbeat_setting_reaches_an_amqp_connection(self):
+        app = self._app("amqp://guest:guest@h:5672//", broker_heartbeat=17)
+        assert app.connection_for_write()._transport_options["heartbeat"] == 17
+
+    def test_an_explicit_heartbeat_wins_over_the_setting(self):
+        app = self._app("amqp://guest:guest@h:5672//", broker_heartbeat=17)
+        assert app.connection(heartbeat=3)._transport_options["heartbeat"] == 3
+
+    def test_transport_options_win_over_the_setting(self):
+        app = self._app(
+            "amqp://guest:guest@h:5672//",
+            broker_heartbeat=17,
+            broker_transport_options={"heartbeat": 5},
+        )
+        assert app.connection_for_write()._transport_options["heartbeat"] == 5
+
+    def test_a_redis_connection_is_left_without_a_heartbeat(self):
+        # Redis has no protocol-level heartbeat, and its transport hands
+        # every option it does not know to redis-py, which rejects this one.
+        app = self._app("redis://h:6379/13", broker_heartbeat=17)
+        assert "heartbeat" not in app.connection_for_write()._transport_options
+
+    def test_the_url_carries_the_credentials(self):
+        app = self._app("amqp://me:s3cret@h:5672/vhost")
+        assert app.connection_for_write().as_uri(include_password=True) == "amqp://me:s3cret@h:5672/vhost"
+
+    def test_a_read_connection_uses_the_read_url(self):
+        app = self._app("amqp://h//", broker_read_url="amqp://reader//")
+        assert app.connection_for_read().as_uri() == "amqp://reader//"
+
+
 class test_defaults:
     def test_strtobool(self):
         for s in ("false", "no", "0"):
