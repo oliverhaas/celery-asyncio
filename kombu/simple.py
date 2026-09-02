@@ -6,6 +6,7 @@ from queue import Empty
 from typing import TYPE_CHECKING, Any
 
 from .entity import Exchange, Queue
+from .serialization import prepare_accept_content
 
 if TYPE_CHECKING:
     from .connection import Connection
@@ -85,7 +86,7 @@ class SimpleQueue:
 
         self._serializer = serializer
         self._compression = compression
-        self._accept = set(accept) if accept else None
+        self._accept = prepare_accept_content(accept)
         self._declared = False
 
     async def _ensure_channel(self) -> Channel:
@@ -128,6 +129,10 @@ class SimpleQueue:
 
     def _receive(self, body: Any, message: Message) -> None:
         """Callback for received messages."""
+        if self._accept is not None:
+            # get_nowait() hands `accept` to the transport, which cannot be
+            # reached from here, so the restriction goes on the message.
+            message.accept = self._accept
         self._buffer.append(message)
 
     async def put(
