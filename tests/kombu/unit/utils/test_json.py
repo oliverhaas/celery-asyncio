@@ -122,6 +122,14 @@ class test_dumps_loads:
         with pytest.raises(TypeError):
             dumps(x)
 
+    def test_loads_unregistered_type_names_the_type(self):
+        with pytest.raises(ValueError) as excinfo:
+            loads('{"__type__": "no_such_type", "__value__": 1}')
+
+        # The message used to carry the builtin `type` rather than the
+        # marker of the type that could not be decoded.
+        assert excinfo.value.args[1] == "no_such_type"
+
     def test_loads_memoryview(self):
         assert loads(memoryview(bytearray(dumps({"x": "z"}), encoding="utf-8"))) == {"x": "z"}
 

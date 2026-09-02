@@ -62,7 +62,7 @@ def object_hook(o: dict):
         decoder = _decoders.get(o["__type__"])
         if decoder:
             return decoder(o["__value__"])
-        raise ValueError("Unsupported type", type, o)
+        raise ValueError("Unsupported type", o["__type__"], o)
     return o
 
 
