@@ -8,6 +8,7 @@ from click.testing import CliRunner
 from kombu.exceptions import OperationalError
 
 from celery.bin.base import handle_remote_command_error
+from celery.bin.control import _compile_arguments
 from celery.bin.celery import celery
 from celery.platforms import EX_UNAVAILABLE
 
@@ -23,7 +24,6 @@ def clean_os_environ():
         yield
 
 
-@pytest.mark.skip(reason="Requires async broadcast with real broker connection")
 @pytest.mark.parametrize(
     ("celery_cmd", "custom_cmd"),
     [
@@ -165,3 +165,42 @@ def test_control_with_preload_option(cli_runner: CliRunner):
     assert broadcast.called
     assert res.exit_code == EX_UNAVAILABLE, (res, res.output)
     assert res.output.strip() == "Error: No nodes replied within time constraint"
+
+
+@pytest.mark.parametrize(
+    ("command", "argv", "expected"),
+    [
+        # The variadic used to be handed the last positional as well, so
+        # `terminate SIGTERM` asked the workers to kill a task id "SIGTERM".
+        ("terminate", ["SIGTERM"], {"signal": "SIGTERM", "task_id": []}),
+        ("terminate", ["SIGTERM", "id1"], {"signal": "SIGTERM", "task_id": ["id1"]}),
+        ("terminate", ["SIGTERM", "id1", "id2"], {"signal": "SIGTERM", "task_id": ["id1", "id2"]}),
+        ("revoke", ["id1", "id2"], {"task_id": ["id1", "id2"]}),
+        ("rate_limit", ["t.add", "10/s"], {"task_name": "t.add", "rate_limit": "10/s"}),
+    ],
+)
+def test_compile_arguments(command, argv, expected):
+    assert _compile_arguments(command, list(argv)) == expected
+
+
+def test_compile_arguments_leaves_no_positional_behind():
+    args = ["SIGTERM", "id1"]
+    _compile_arguments("terminate", args)
+    assert args == ["id1"]
+
+
+def test_status_quiet_omits_the_node_count(cli_runner: CliRunner):
+    # `-q` is a global option, so it arrives on ctx.obj, never in **kwargs.
+    with patch("celery.app.control.Inspect.ping", return_value={"node@host": {"ok": "pong"}}):
+        res = cli_runner.invoke(celery, [*_GLOBAL_OPTIONS, "-q", "status"], catch_exceptions=False)
+
+    assert res.exit_code == 0, (res, res.output)
+    assert "online" not in res.output
+
+
+def test_status_reports_the_node_count_without_quiet(cli_runner: CliRunner):
+    with patch("celery.app.control.Inspect.ping", return_value={"node@host": {"ok": "pong"}}):
+        res = cli_runner.invoke(celery, [*_GLOBAL_OPTIONS, "status"], catch_exceptions=False)
+
+    assert res.exit_code == 0, (res, res.output)
+    assert "1 node online." in res.output

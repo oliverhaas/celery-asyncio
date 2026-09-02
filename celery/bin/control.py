@@ -30,7 +30,12 @@ def _say_remote_command_reply(ctx, replies, show_reply=False):
 
 
 def _consume_arguments(meta, method, args):
-    i = 0
+    # `consumed` counts what was yielded, which is not the loop index: when the
+    # positionals run out exactly, the loop ends on the last one rather than
+    # breaking past it, and leaving `args` at that index handed the last
+    # positional to the variadic as well (`control terminate SIGTERM` targeted
+    # a task named "SIGTERM").
+    consumed = 0
     try:
         for i, arg in enumerate(args):
             try:
@@ -41,8 +46,9 @@ def _consume_arguments(meta, method, args):
                 raise click.UsageError(f"Command {method!r} takes arguments: {meta.signature}") from None
             else:
                 yield name, typ(arg) if typ is not None else arg
+                consumed = i + 1
     finally:
-        args[:] = args[i:]
+        args[:] = args[consumed:]
 
 
 def _compile_arguments(command, args):
@@ -145,7 +151,7 @@ def status(ctx, timeout, destination, json, **kwargs):
     if json:
         ctx.obj.echo(dumps(replies))
     nodecount = len(replies)
-    if not kwargs.get("quiet", False):
+    if not ctx.obj.quiet:
         ctx.obj.echo("\n{} {} online.".format(nodecount, text.pluralize(nodecount, "node")))
 
 
