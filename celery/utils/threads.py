@@ -292,12 +292,12 @@ class LocalStack:
     worker thread through ``asgiref.sync_to_async``, which copies the calling
     context into that thread but of course not its thread locals. A
     thread-local stack is therefore empty inside the task body, so
-    ``self.request`` there was a blank :class:`~celery.app.task.Context` --
+    ``self.request`` there was a blank :class:`~celery.app.task.Context` with
     no ``id``, no ``retries``, and ``called_directly`` still true, which turned
     every ``self.retry()`` into a silent no-op. A thread still gets a stack of
     its own unless Python hands it a copy of its parent's context, which
-    free-threaded builds do by default (``sys.flags.thread_inherit_context``)
-    -- and a copy is what the thread-local could never give it.
+    free-threaded builds do by default (``sys.flags.thread_inherit_context``),
+    and a copy is what the thread-local could never give it.
 
     The stack is held as a tuple and replaced on each push and pop rather than
     mutated: a copied context shares the object the variable holds, so a
