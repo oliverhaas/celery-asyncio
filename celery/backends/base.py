@@ -1493,6 +1493,9 @@ class DisabledBackend(BaseBackend):
     def store_result(self, *args, **kwargs):
         pass
 
+    async def astore_result(self, *args, **kwargs):
+        pass
+
     def ensure_chords_allowed(self):
         raise NotImplementedError(E_CHORD_NO_BACKEND.strip())
 
@@ -1503,4 +1506,10 @@ class DisabledBackend(BaseBackend):
         return "disabled://"
 
     get_state = get_status = get_result = get_traceback = _is_disabled
-    get_task_meta_for = wait_for = get_many = _is_disabled
+    wait_for = get_many = _is_disabled
+    # Storage hooks the abstract base leaves to concrete backends. Reading a
+    # result or a group without a backend is an error, not an empty answer,
+    # so every one of them reports the same "no result backend" message
+    # instead of an AttributeError.
+    _get_task_meta_for = _forget = _is_disabled
+    _save_group = _delete_group = _restore_group = _is_disabled

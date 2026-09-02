@@ -9,8 +9,9 @@ from kombu.serialization import prepare_accept_content
 from kombu.utils.encoding import bytes_to_str, ensure_bytes
 
 import celery
-from celery import chord, group, signature, states, uuid
+from celery import chord, group, signals, signature, states, uuid
 from celery.app.task import Context, Task
+from celery.app.trace import build_async_tracer, build_tracer
 from celery.backends.base import (
     BaseBackend,
     DisabledBackend,
@@ -1578,9 +1579,64 @@ class test_DisabledBackend:
     def test_store_result(self):
         DisabledBackend(self.app).store_result()
 
+    async def test_astore_result(self):
+        assert await DisabledBackend(self.app).astore_result("id", 42, states.SUCCESS) is None
+
     def test_is_disabled(self):
         with pytest.raises(NotImplementedError):
             DisabledBackend(self.app).get_state("foo")
+
+    @pytest.mark.celery(result_backend="disabled")
+    def test_state_and_exists_report_no_backend(self):
+        result = self.app.AsyncResult(uuid())
+        with pytest.raises(NotImplementedError):
+            result.state
+        with pytest.raises(NotImplementedError):
+            result.exists()
+
+    @pytest.mark.celery(result_backend="disabled")
+    async def test_aexists_reports_no_backend(self):
+        result = self.app.AsyncResult(uuid())
+        with pytest.raises(NotImplementedError):
+            await result.aexists()
+
+    @pytest.mark.celery(result_backend="disabled")
+    def test_sync_tracer_reports_success(self):
+        assert isinstance(self.app.backend, DisabledBackend)
+
+        @self.app.task(shared=False)
+        def add_without_backend(x, y):
+            return x + y
+
+        on_success = Mock()
+        signals.task_success.connect(on_success)
+        try:
+            tracer = build_tracer(add_without_backend.name, add_without_backend, app=self.app, eager=False)
+            traced = tracer(uuid(), (2, 3), {})
+        finally:
+            signals.task_success.receivers[:] = []
+        assert traced.info is None
+        assert traced.retval == 5
+        assert on_success.call_args.kwargs["result"] == 5
+
+    @pytest.mark.celery(result_backend="disabled")
+    async def test_async_tracer_reports_success(self):
+        assert isinstance(self.app.backend, DisabledBackend)
+
+        @self.app.task(shared=False)
+        async def aadd_without_backend(x, y):
+            return x + y
+
+        on_success = Mock()
+        signals.task_success.connect(on_success)
+        try:
+            tracer = build_async_tracer(aadd_without_backend.name, aadd_without_backend, app=self.app, eager=False)
+            traced = await tracer(uuid(), (2, 3), {})
+        finally:
+            signals.task_success.receivers[:] = []
+        assert traced.info is None
+        assert traced.retval == 5
+        assert on_success.call_args.kwargs["result"] == 5
 
     def test_as_uri(self):
         assert DisabledBackend(self.app).as_uri() == "disabled://"
