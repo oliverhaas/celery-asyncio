@@ -701,12 +701,6 @@ class test_Pidfile:
             p.write_pid()
 
 
-fails_on_win32 = pytest.mark.xfail(
-    sys.platform == "win32",
-    reason="fails on py38+ windows",
-)
-
-
 @pytest.mark.parametrize(
     "accept_content",
     [{"pickle"}, {"application/group-python-serialize"}, {"pickle", "application/group-python-serialize"}],
@@ -717,7 +711,7 @@ def test_check_privileges(accept_content, recwarn):
     assert len(recwarn) == 0
 
 
-@fails_on_win32
+@tests.skip.if_win32
 @pytest.mark.parametrize(
     "accept_content",
     [{"pickle"}, {"application/group-python-serialize"}, {"pickle", "application/group-python-serialize"}],
@@ -735,7 +729,7 @@ def test_check_privileges_without_c_force_root(os_module, accept_content):
         check_privileges(accept_content)
 
 
-@fails_on_win32
+@tests.skip.if_win32
 @pytest.mark.parametrize(
     "accept_content",
     [{"pickle"}, {"application/group-python-serialize"}, {"pickle", "application/group-python-serialize"}],
@@ -752,7 +746,7 @@ def test_check_privileges_with_c_force_root(os_module, accept_content):
         check_privileges(accept_content)
 
 
-@fails_on_win32
+@tests.skip.if_win32
 @pytest.mark.parametrize(
     ("accept_content", "group_name"),
     [
@@ -783,7 +777,7 @@ def test_check_privileges_with_c_force_root_and_with_suspicious_group(
         check_privileges(accept_content)
 
 
-@fails_on_win32
+@tests.skip.if_win32
 @pytest.mark.parametrize(
     ("accept_content", "group_name"),
     [
@@ -814,7 +808,7 @@ def test_check_privileges_without_c_force_root_and_with_suspicious_group(
         check_privileges(accept_content)
 
 
-@fails_on_win32
+@tests.skip.if_win32
 @pytest.mark.parametrize(
     "accept_content",
     [{"pickle"}, {"application/group-python-serialize"}, {"pickle", "application/group-python-serialize"}],
@@ -839,7 +833,7 @@ def test_check_privileges_with_c_force_root_and_no_group_entry(grp_module, os_mo
     assert recwarn[1].message.args[0] == expected_message
 
 
-@fails_on_win32
+@tests.skip.if_win32
 @pytest.mark.parametrize(
     "accept_content",
     [{"pickle"}, {"application/group-python-serialize"}, {"pickle", "application/group-python-serialize"}],
