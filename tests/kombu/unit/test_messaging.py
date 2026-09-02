@@ -6,8 +6,9 @@ from itertools import count
 import pytest
 
 from kombu import Connection, Exchange, Queue
-from kombu.exceptions import ChannelError, ConnectionError, ContentDisallowed
+from kombu.exceptions import ChannelError, ConnectionError, ContentDisallowed, DecodeError
 from kombu.messaging import Consumer, Producer
+from kombu.utils.json import dumps as json_dumps
 
 
 class test_Producer:
@@ -561,3 +562,50 @@ class test_Consumer_prefetch_count:
         await consumer.consume()
 
         assert channel.ops == [("consume", "one")]
+
+
+class test_Consumer_on_decode_error:
+    """A body the message cannot decode reaches `on_decode_error`."""
+
+    async def _publish_undecodable(self, channel):
+        envelope = {
+            "body": "{ this is not json",
+            "content-type": "application/json",
+            "content-encoding": "utf-8",
+            "properties": {},
+            "headers": {},
+        }
+        await channel.publish(
+            message=json_dumps(envelope).encode("utf-8"),
+            exchange="",
+            routing_key="broken_q",
+        )
+
+    async def test_a_body_that_will_not_decode_goes_to_on_decode_error(self):
+        errors = []
+        received = []
+
+        async with Connection("memory://") as conn:
+            await self._publish_undecodable(await conn.default_channel())
+            consumer = conn.Consumer(
+                [Queue("broken_q")],
+                callbacks=[lambda body, message: received.append(body)],
+                no_ack=True,
+                on_decode_error=lambda message, exc: errors.append((message, exc)),
+            )
+            await consumer.consume()
+            await conn.drain_events(timeout=1.0)
+
+        assert received == []
+        assert len(errors) == 1
+        message, exc = errors[0]
+        assert isinstance(exc, DecodeError)
+        assert message.body == b"{ this is not json"
+
+    async def test_without_a_handler_the_decode_error_reaches_the_caller(self):
+        async with Connection("memory://") as conn:
+            await self._publish_undecodable(await conn.default_channel())
+            consumer = conn.Consumer([Queue("broken_q")], callbacks=[lambda body, message: None], no_ack=True)
+            await consumer.consume()
+            with pytest.raises(DecodeError):
+                await conn.drain_events(timeout=1.0)

@@ -440,8 +440,10 @@ class Consumer:
         try:
             if message.errors:
                 message._reraise_error()
-            if self._accept is not None:
-                body = message.decode()
+            # The transport hands over whatever it could make of the body and
+            # keeps a failed decode to itself, so the decode is repeated here,
+            # a cache hit when it worked, to have the failure to report.
+            body = message.decode()
         except Exception as exc:
             if self.on_decode_error is None:
                 raise
