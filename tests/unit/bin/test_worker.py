@@ -1,4 +1,5 @@
 import os
+import sys
 from unittest.mock import Mock, patch
 
 import pytest
@@ -6,6 +7,7 @@ from click.testing import CliRunner
 
 from celery.app.log import Logging
 from celery.bin.celery import celery
+from celery.bin.worker import strip_detach_options
 
 
 @pytest.fixture(scope="session")
@@ -82,3 +84,42 @@ def test_cli_disable_prefetch_flag(cli_runner: CliRunner):
 
 
 # disable_prefetch tests removed - feature not yet implemented in async Tasks.start
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["worker", "--detach"], ["worker"]),
+        (["worker", "-D"], ["worker"]),
+        (["worker", "--detach", "--uid", "1000", "--gid", "2000"], ["worker"]),
+        (["worker", "-D", "--uid=1000", "--gid=2000"], ["worker"]),
+        (["worker", "-D", "--uid", "nobody", "-l", "INFO"], ["worker", "-l", "INFO"]),
+        (["worker", "-l", "INFO", "-Q", "gid"], ["worker", "-l", "INFO", "-Q", "gid"]),
+    ],
+)
+def test_strip_detach_options(argv, expected):
+    assert strip_detach_options(argv) == expected
+
+
+def test_detach_reexecutes_without_the_uid_and_gid_values(cli_runner: CliRunner):
+    # The option names were removed but their values were not, so the detached
+    # worker got "1000" as a stray positional and died on a usage error with
+    # stdout and stderr already closed.
+    command = [
+        "celery",
+        "-A",
+        "tests.unit.bin.proj.app",
+        "worker",
+        "--detach",
+        "--uid",
+        "1000",
+        "--gid",
+        "2000",
+    ]
+    with patch("celery.bin.worker.detach", return_value=0) as detach, patch.object(sys, "argv", command):
+        res = cli_runner.invoke(celery, command[1:], catch_exceptions=False)
+
+    assert res.exit_code == 0, (res, res.output)
+    assert detach.call_args.args[1] == ["-m", "celery", "-A", "tests.unit.bin.proj.app", "worker"]
+    assert detach.call_args.kwargs["uid"] == "1000"
+    assert detach.call_args.kwargs["gid"] == "2000"

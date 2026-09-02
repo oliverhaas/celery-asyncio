@@ -71,6 +71,37 @@ HOSTNAME = Hostname()
 
 C_FAKEFORK = os.environ.get("C_FAKEFORK")
 
+#: Flags the re-executed worker must not see again: it is already detached.
+_DETACH_FLAGS = frozenset({"--detach", "-D"})
+
+#: Options taking a value that the re-executed worker must not see again:
+#: `detached()` has dropped the privileges before the exec.
+_DETACH_OPTIONS_WITH_VALUE = ("--uid", "--gid")
+
+
+def strip_detach_options(argv):
+    """Drop the options that must not reach the detached worker.
+
+    Removing the option name on its own left its value behind as a stray
+    positional, and the daemon died on a usage error the moment it started,
+    with stdout and stderr already detached.
+    """
+    stripped = []
+    skip_value = False
+    for arg in argv:
+        if skip_value:
+            skip_value = False
+            continue
+        if arg in _DETACH_FLAGS:
+            continue
+        if arg in _DETACH_OPTIONS_WITH_VALUE:
+            skip_value = True
+            continue
+        if arg.startswith(tuple(f"{option}=" for option in _DETACH_OPTIONS_WITH_VALUE)):
+            continue
+        stripped.append(arg)
+    return stripped
+
 
 def detach(
     path,
@@ -318,15 +349,7 @@ def worker(
                     f"Unable to parse extra configuration from command line.\nReason: {e}", ctx=ctx
                 ) from e
         if kwargs.get("detach", False):
-            argv = ["-m", "celery"] + sys.argv[1:]
-            if "--detach" in argv:
-                argv.remove("--detach")
-            if "-D" in argv:
-                argv.remove("-D")
-            if "--uid" in argv:
-                argv.remove("--uid")
-            if "--gid" in argv:
-                argv.remove("--gid")
+            argv = ["-m", "celery"] + strip_detach_options(sys.argv[1:])
 
             return detach(
                 sys.executable,
