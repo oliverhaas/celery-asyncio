@@ -1689,3 +1689,21 @@ class test_apply_async(TasksCase):
             expected_args, expected_kwargs = self.common_send_task_arguments()
             expected_kwargs["ignore_result"] = True
             send_task.assert_called_once_with(*expected_args, **expected_kwargs)
+
+
+class test_calling_an_async_task(TasksCase):
+    async def test_calling_an_async_task_keeps_the_request_pushed(self):
+        # Calling a coroutine function runs none of the body, so popping the
+        # request around the call left the body reading a blank one.
+        seen = {}
+
+        @self.app.task(bind=True, shared=False)
+        async def peek(self_, x):
+            seen["args"] = self_.request.args
+            seen["called_directly"] = self_.request.called_directly
+            seen["current"] = self_.app.current_task
+
+        await peek(5)
+
+        assert seen == {"args": (5,), "called_directly": True, "current": peek}
+        assert peek.request_stack.top is None

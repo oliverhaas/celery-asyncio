@@ -2,7 +2,7 @@
 # https://github.com/celery/celery
 """Task implementation: request context and the task base class."""
 
-import asyncio
+import inspect
 import sys
 import types
 
@@ -506,11 +506,24 @@ class Task:
         setattr(cls, attr, meth)
 
     def __call__(self, *args, **kwargs):
+        if inspect.iscoroutinefunction(self.run):
+            # Calling a coroutine function runs none of the body, so pushing
+            # around the call left the body with a popped request: no id, no
+            # args, and `called_directly` still true.
+            return self._acall(args, kwargs)
         _task_stack.push(self)
         self.push_request(args=args, kwargs=kwargs)
         try:
-            # Returns whatever run() returns - if run() is async, returns a coroutine
             return self.run(*args, **kwargs)
+        finally:
+            self.pop_request()
+            _task_stack.pop()
+
+    async def _acall(self, args, kwargs):
+        _task_stack.push(self)
+        self.push_request(args=args, kwargs=kwargs)
+        try:
+            return await self.run(*args, **kwargs)
         finally:
             self.pop_request()
             _task_stack.pop()
@@ -546,7 +559,7 @@ class Task:
                         result = await some_async_operation(x, y)
                         return result
         """
-        if asyncio.iscoroutinefunction(self.run):
+        if inspect.iscoroutinefunction(self.run):
             return await self.run(*args, **kwargs)
         return await sync_to_async(self.run, thread_sensitive=False)(*args, **kwargs)
 
