@@ -2,13 +2,14 @@
 # https://github.com/celery/celery
 """Worker Event Dispatcher Bootstep - async implementation."""
 
-import asyncio
-
 from celery import bootsteps
+from celery.utils.log import get_logger
 
 from .connection import Connection
 
 __all__ = ("Events",)
+
+logger = get_logger(__name__)
 
 
 class Events(bootsteps.StartStopStep):
@@ -25,7 +26,7 @@ class Events(bootsteps.StartStopStep):
 
     async def start(self, c):
         # flush events sent while connection was down.
-        prev = self._close(c)
+        prev = await self._close(c)
         conn = await c.connection_for_write()
         dis = c.event_dispatcher = c.app.events.Dispatcher(
             conn,
@@ -40,29 +41,27 @@ class Events(bootsteps.StartStopStep):
     def stop(self, c):
         pass
 
-    def _close(self, c):
+    async def _close(self, c):
         if c.event_dispatcher:
             dispatcher = c.event_dispatcher
             # remember changes from remote control commands:
             self.groups = dispatcher.groups
 
-            # close custom connection (async in kombu)
+            # Awaited, not scheduled: a task nothing holds on to can be
+            # collected before it closes anything, and every reconnect went
+            # through here, so the dispatcher connections piled up.
             if dispatcher.connection:
                 try:
-                    loop = asyncio.get_event_loop()
-                    loop.create_task(dispatcher.connection.close())
-                except Exception:
-                    pass
-            try:
-                # disable(), not close(): close() only drops the producer, so
-                # the on_disabled callbacks never fire and Heart's timer keeps
-                # ticking against a dead dispatcher after every reconnect
-                # (upstream 8b4b29c93).
-                dispatcher.disable()
-            except Exception:
-                pass
+                    await dispatcher.connection.close()
+                except (OSError, *c.connection_errors, *c.channel_errors):
+                    logger.warning("Failed to close the event dispatcher connection", exc_info=True)
+            # disable(), not close(): close() only drops the producer, so
+            # the on_disabled callbacks never fire and Heart's timer keeps
+            # ticking against a dead dispatcher after every reconnect
+            # (upstream 8b4b29c93).
+            dispatcher.disable()
             c.event_dispatcher = None
             return dispatcher
 
-    def shutdown(self, c):
-        self._close(c)
+    async def shutdown(self, c):
+        await self._close(c)

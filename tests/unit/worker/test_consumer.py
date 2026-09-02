@@ -23,6 +23,7 @@ from celery.utils.collections import LimitedSet
 from celery.worker import background
 from celery.worker.consumer.connection import Connection
 from celery.worker.consumer.consumer import CANCEL_TASKS_BY_DEFAULT, CLOSE, TERMINATE, Consumer
+from celery.worker.consumer.events import Events
 from celery.worker.consumer.gossip import Gossip
 from celery.worker.consumer.heart import Heart
 from celery.worker.consumer.mingle import Mingle
@@ -766,6 +767,59 @@ class test_Tasks:
         await Tasks(c).start(c)
 
         c.task_consumer.qos.assert_awaited_once_with(prefetch_count=10)
+
+
+class test_Events:
+    def setup_method(self):
+        self.c = Mock()
+        self.c.connection_errors = (socket.error, OSError)
+        self.c.channel_errors = (ChannelError,)
+        self.c.connection_for_write = AsyncMock()
+
+    def previous_dispatcher(self, step, close=None):
+        dispatcher = self.c.event_dispatcher = Mock(name="event_dispatcher")
+        dispatcher.connection.close = AsyncMock(side_effect=close)
+        return dispatcher
+
+    async def test_start_closes_the_dispatcher_the_last_connection_left(self):
+        # Every reconnect comes through here, and a connection close that is
+        # scheduled and never waited for leaves one open per reconnect.
+        step = Events(self.c)
+        previous = self.previous_dispatcher(step)
+
+        await step.start(self.c)
+
+        previous.connection.close.assert_awaited_once_with()
+        previous.disable.assert_called_once_with()
+        assert self.c.event_dispatcher is not previous
+        self.c.event_dispatcher.extend_buffer.assert_called_once_with(previous)
+        self.c.event_dispatcher.flush.assert_called_once_with()
+
+    async def test_shutdown_closes_the_dispatcher(self):
+        step = Events(self.c)
+        previous = self.previous_dispatcher(step)
+
+        await step.shutdown(self.c)
+
+        previous.connection.close.assert_awaited_once_with()
+        previous.disable.assert_called_once_with()
+        assert self.c.event_dispatcher is None
+
+    async def test_a_connection_that_will_not_close_still_disables_the_dispatcher(self):
+        step = Events(self.c)
+        previous = self.previous_dispatcher(step, close=ConnectionResetError("broker went away"))
+
+        await step.shutdown(self.c)
+
+        previous.disable.assert_called_once_with()
+        assert self.c.event_dispatcher is None
+
+    async def test_an_unexpected_close_error_is_not_hidden(self):
+        step = Events(self.c)
+        self.previous_dispatcher(step, close=ValueError("bug"))
+
+        with pytest.raises(ValueError):
+            await step.shutdown(self.c)
 
 
 class test_Mingle:
