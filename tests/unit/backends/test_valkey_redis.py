@@ -2,6 +2,7 @@ import inspect
 import itertools
 import random
 import ssl
+import time
 from contextlib import contextmanager
 from datetime import timedelta
 from pickle import dumps, loads
@@ -18,7 +19,7 @@ except ImportError:
 from celery import signature, states, uuid
 from celery.canvas import Signature
 from celery.contrib.testing.mocks import ContextMock
-from celery.exceptions import BackendStoreError, ChordError, ImproperlyConfigured
+from celery.exceptions import BackendStoreError, ChordError, ImproperlyConfigured, TimeoutError
 from celery.result import AsyncResult, GroupResult
 from celery.utils.collections import AttributeDict
 from tests.unit import conftest
@@ -1344,6 +1345,46 @@ class test_RedisBackend_async_client:
 
         assert isinstance(pool, b._aiolib.SentinelConnectionPool)
         assert pool.service_name == "mymaster"
+
+
+class test_RedisBackend_await_for:
+    """Polling for a single result over the native async client."""
+
+    def setup_method(self):
+        from celery.backends.valkey_redis import RedisBackend
+
+        class _RedisBackend(RedisBackend):
+            redis = redis
+
+            def _create_async_client(self_inner, **params):
+                return _AsyncRedis(self_inner.client)
+
+        self.b = _RedisBackend(app=self.app)
+
+    async def test_ready_result_is_returned(self):
+        tid = uuid()
+        self.b.store_result(tid, 7, states.SUCCESS)
+
+        assert (await self.b.await_for(tid, timeout=1))["result"] == 7
+
+    async def test_timeout_is_not_rounded_up_to_a_poll_interval(self):
+        started = time.monotonic()
+
+        with pytest.raises(TimeoutError):
+            await self.b.await_for(uuid(), timeout=0.05, interval=10)
+
+        assert time.monotonic() - started < 5
+
+    async def test_await_for_pending_forwards_on_message(self):
+        seen = []
+
+        with pytest.raises(TimeoutError):
+            await self.b.await_for_pending(
+                self.app.AsyncResult(uuid()), timeout=0.05, interval=0.01, on_message=seen.append
+            )
+
+        assert seen
+        assert {meta["status"] for meta in seen} == {states.PENDING}
 
 
 class test_RedisBackend_async_groups:

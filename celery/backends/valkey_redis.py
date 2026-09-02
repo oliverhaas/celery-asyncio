@@ -12,6 +12,7 @@ import asyncio
 from collections.abc import Iterable
 from functools import partial
 from ssl import CERT_NONE, CERT_OPTIONAL, CERT_REQUIRED
+from time import monotonic
 from urllib.parse import unquote
 
 from kombu.transport._valkey_redis_compat import (
@@ -63,7 +64,7 @@ from kombu.utils.url import _parse_url, maybe_sanitize_url
 from celery import states
 from celery.backends.base import _create_chord_error_with_cause
 from celery.canvas import maybe_signature
-from celery.exceptions import BackendStoreError, ChordError, ImproperlyConfigured
+from celery.exceptions import BackendStoreError, ChordError, ImproperlyConfigured, TimeoutError
 from celery.result import GroupResult, allow_join_result, result_from_tuple
 from celery.utils.functional import _regen, dictfilter
 from celery.utils.log import get_logger
@@ -909,29 +910,38 @@ return false
             timeout=timeout,
             interval=interval,
             on_interval=on_interval,
+            on_message=on_message,
             no_ack=no_ack,
         )
         if meta:
             result._maybe_set_cache(meta)
             return result.maybe_throw(propagate=propagate, callback=callback)
 
-    async def await_for(self, task_id, timeout=None, interval=0.5, no_ack=True, on_interval=None):
-        """Async version of wait_for - poll for task result."""
+    async def await_for(self, task_id, timeout=None, interval=0.5, no_ack=True, on_interval=None, on_message=None):
+        """Async version of wait_for - poll for task result.
+
+        The wait never overshoots ``timeout``: the last sleep is trimmed to
+        whatever is left of it, so a 50 ms deadline does not cost a full
+        poll interval.
+        """
         self._ensure_not_eager()
-        time_elapsed = 0.0
+        deadline = None if timeout is None else monotonic() + timeout
 
         while True:
             meta = await self.aget_task_meta(task_id)
+            if on_message is not None:
+                on_message(meta)
             if meta["status"] in states.READY_STATES:
                 return meta
             if on_interval:
                 on_interval()
-            await asyncio.sleep(interval)
-            time_elapsed += interval
-            if timeout and time_elapsed >= timeout:
-                from celery.exceptions import TimeoutError
-
-                raise TimeoutError("The operation timed out.")
+            sleep_for = interval
+            if deadline is not None:
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("The operation timed out.")
+                sleep_for = min(interval, remaining)
+            await asyncio.sleep(sleep_for)
 
     async def aforget(self, task_id):
         """Async version of forget."""
@@ -1013,8 +1023,6 @@ return false
                     on_message(value)
                 results.append((bytes_to_str(key), value))
             if timeout and iterations * interval >= timeout:
-                from celery.exceptions import TimeoutError
-
                 raise TimeoutError(f"Operation timed out ({timeout})")
             if on_interval:
                 on_interval()
