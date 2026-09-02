@@ -1,3 +1,7 @@
+import asyncio
+import time
+from unittest.mock import patch
+
 import pytest
 
 # this import adds a @shared_task, which uses connect_on_app_finalize
@@ -57,3 +61,47 @@ class test_worker:
             result = self.add.s(1, 2).apply_async()
             val = result.get(timeout=5)
         assert val == 3
+
+    def test_start_worker_propagates_a_startup_failure(self):
+        """A worker that cannot start must not leave the caller waiting.
+
+        WorkController.start turns an unrecoverable error into an exit code,
+        so the ready callback never fired and start_worker blocked on it for
+        good, skipping its own cleanup with it.
+        """
+
+        async def boom(*args, **kwargs):
+            raise RuntimeError("bootstep refused to start")
+
+        started = time.monotonic()
+        with patch("celery.worker.components.Pool.start", boom):
+            with pytest.raises(RuntimeError, match="bootstep refused to start"):
+                with start_worker(app=self.app, loglevel=0, perform_ping_check=False, startup_timeout=10.0):
+                    pytest.fail("start_worker yielded a worker that never started")
+
+        assert time.monotonic() - started < 10.0
+
+    def test_start_worker_gives_up_when_the_worker_never_becomes_ready(self):
+        """A worker that neither starts nor fails is bounded by startup_timeout."""
+
+        async def never_ready(*args, **kwargs):
+            await asyncio.Event().wait()
+
+        started = time.monotonic()
+        with patch("celery.worker.components.Pool.start", never_ready):
+            with pytest.raises(RuntimeError, match="was not ready within 0.5 seconds"):
+                with start_worker(app=self.app, loglevel=0, perform_ping_check=False, startup_timeout=0.5):
+                    pytest.fail("start_worker yielded a worker that never started")
+
+        assert time.monotonic() - started < 5.0
+
+    def test_start_worker_reports_a_stop_before_ready_without_an_error(self):
+        """A blueprint that returns before the ready callback still raises."""
+
+        async def stop_early(*args, **kwargs):
+            return None
+
+        with patch("celery.worker.components.Consumer.start", stop_early):
+            with pytest.raises(RuntimeError, match="stopped before it was ready"):
+                with start_worker(app=self.app, loglevel=0, perform_ping_check=False, startup_timeout=10.0):
+                    pytest.fail("start_worker yielded a worker that never started")

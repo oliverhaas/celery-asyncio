@@ -4,6 +4,7 @@ import asyncio
 import concurrent.futures
 import os
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -16,6 +17,12 @@ from celery.utils.eventloop import default_loop_runner
 from celery.utils.nodenames import anon_nodename
 
 WORKER_LOGLEVEL = os.environ.get("WORKER_LOGLEVEL", "error")
+
+#: Seconds to wait for the embedded worker to reach the ready callback.
+STARTUP_TIMEOUT = 30.0
+
+#: How often the startup wait looks at the worker coroutine while waiting.
+_STARTUP_POLL_INTERVAL = 0.05
 
 test_worker_starting = Signal(
     name="test_worker_starting",
@@ -38,8 +45,26 @@ class TestWorkController(worker.WorkController):
     # this is a test class
     __test__ = False
 
+    class Blueprint(worker.WorkController.Blueprint):
+        """Blueprint that keeps hold of whatever ended the worker.
+
+        `WorkController.start` turns an unrecoverable error into an exit code,
+        which is what a worker process wants. An embedded worker has a caller
+        blocked on the ready callback instead, and that callback will never
+        fire, so the error has to be kept for that caller to raise.
+        """
+
+        async def start(self, parent):
+            try:
+                await super().start(parent)
+            except BaseException as exc:
+                parent.worker_error = exc
+                raise
+
     def __init__(self, *args, **kwargs):
         self._on_started = threading.Event()
+        #: The exception that ended the blueprint, if one did.
+        self.worker_error: BaseException | None = None
         super().__init__(*args, **kwargs)
 
     def on_consumer_ready(self, consumer):
@@ -47,14 +72,13 @@ class TestWorkController(worker.WorkController):
         self._on_started.set()
         test_worker_started.send(sender=self.app, worker=self, consumer=consumer)
 
-    def ensure_started(self):
-        """Wait for worker to be fully up and running.
+    def ensure_started(self, timeout: float | None = None) -> bool:
+        """Wait for the worker to be fully up and running.
 
-        Warning:
-            Worker must be started within a thread for this to work,
-            or it will block forever.
+        Returns whether it got there before `timeout` ran out. The worker has
+        to be started on another thread or loop for this to be reachable.
         """
-        self._on_started.wait()
+        return self._on_started.wait(timeout)
 
 
 @contextmanager
@@ -67,6 +91,7 @@ def start_worker(
     perform_ping_check=True,
     ping_task_timeout=10.0,
     shutdown_timeout=10.0,
+    startup_timeout=STARTUP_TIMEOUT,
     **kwargs,
 ):
     """Start embedded worker.
@@ -86,6 +111,7 @@ def start_worker(
             logfile=logfile,
             perform_ping_check=perform_ping_check,
             shutdown_timeout=shutdown_timeout,
+            startup_timeout=startup_timeout,
             **kwargs,
         ) as worker:
             if perform_ping_check:
@@ -109,6 +135,7 @@ def _start_worker_thread(
     WorkController: Any = TestWorkController,
     perform_ping_check: bool = True,
     shutdown_timeout: float = 10.0,
+    startup_timeout: float = STARTUP_TIMEOUT,
     **kwargs,
 ) -> Iterator[worker.WorkController]:
     """Start Celery worker in a thread.
@@ -139,7 +166,7 @@ def _start_worker_thread(
     # a private one: the test publishes through that same loop, and a transport
     # object cannot be shared across two of them.
     running = asyncio.run_coroutine_threadsafe(w.start(), default_loop_runner().loop)
-    w.ensure_started()
+    _wait_until_ready(w, running, startup_timeout)
     _set_task_join_will_block(False)
 
     try:
@@ -159,6 +186,31 @@ def _start_worker_thread(
             ) from None
         finally:
             state.should_terminate = None
+
+
+def _wait_until_ready(
+    w: worker.WorkController,
+    running: concurrent.futures.Future,
+    timeout: float,
+) -> None:
+    """Block until the worker is ready, gave up, or ran out of time.
+
+    Waiting on the ready callback alone meant a worker whose blueprint raised
+    on the way up never woke the caller: `start_worker` sat in `ensure_started`
+    for good, and none of its cleanup ran.
+    """
+    deadline = time.monotonic() + timeout
+    while not w.ensure_started(_STARTUP_POLL_INTERVAL):
+        if running.done():
+            # Re-raises whatever start() itself raised, on this thread.
+            running.result()
+            error = getattr(w, "worker_error", None)
+            if error is not None:
+                raise error
+            raise RuntimeError("Embedded worker stopped before it was ready.")
+        if time.monotonic() >= deadline:
+            running.cancel()
+            raise RuntimeError(f"Embedded worker was not ready within {timeout} seconds.")
 
 
 def setup_app_for_worker(app: Celery, loglevel: str | int, logfile: str | None = None) -> None:
