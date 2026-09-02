@@ -2,12 +2,13 @@
 
 import asyncio
 import os
+from contextlib import suppress
 from time import time
 from unittest.mock import patch
 
 import pytest
 
-from kombu import Connection, Exchange, Queue
+from kombu import Connection, Consumer, Exchange, Queue
 from kombu.exceptions import InconsistencyError
 from kombu.utils.json import dumps as json_dumps
 
@@ -362,6 +363,48 @@ class TestExchangeTypes:
 
         assert await channel.client.exists(binding_key) == 0
         assert "amq.gen-current" in channel._fanout_queues
+
+    async def test_a_fanout_message_published_before_the_first_drain_arrives(self):
+        """The pidbox pattern: subscribe, publish, then drain for the reply.
+
+        Reading the stream from "$" meant the read only ever saw what was
+        published while it was blocked, so a control command or an event that
+        landed between two drains was dropped.
+        """
+        received = []
+        async with Connection(REDIS_URL) as conn:
+            exchange = Exchange("test_fanout_gap", type="fanout", durable=False)
+            queue = Queue(
+                "test_fanout_gap_q",
+                exchange=exchange,
+                routing_key="",
+                durable=False,
+                auto_delete=True,
+            )
+            channel = await conn.default_channel()
+            consumer = Consumer(channel, [queue], callbacks=[lambda b, m: received.append(b)], no_ack=True)
+            await consumer.consume()
+
+            async with conn.Producer(channel=channel) as producer:
+                await producer.publish({"hi": 1}, exchange=exchange, routing_key="", declare=[])
+
+                deadline = time() + 5
+                while not received and time() < deadline:
+                    with suppress(TimeoutError):
+                        await conn.drain_events(timeout=0.2)
+                assert received == [{"hi": 1}]
+
+                # And again with nothing blocking on the stream in between.
+                received.clear()
+                await producer.publish({"hi": 2}, exchange=exchange, routing_key="", declare=[])
+
+            deadline = time() + 5
+            while not received and time() < deadline:
+                with suppress(TimeoutError):
+                    await conn.drain_events(timeout=0.2)
+            assert received == [{"hi": 2}]
+
+            await channel.client.delete(channel._fanout_stream_key("test_fanout_gap"))
 
 
 class TestBindingLifetime:

@@ -51,6 +51,8 @@ def _make_transport(**opts) -> Transport:
     transport._url = "redis://localhost:6379"
     transport._options = opts
     transport._client = MagicMock()
+    # An empty fanout stream, so binding a fanout queue works without a stub.
+    transport._client.xrevrange = AsyncMock(return_value=[])
     transport._subclient = MagicMock()
     transport._channels = []
     transport._connected = True
@@ -1894,6 +1896,67 @@ class TestXreadWait:
         call_args = ch._transport._subclient.xread.call_args
         streams_arg = call_args[0][0]
         assert streams_arg[stream_key] == "9999-0"
+
+    async def test_the_read_position_is_fixed_when_the_queue_binds(self):
+        """A bind subscribes; anything published after it has to arrive.
+
+        Reading from "$" instead means the end of the stream at the moment the
+        read runs, so everything published between two reads is skipped.
+        """
+        ch = _make_channel()
+        ch._exchanges["fanout_ex"] = {"type": "fanout"}
+        ch.client.delete = AsyncMock()
+        ch.client.xrevrange = AsyncMock(return_value=[(b"7-0", {b"payload": b"{}"})])
+
+        await ch.queue_bind("fq1", "fanout_ex")
+
+        stream_key = ch._fanout_stream_key("fanout_ex")
+        assert ch._stream_offsets[stream_key] == "7-0"
+
+        ch.active_fanout_queues.add("fq1")
+        ch._transport._subclient.xread = AsyncMock(return_value=None)
+        await ch._xread_wait(1.0)
+        assert ch._transport._subclient.xread.call_args[0][0][stream_key] == "7-0"
+
+    async def test_an_empty_stream_is_read_from_the_start(self):
+        ch = _make_channel()
+        ch._exchanges["fanout_ex"] = {"type": "fanout"}
+        ch.client.delete = AsyncMock()
+        ch.client.xrevrange = AsyncMock(return_value=[])
+
+        await ch.queue_bind("fq1", "fanout_ex")
+
+        assert ch._stream_offsets[ch._fanout_stream_key("fanout_ex")] == "0-0"
+
+    async def test_a_second_binding_does_not_move_the_read_position(self):
+        """Two queues on one exchange share a stream and one position.
+
+        Re-reading the end of the stream for the second bind would skip
+        whatever the first queue has not consumed yet.
+        """
+        ch = _make_channel()
+        ch._exchanges["fanout_ex"] = {"type": "fanout"}
+        ch.client.delete = AsyncMock()
+        ch.client.xrevrange = AsyncMock(return_value=[(b"7-0", {})])
+        await ch.queue_bind("fq1", "fanout_ex")
+
+        ch.client.xrevrange = AsyncMock(return_value=[(b"99-0", {})])
+        await ch.queue_bind("fq2", "fanout_ex")
+
+        assert ch._stream_offsets[ch._fanout_stream_key("fanout_ex")] == "7-0"
+        ch.client.xrevrange.assert_not_awaited()
+
+    async def test_basic_consume_fixes_the_read_position(self):
+        """A queue registered without going through queue_bind still needs one."""
+        ch = _make_channel()
+        ch._start_periodic_tasks = MagicMock()
+        ch._exchanges["fanout_ex"] = {"type": "fanout"}
+        ch._fanout_queues["fq1"] = ("fanout_ex", "*")
+        ch.client.xrevrange = AsyncMock(return_value=[(b"42-0", {})])
+
+        await ch.basic_consume("fq1", MagicMock())
+
+        assert ch._stream_offsets[ch._fanout_stream_key("fanout_ex")] == "42-0"
 
     async def test_xread_wait_xread_exception(self):
         ch = _make_channel()

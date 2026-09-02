@@ -644,6 +644,9 @@ class Channel:
         exchange_meta = self._exchanges.get(exchange, {})
         if exchange_meta.get("type") == "fanout":
             self._fanout_queues[queue] = (exchange, routing_key.replace("#", "*"))
+            # A binding takes effect when it is made, not when a consumer
+            # attaches, so the read position is fixed here.
+            await self._remember_stream_position(exchange)
             # Fanout delivery is one XADD to the stream and never consults the
             # table, yet every worker binds its own amq.gen-* queues to it, so
             # the table only grows: one dead member per worker that ever ran.
@@ -1026,6 +1029,7 @@ class Channel:
                 self.no_ack_consumers.add(consumer_tag)
 
         if queue in self._fanout_queues:
+            await self._remember_stream_position(self._fanout_queues[queue][0])
             self.active_fanout_queues.add(queue)
 
         self._start_periodic_tasks()
@@ -1481,6 +1485,25 @@ class Channel:
             if delivered is not None:
                 return delivered
 
+    async def _remember_stream_position(self, exchange: str) -> None:
+        """Note where a fanout stream ends, so the reader can resume from it.
+
+        Without a recorded position the read asks for ``$``, which is the end
+        of the stream at the moment that read runs, not at the moment the
+        queue subscribed. Everything published in the gaps between reads is
+        then skipped: a control command or an event published while the worker
+        was between two `drain_events` calls simply never arrives.
+        """
+        stream_key = self._fanout_stream_key(exchange)
+        if stream_key in self._stream_offsets:
+            return
+        last = await self.client.xrevrange(stream_key, count=1)
+        if not last:
+            self._stream_offsets[stream_key] = "0-0"
+            return
+        last_id = last[0][0]
+        self._stream_offsets[stream_key] = last_id.decode() if isinstance(last_id, bytes) else last_id
+
     async def _xread_wait(self, timeout: float) -> bool:
         """Wait for fanout messages from Redis Streams."""
         streams: dict[str, str] = {}
@@ -1488,6 +1511,8 @@ class Channel:
             if queue in self._fanout_queues:
                 exchange, _ = self._fanout_queues[queue]
                 stream_key = self._fanout_stream_key(exchange)
+                # "$" only as a fallback: a subscribed queue has its position
+                # recorded and everything published since is still to come.
                 streams[stream_key] = self._stream_offsets.get(stream_key, "$")
 
         if not streams:
@@ -1506,13 +1531,7 @@ class Channel:
         for stream_bytes, messages in result:
             stream_key = stream_bytes.decode() if isinstance(stream_bytes, bytes) else stream_bytes
             for message_id, fields in messages:
-                msg_id = message_id.decode() if isinstance(message_id, bytes) else message_id
-
-                # Update stream offsets
-                self._stream_offsets[stream_key] = msg_id
-                unprefixed = self._unprefixed(stream_key)
-                if unprefixed != stream_key:
-                    self._stream_offsets[unprefixed] = msg_id
+                self._stream_offsets[stream_key] = message_id.decode() if isinstance(message_id, bytes) else message_id
 
                 # Find which queue this stream belongs to
                 queue_name = None
