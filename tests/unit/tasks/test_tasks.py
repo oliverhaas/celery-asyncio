@@ -1,3 +1,4 @@
+import asyncio
 import socket
 import tempfile
 import warnings
@@ -1755,6 +1756,30 @@ class test_async_task_body(TasksCase):
 
         assert ret.info.state == states.RETRY
         assert [(h["task"], h["retries"]) for h in published] == [(retrying.name, 1)]
+
+    async def test_async_body_autoretry_publishes_the_retry_on_this_loop(self):
+        # The autoretry wrapper published through the sync `retry`, which hands
+        # the publish to the background loop and blocks this one until it is
+        # through. `aretry` publishes on the loop the body already runs on.
+        @self.app.task(bind=True, shared=False, autoretry_for=(ZeroDivisionError,), max_retries=3)
+        async def dividing(self_, x, y):
+            return x / y
+
+        publish_loops = []
+
+        def on_published(**kwargs):
+            publish_loops.append(asyncio.get_running_loop())
+
+        after_task_publish.connect(on_published, weak=False)
+        try:
+            with collect_published() as published:
+                ret = await self.trace(dividing, args=(1, 0))
+        finally:
+            after_task_publish.disconnect(on_published)
+
+        assert ret.info.state == states.RETRY
+        assert [(h["task"], h["retries"]) for h in published] == [(dividing.name, 1)]
+        assert publish_loops == [asyncio.get_running_loop()]
 
     async def test_async_body_replace_publishes_the_replacement(self):
         @self.app.task(bind=True, shared=False)

@@ -18,15 +18,15 @@ def add_autoretry_behaviour(task, **options):
     retry_backoff_max = int(options.get("retry_backoff_max", getattr(task, "retry_backoff_max", 600)))
     retry_jitter = options.get("retry_jitter", getattr(task, "retry_jitter", True))
 
-    def raise_retry(exc):
-        """Turn a caught exception into the Retry to raise in its place."""
+    def attempt_kwargs():
+        """Build the keyword arguments for one retry attempt."""
         # A copy per attempt: `retry_kwargs` is closed over and therefore shared
         # by every call to this task, so writing the countdown into it lets one
         # attempt's backoff leak into a concurrent one (upstream 583fa06af).
         # With an asyncio pool that is the normal case, not a rare race.
-        attempt_kwargs = retry_kwargs.copy()
+        kwargs = retry_kwargs.copy()
         if retry_backoff:
-            attempt_kwargs["countdown"] = get_exponential_backoff_interval(
+            kwargs["countdown"] = get_exponential_backoff_interval(
                 factor=int(max(1.0, retry_backoff)),
                 retries=task.request.retries,
                 maximum=retry_backoff_max,
@@ -34,11 +34,23 @@ def add_autoretry_behaviour(task, **options):
             )
         # Override max_retries
         if hasattr(task, "override_max_retries"):
-            attempt_kwargs["max_retries"] = getattr(task, "override_max_retries", task.max_retries)
-        ret = task.retry(exc=exc, **attempt_kwargs)
-        # Stop propagation
+            kwargs["max_retries"] = getattr(task, "override_max_retries", task.max_retries)
+        return kwargs
+
+    def stop_propagation():
         if hasattr(task, "override_max_retries"):
             delattr(task, "override_max_retries")
+
+    def raise_retry(exc):
+        """Turn a caught exception into the Retry to raise in its place."""
+        ret = task.retry(exc=exc, **attempt_kwargs())
+        stop_propagation()
+        raise ret
+
+    async def araise_retry(exc):
+        """Async version of `raise_retry`, which does not stall the loop."""
+        ret = await task.aretry(exc=exc, **attempt_kwargs())
+        stop_propagation()
         raise ret
 
     if autoretry_for and not hasattr(task, "_orig_run"):
@@ -60,7 +72,7 @@ def add_autoretry_behaviour(task, **options):
                 except dont_autoretry_for:
                     raise
                 except autoretry_for as exc:
-                    raise_retry(exc)
+                    await araise_retry(exc)
 
         else:
 
