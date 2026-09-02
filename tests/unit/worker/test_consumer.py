@@ -301,6 +301,33 @@ class test_Consumer(ConsumerTestCase):
         await c.start()
         c.blueprint.restart.assert_called_once()
 
+    async def test_connection_error_stops_the_steps_before_starting_them_again(self):
+        c = self.get_consumer()
+        c.app.conf["broker_connection_retry"] = True
+        c.app.conf["broker_connection_retry_on_startup"] = True
+        c.restart_count = -1
+        c.blueprint.state = bootsteps.RUN
+
+        calls = []
+
+        async def start(parent):
+            calls.append("start")
+            if len(calls) == 1:
+                raise ConnectionError("broker went away")
+            c.blueprint.state = CLOSE
+
+        async def restart(parent, *args, **kwargs):
+            calls.append("restart")
+
+        c.blueprint.start = start
+        c.blueprint.restart = restart
+
+        await c.start()
+
+        # Without the restart in between, the second start would put a second
+        # Heart, Tasks and Evloop on top of the ones still running.
+        assert calls == ["start", "restart", "start"]
+
     @pytest.mark.parametrize("broker_channel_error_retry", [True, False])
     async def test_blueprint_restart_for_channel_errors(self, broker_channel_error_retry):
         c = self.get_consumer()

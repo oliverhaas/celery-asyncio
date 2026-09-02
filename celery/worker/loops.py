@@ -7,6 +7,7 @@ The old Hub-based asynloop and blocking synloop are removed.
 import asyncio
 import time
 
+from celery.bootsteps import RUN
 from celery.platforms import EX_OK
 from celery.utils.log import get_logger
 from celery.worker import state
@@ -99,7 +100,7 @@ async def _enter_draining(consumer, reason: str) -> None:
             logger.debug("Error requeuing task %s[%s]", req.name, req.id, exc_info=True)
 
 
-def _check_restart_conditions(obj, consumer, pool) -> str | None:
+def _check_restart_conditions(obj, pool) -> str | None:
     """Check if the worker should restart.
 
     Returns a reason string if draining should be initiated (or restart
@@ -168,7 +169,7 @@ async def asynloop(
     pool = getattr(obj, "pool", None)
     timer = obj.timer
 
-    while blueprint.state == 1:  # RUN
+    while blueprint.state == RUN:
         maybe_shutdown()
 
         # Drain the timer: fire any scheduled entries whose ETA has passed
@@ -189,7 +190,7 @@ async def asynloop(
             # Got one, now drain remaining available messages non-blocking
             # to fill the concurrency pipeline.
             batch = 0
-            while blueprint.state == 1 and batch < _MAX_DRAIN_BATCH:
+            while blueprint.state == RUN and batch < _MAX_DRAIN_BATCH:
                 try:
                     await connection.drain_events(timeout=0)
                     batch += 1
@@ -201,11 +202,18 @@ async def asynloop(
                     break
         except TimeoutError:
             pass
-        except OSError as exc:
-            logger.warning("Broker connection lost while draining events: %r", exc)
+        except OSError:
+            # A broken broker socket. Letting it out hands the consumer's
+            # recoverable-error handler the decision, and that stops the
+            # running bootsteps before starting them again. Breaking out of
+            # the loop returned into Consumer.start with the blueprint still
+            # in RUN, which started a second Heart, Tasks and Evloop on top of
+            # the first and left the dead connection open.
+            if blueprint.state == RUN:
+                raise
             break
 
         # Check restart conditions (max_tasks, max_memory, stuck threads).
-        drain_reason = _check_restart_conditions(obj, consumer, pool)
+        drain_reason = _check_restart_conditions(obj, pool)
         if drain_reason and not state.is_draining:
             await _enter_draining(consumer, drain_reason)
