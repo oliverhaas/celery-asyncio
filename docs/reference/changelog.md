@@ -50,8 +50,7 @@
   closed it on another, so leaving the block raised `RuntimeError: Event loop
   is closed`. The sync context manager, `Control.purge()`, `Control.broadcast()`
   and `app.events.default_dispatcher()` now share one long-lived loop, which
-  also unbreaks Flower and `celery -A app worker --purge`
-
+  also unbreaks Flower
 - `with Connection(...)` raised from inside a running event loop, which is
   where Flower's tornado request handlers call it, so Flower's pages 500'd
 - `start_worker()` ran the embedded test worker under its own `asyncio.run()`
@@ -73,6 +72,9 @@
 - Dropped the `[tool.uv] override-dependencies` entry that neutralised
   upstream `celery`; nothing in the project pulls it in any more
 - Raised the `amqp` extra's floor to `aio-pika>=9.5.0`, the line CI runs against
+- Raised the minimum `asgiref` version to 3.8.0
+- Merged the `kombu-asyncio` package into this repository; `kombu` now ships as
+  a top-level package of `celery-asyncio` instead of a separate install
 - Restored the per-rule reasons on the ruff `ignore` list, lost in the merge
 
 ### Added
@@ -94,10 +96,7 @@
   floor, so `zstandard` was already unused
 - The unused `unit` and `integration` pytest markers, and the vestigial
   `UV_NO_SOURCES` from the workflows: there is no `[tool.uv.sources]` table
-- Merged the `kombu-asyncio` package into this repository; `kombu` now ships as
-  a top-level package of `celery-asyncio` instead of a separate install
 - Requirements no longer list `kombu-asyncio` as a dependency
-- Raised the minimum `asgiref` version to 3.8.0
 
 ## v6.0.0a5
 
@@ -112,8 +111,8 @@
 
 ## v6.0.0a4
 
-Ported every applicable upstream fix from the sweep recorded in `UPSTREAM-PLAN.md`,
-and fixed the fork-only defects the sweep turned up along the way.
+Ported every applicable fix from a sweep of upstream Celery and Kombu, and
+fixed the fork-only defects the sweep turned up along the way.
 
 ### Added
 
