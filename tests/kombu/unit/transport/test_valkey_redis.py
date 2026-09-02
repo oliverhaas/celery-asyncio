@@ -1885,6 +1885,124 @@ class TestDrainEventsFull:
 # ---------------------------------------------------------------------------
 
 
+class TestDrainEventsTimeout:
+    """drain_events must come back inside the window the caller asked for."""
+
+    @staticmethod
+    def _channel_with_a_hung_iteration(**opts):
+        async def never_returns(*args, **kwargs):
+            await asyncio.sleep(30)
+            return False
+
+        ch = _make_channel(**opts)
+        ch._consumers["tag1"] = ("q1", MagicMock(), True)
+        ch._consume_regular = AsyncMock(side_effect=never_returns)
+        return ch
+
+    async def test_a_positive_timeout_is_honoured(self):
+        # The whole point: the celery worker loop asks for min(eta_delay, 1.0)
+        # and used to be held for block_timeout instead.
+        ch = self._channel_with_a_hung_iteration(block_timeout=10.0)
+
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        assert await ch.drain_events(timeout=0.2) is False
+        elapsed = loop.time() - start
+
+        assert 0.2 <= elapsed < 1.0
+
+    async def test_the_broker_block_never_outlasts_the_timeout(self):
+        ch = self._channel_with_a_hung_iteration(block_timeout=10.0)
+        await ch.drain_events(timeout=0.2)
+        assert ch._consume_regular.await_args.args[1] == pytest.approx(0.2, abs=0.05)
+
+    async def test_block_timeout_stays_the_ceiling(self):
+        ch = self._channel_with_a_hung_iteration(block_timeout=0.05)
+        await ch.drain_events(timeout=5.0)
+        assert ch._consume_regular.await_args.args[1] == 0.05
+
+    async def test_a_timeout_longer_than_the_block_starts_another_iteration(self):
+        ch = _make_channel(block_timeout=0.02)
+        ch._consumers["tag1"] = ("q1", MagicMock(), True)
+
+        attempts = 0
+
+        async def empty_then_deliver(queues, block):
+            nonlocal attempts
+            attempts += 1
+            await asyncio.sleep(0.01)
+            return attempts >= 3
+
+        ch._consume_regular = empty_then_deliver
+
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        assert await ch.drain_events(timeout=2.0) is True
+        assert attempts == 3
+        assert loop.time() - start < 1.0
+
+    async def test_no_consumers_still_returns_inside_the_timeout(self):
+        ch = _make_channel()
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        assert await ch.drain_events(timeout=0.01) is False
+        assert loop.time() - start < 0.1
+
+    async def test_timeout_zero_polls_without_blocking(self):
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("q1", MagicMock(), True)
+        ch._fast_consume = AsyncMock(return_value=True)
+        ch._slow_consume = AsyncMock(return_value=True)
+
+        assert await ch.drain_events(timeout=0) is True
+        ch._fast_consume.assert_awaited_once_with(["q1"])
+        ch._slow_consume.assert_not_awaited()
+        assert ch._consume_iter_task is None
+
+    async def test_timeout_zero_delivers_a_ready_fanout_message(self):
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("fq1", MagicMock(), True)
+        ch._fanout_queues["fq1"] = ("fan", "*")
+        ch.active_fanout_queues.add("fq1")
+        ch._xread_wait = AsyncMock(return_value=True)
+
+        assert await ch.drain_events(timeout=0) is True
+        ch._xread_wait.assert_awaited_once_with(0)
+
+    async def test_timeout_zero_leaves_an_outstanding_fanout_read_alone(self):
+        # Two reads from the same stream offset would deliver the same
+        # message twice.
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("fq1", MagicMock(), True)
+        ch._fanout_queues["fq1"] = ("fan", "*")
+        ch.active_fanout_queues.add("fq1")
+        ch._xread_wait = AsyncMock(return_value=True)
+        ch._xread_iter_task = asyncio.create_task(asyncio.sleep(5))
+
+        assert await ch.drain_events(timeout=0) is False
+        ch._xread_wait.assert_not_awaited()
+
+        ch._xread_iter_task.cancel()
+
+    async def test_timeout_none_runs_one_iteration_bounded_by_block_timeout(self):
+        ch = _make_channel(block_timeout=0.05)
+        ch._consumers["tag1"] = ("q1", MagicMock(), True)
+
+        async def block_then_give_up(queues, block):
+            await asyncio.sleep(block)
+            return False
+
+        ch._consume_regular = AsyncMock(side_effect=block_then_give_up)
+
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        assert await ch.drain_events() is False
+        assert loop.time() - start < 1.0
+        # One iteration only: no deadline means no reason to start another.
+        assert ch._consume_regular.await_count == 1
+        assert ch._consume_regular.await_args.args[1] == 0.05
+
+
 class TestPersistentConsumerTasks:
     async def test_drain_events_never_cancels_iteration(self):
         # Core invariant: drain_events must not cancel the consumer iteration.
@@ -1910,15 +2028,10 @@ class TestPersistentConsumerTasks:
         assert result is True
         assert cancelled is False
 
-    async def test_safety_net_leaves_iteration_pending(self, monkeypatch):
-        # When the asyncio.wait safety net fires (Redis hung), the iteration
-        # must be left pending — not cancelled — so any in-flight broker
-        # state stays in sync if/when Redis recovers.
-        from kombu.transport import valkey_redis
-
-        monkeypatch.setattr(valkey_redis, "CONSUMER_WAIT_HEADROOM", 0.0)
-
-        ch = _make_channel(block_timeout=0.05)
+    async def test_a_timed_out_drain_leaves_its_iteration_pending(self):
+        # A drain that runs out of time must leave the iteration pending, not
+        # cancel it, so any in-flight broker state stays in sync.
+        ch = _make_channel()
         ch._consumers["tag1"] = ("q1", MagicMock(), True)
 
         cancelled = False
@@ -1927,7 +2040,7 @@ class TestPersistentConsumerTasks:
         async def slow_iteration(*args, **kwargs):
             nonlocal cancelled
             try:
-                await asyncio.sleep(0.2)  # longer than safety net
+                await asyncio.sleep(0.2)
                 will_finish.set()
                 return False
             except asyncio.CancelledError:
@@ -1936,8 +2049,7 @@ class TestPersistentConsumerTasks:
 
         ch._consume_regular = slow_iteration
 
-        result = await ch.drain_events(timeout=1.0)
-        assert result is False
+        assert await ch.drain_events(timeout=0.05) is False
         assert ch._consume_iter_task is not None
         assert not ch._consume_iter_task.done()
         assert cancelled is False
@@ -1945,14 +2057,10 @@ class TestPersistentConsumerTasks:
         # Let the iteration finish naturally so we don't leak a task.
         await will_finish.wait()
 
-    async def test_pending_iteration_reused_by_next_drain(self, monkeypatch):
-        # A pending iteration left behind by a safety-net fire is reused by
-        # the next drain_events call — _consume_regular runs only once.
-        from kombu.transport import valkey_redis
-
-        monkeypatch.setattr(valkey_redis, "CONSUMER_WAIT_HEADROOM", 0.0)
-
-        ch = _make_channel(block_timeout=0.05)
+    async def test_pending_iteration_reused_by_next_drain(self):
+        # The iteration a timed-out drain left behind is reused by the next
+        # call: _consume_regular runs only once.
+        ch = _make_channel()
         ch._consumers["tag1"] = ("q1", MagicMock(), True)
 
         invocations = 0
@@ -1965,17 +2073,12 @@ class TestPersistentConsumerTasks:
 
         ch._consume_regular = slow_then_deliver
 
-        result = await ch.drain_events(timeout=1.0)
-        assert result is False
+        assert await ch.drain_events(timeout=0.02) is False
         assert invocations == 1
         first_task = ch._consume_iter_task
         assert first_task is not None
 
-        # Restore a generous headroom so the next call harvests the same
-        # iteration when it completes.
-        monkeypatch.setattr(valkey_redis, "CONSUMER_WAIT_HEADROOM", 5.0)
-        result = await ch.drain_events(timeout=1.0)
-        assert result is True
+        assert await ch.drain_events(timeout=1.0) is True
         assert invocations == 1
         assert first_task.done()
 
@@ -1995,7 +2098,7 @@ class TestPersistentConsumerTasks:
 
         ch._consume_regular = deliver_then_finish
         ch._consume_iter_task = asyncio.create_task(
-            ch._safe_consume_iter(["q1"]),
+            ch._safe_consume_iter(["q1"], 0.05),
         )
 
         await ch.close()
@@ -2008,7 +2111,7 @@ class TestPersistentConsumerTasks:
         # the sibling is hung, the hung-task warning must still fire.
         from kombu.transport import valkey_redis
 
-        monkeypatch.setattr(valkey_redis, "CONSUMER_WAIT_HEADROOM", 0.0)
+        monkeypatch.setattr(valkey_redis, "CONSUMER_STALL_HEADROOM", 0.0)
 
         ch = _make_channel(block_timeout=0.05)
         ch._consumers["tag1"] = ("q1", MagicMock(), True)
@@ -2067,7 +2170,7 @@ class TestPersistentConsumerTasks:
 
         ch._consume_regular = hung_iteration
         ch._consume_iter_task = asyncio.create_task(
-            ch._safe_consume_iter(["q1"]),
+            ch._safe_consume_iter(["q1"], 0.05),
         )
 
         with caplog.at_level("WARNING", logger="kombu.transport.valkey_redis"):
@@ -2094,6 +2197,7 @@ class TestPersistentConsumerTasks:
 
         assert await drain is False
         assert not drain.cancelled()
+        assert ch._consume_iter_task is None
 
     async def test_a_failed_iteration_is_reported(self, caplog):
         ch = _make_channel()

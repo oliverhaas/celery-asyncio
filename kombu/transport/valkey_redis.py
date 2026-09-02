@@ -96,6 +96,16 @@ __all__ = ("Channel", "Transport")
 logger = get_logger("kombu.transport.valkey_redis")
 
 
+class IterationOutcome(NamedTuple):
+    """What the consumer iterations that finished in one wait produced."""
+
+    delivered: bool = False
+    #: Whether one of them ran to completion with nothing to deliver. Only
+    #: then is starting another worthwhile; one that failed or was cancelled
+    #: hands control back to the caller instead.
+    exhausted: bool = False
+
+
 class SweepStats(NamedTuple):
     """What one requeue sweep did, summed over the queues it visited."""
 
@@ -149,11 +159,15 @@ MIN_BINDING_LIFETIME = 300
 # iteration. Overridable via the `block_timeout` transport option.
 DEFAULT_BLOCK_TIMEOUT = 10.0
 
-# Additional headroom layered on top of the configured `block_timeout` for the
-# asyncio.wait safety net. We trust Redis to honour BLOCK and return within
-# block_timeout; the safety net only fires if the client connection or server
-# has hung beyond block_timeout + this headroom.
-CONSUMER_WAIT_HEADROOM = 30.0
+# How long past its own `block_timeout` a consumer iteration may stay pending
+# before it is reported as stalled. Redis returns within BLOCK, so anything
+# beyond this means the client connection or the server has hung.
+CONSUMER_STALL_HEADROOM = 30.0
+
+# How long drain_events waits when there is nothing to wait for, so a caller
+# that ignores the return value cannot spin. Never longer than the timeout the
+# caller asked for.
+IDLE_POLL_INTERVAL = 0.1
 
 # Additional headroom layered on top of `block_timeout` for close()'s graceful
 # drain. The iteration should complete within block_timeout; we give it a small
@@ -1025,63 +1039,98 @@ class Channel:
     # ---- drain_events (FAST/SLOW consume) ----------------------------------
 
     async def drain_events(self, timeout: float | None = None) -> bool:
-        """Wait for a single message to be delivered to one of this channel's
-        consumers.
+        """Deliver at most one message to one of this channel's consumers.
 
-        Consumer iterations are long-lived and bounded by Redis-side
-        `block_timeout` — never cancelled mid-flight. They complete on their
-        own; the asyncio.wait safety net at `block_timeout + CONSUMER_WAIT_HEADROOM`
-        only fires if the client connection or server has hung. The caller's
-        `timeout` parameter only affects the timeout=0 non-blocking fast path.
+        The call returns within ``timeout`` seconds, which is what the celery
+        worker loop needs to fire an ETA whose deadline is closer than the
+        transport's own block duration. ``timeout=0`` polls what is already
+        available and never blocks; ``timeout=None`` runs a single consume
+        iteration bounded by ``block_timeout``.
+
+        The blocking wait rides on consumer iteration tasks, each one a single
+        FAST/SLOW (or XREAD) cycle. They are never cancelled here, because a
+        cancel mid-script or post-BZMPOP strands the message that was about to
+        be delivered; a call that runs out of time leaves its iteration
+        pending and the next call waits on the same one.
         """
+        if timeout is not None and timeout <= 0:
+            return await self._poll_ready()
+
         if self._closing or not self._consumers:
-            await asyncio.sleep(0.1)
+            await self._idle_sleep(timeout)
             return False
 
-        effective_timeout = timeout if timeout is not None else 1.0
+        loop = asyncio.get_running_loop()
+        return await self._drain_until(None if timeout is None else loop.time() + timeout)
 
-        # Non-blocking fast path: only try FAST consume.
-        if effective_timeout == 0:
-            regular_queues = self._regular_queues()
-            if regular_queues:
-                return await self._fast_consume(regular_queues)
+    async def _drain_until(self, deadline: float | None) -> bool:
+        """Run consumer iterations until one delivers or the deadline passes.
+
+        A ``deadline`` of ``None`` means a single iteration.
+        """
+        loop = asyncio.get_running_loop()
+        while True:
+            remaining = None if deadline is None else deadline - loop.time()
+            if remaining is not None and remaining <= 0:
+                return False
+
+            self._ensure_consumer_tasks(remaining)
+            tasks = [t for t in (self._consume_iter_task, self._xread_iter_task) if t is not None]
+            if not tasks:
+                await self._idle_sleep(remaining)
+                return False
+
+            # With no deadline of its own the wait rides on the iteration's
+            # block; the backstop is only there for a client or server that
+            # has stopped answering altogether.
+            done, _pending = await asyncio.wait(
+                tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+                timeout=self._block_timeout + CONSUMER_STALL_HEADROOM if remaining is None else remaining,
+            )
+
+            # Per-task stall warning. asyncio.wait with FIRST_COMPLETED
+            # returns as soon as ANY task completes, so a single hung
+            # iteration alongside a healthy one would otherwise be silent.
+            self._warn_stalled_iterations()
+
+            if not done:
+                return False
+            outcome = self._collect_iterations(done)
+            if outcome.delivered:
+                return True
+            # An iteration that came back empty. Start another one if the
+            # caller still has time to spare. One that failed or was cancelled
+            # returns straight away, so a broker that is down is reported
+            # rather than retried for the rest of the window.
+            if not outcome.exhausted or deadline is None:
+                return False
+
+    async def _idle_sleep(self, timeout: float | None) -> None:
+        """Wait out a call that has nothing to wait on, without spinning."""
+        await asyncio.sleep(IDLE_POLL_INTERVAL if timeout is None else min(timeout, IDLE_POLL_INTERVAL))
+
+    async def _poll_ready(self) -> bool:
+        """Deliver whatever is already available, without blocking."""
+        if self._closing:
             return False
+        regular_queues = self._regular_queues()
+        if regular_queues and await self._fast_consume(regular_queues):
+            return True
+        # Only when no blocking XREAD is outstanding: both reads would start
+        # from the same stream offset and deliver the same message twice.
+        if self.active_fanout_queues and (self._xread_iter_task is None or self._xread_iter_task.done()):
+            return await self._xread_wait(0)
+        return False
 
-        self._ensure_consumer_tasks()
-        tasks = [t for t in (self._consume_iter_task, self._xread_iter_task) if t is not None]
-        if not tasks:
-            await asyncio.sleep(0.1)
-            return False
-
-        safety_timeout = self._block_timeout + CONSUMER_WAIT_HEADROOM
-        done, _pending = await asyncio.wait(
-            tasks,
-            return_when=asyncio.FIRST_COMPLETED,
-            timeout=safety_timeout,
-        )
-
-        # Per-task stall warning. asyncio.wait with FIRST_COMPLETED returns
-        # as soon as ANY task completes, so a single hung iteration alongside
-        # a healthy one would otherwise be silent. We deliberately don't
-        # cancel: a cancel mid-FAST-script or post-BZMPOP would strand the
-        # message that's about to be delivered. The iteration is left pending;
-        # if Redis recovers it completes naturally and the next drain_events
-        # call picks it up.
-        self._warn_stalled_iterations()
-
-        if not done:
-            return False
-
-        return self._collect_iterations(done)
-
-    def _collect_iterations(self, done: AbstractSet[asyncio.Task]) -> bool:
+    def _collect_iterations(self, done: AbstractSet[asyncio.Task]) -> IterationOutcome:
         """Read the results of the iterations that finished.
 
         A task that ends cancelled was cancelled by ``close()``, not by this
         caller, so its ``CancelledError`` stays here: re-raising it would
         cancel a caller that nobody asked to cancel.
         """
-        delivered = False
+        delivered = exhausted = False
         for task in done:
             if task is self._consume_iter_task:
                 self._consume_iter_task = None
@@ -1094,27 +1143,36 @@ class Channel:
                 logger.warning("Consumer iteration failed.", exc_info=error)
             elif task.result():
                 delivered = True
-        return delivered
+            else:
+                exhausted = True
+        return IterationOutcome(delivered=delivered, exhausted=exhausted)
 
     def _regular_queues(self) -> list[str]:
         return list(
             dict.fromkeys(q for q, _cb, _no_ack in self._consumers.values() if q not in self.active_fanout_queues),
         )
 
-    def _ensure_consumer_tasks(self) -> None:
+    def _ensure_consumer_tasks(self, remaining: float | None) -> None:
+        """Start the iterations that are not running, bounded by `remaining`.
+
+        A new iteration never blocks longer than the caller is prepared to
+        wait, so drain_events can honour its timeout without cancelling
+        anything. `block_timeout` stays the ceiling.
+        """
         if self._closing:
             return
+        block = self._block_timeout if remaining is None else min(remaining, self._block_timeout)
         loop = asyncio.get_running_loop()
         regular_queues = self._regular_queues()
         if regular_queues and (self._consume_iter_task is None or self._consume_iter_task.done()):
             self._consume_iter_task = asyncio.create_task(
-                self._safe_consume_iter(regular_queues),
+                self._safe_consume_iter(regular_queues, block),
             )
             self._consume_iter_started_at = loop.time()
             self._consume_iter_stall_warned = False
         if self.active_fanout_queues and (self._xread_iter_task is None or self._xread_iter_task.done()):
             self._xread_iter_task = asyncio.create_task(
-                self._safe_xread_iter(),
+                self._safe_xread_iter(block),
             )
             self._xread_iter_started_at = loop.time()
             self._xread_iter_stall_warned = False
@@ -1122,7 +1180,7 @@ class Channel:
     def _warn_stalled_iterations(self) -> None:
         loop = asyncio.get_running_loop()
         now = loop.time()
-        threshold = self._block_timeout + CONSUMER_WAIT_HEADROOM
+        threshold = self._block_timeout + CONSUMER_STALL_HEADROOM
         for kind, task_attr, started_attr, warned_attr in (
             ("consume_regular", "_consume_iter_task", "_consume_iter_started_at", "_consume_iter_stall_warned"),
             ("xread_wait", "_xread_iter_task", "_xread_iter_started_at", "_xread_iter_stall_warned"),
@@ -1143,43 +1201,36 @@ class Channel:
                 )
                 setattr(self, warned_attr, True)
 
-    async def _safe_consume_iter(self, queues: list[str]) -> bool:
+    async def _safe_consume_iter(self, queues: list[str], block: float) -> bool:
         try:
-            return await self._consume_regular(queues, self._block_timeout)
-        except Exception as exc:
-            logger.debug("consume iteration error: %s", exc)
+            return await self._consume_regular(queues, block)
+        except Exception:
+            logger.warning("Consume iteration failed.", exc_info=True)
             # Back off so drain_events doesn't tight-loop on a persistent fault.
-            await asyncio.sleep(min(self._block_timeout, 0.1))
+            await asyncio.sleep(min(block, IDLE_POLL_INTERVAL))
             return False
 
-    async def _safe_xread_iter(self) -> bool:
+    async def _safe_xread_iter(self, block: float) -> bool:
         try:
-            return await self._xread_wait(self._block_timeout)
-        except Exception as exc:
-            logger.debug("xread iteration error: %s", exc)
-            await asyncio.sleep(min(self._block_timeout, 0.1))
+            return await self._xread_wait(block)
+        except Exception:
+            logger.warning("Fanout read failed.", exc_info=True)
+            await asyncio.sleep(min(block, IDLE_POLL_INTERVAL))
             return False
 
     async def _consume_regular(self, queues: list[str], timeout: float) -> bool:
         """Consume from regular queues using FAST/SLOW mode.
 
-        FAST: atomic Lua script (ZPOPMIN + ZADD index + HMGET) — non-blocking
-        SLOW: blocking BZMPOP fallback when FAST returns nil (all queues empty)
-
-        When timeout=0 (non-blocking poll), only FAST mode is attempted
-        to avoid BZMPOP blocking.
+        FAST is the non-blocking atomic Lua script (ZPOPMIN + ZADD index +
+        HMGET), SLOW the blocking BZMPOP it falls back to once the script
+        reports every queue empty.
         """
-        if self._consume_fast_mode or timeout == 0:
-            result = await self._fast_consume(queues)
-            if result:
+        if self._consume_fast_mode:
+            if await self._fast_consume(queues):
                 return True
-            if timeout == 0:
-                # Non-blocking poll: don't fall through to blocking BZMPOP
-                return False
-            # FAST returned nil — all queues empty, switch to SLOW
+            # FAST returned nil, so all queues are empty: switch to SLOW.
             self._consume_fast_mode = False
 
-        # SLOW mode: blocking BZMPOP
         delivered = await self._slow_consume(queues, timeout)
         if delivered:
             self._consume_fast_mode = True  # Switch back to FAST
@@ -1434,11 +1485,11 @@ class Channel:
             return False
 
         try:
-            timeout_ms = int(timeout * 1000)
+            # block=None is a non-blocking read; block=0 would block forever.
             result = await self.subclient.xread(
                 streams,
                 count=1,
-                block=timeout_ms,
+                block=int(timeout * 1000) if timeout > 0 else None,
             )
         except Exception as exc:
             logger.debug("XREAD error: %s", exc)
