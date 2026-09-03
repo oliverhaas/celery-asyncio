@@ -942,6 +942,14 @@ class TestChannelDrainEvents:
 
         assert result is False
 
+    async def test_drain_events_leaves_no_task_pending_after_a_timeout(self, channel):
+        """A getter only cancelled is destroyed pending if the loop closes next."""
+        before = asyncio.all_tasks()
+
+        await channel.drain_events(timeout=0.01)
+
+        assert asyncio.all_tasks() == before
+
     async def test_drain_events_no_consumers(self, channel):
         result = await channel.drain_events(timeout=0.01)
         assert result is False

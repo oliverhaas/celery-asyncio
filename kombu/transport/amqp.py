@@ -697,10 +697,13 @@ class Channel:
                     return_when=asyncio.FIRST_COMPLETED,
                 )
             finally:
-                interrupted.cancel()
-
-            if not getter.done():
+                # Cancelling alone is not enough: a task cancelled on the last
+                # turn of its loop is destroyed still pending.
                 getter.cancel()
+                interrupted.cancel()
+                await asyncio.wait((getter, interrupted))
+
+            if getter.cancelled():
                 self._raise_if_connection_lost()
                 return False
             queue_name, message = getter.result()
