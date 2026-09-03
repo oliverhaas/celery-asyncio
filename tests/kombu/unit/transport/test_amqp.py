@@ -950,6 +950,21 @@ class TestChannelDrainEvents:
 
         assert asyncio.all_tasks() == before
 
+    def test_a_channel_closed_by_the_broker_is_a_warning(self, channel, caplog):
+        with caplog.at_level("DEBUG", logger="kombu.transport.amqp"):
+            channel._on_aio_channel_closed(None, RuntimeError("boom"))
+
+        assert channel._interrupted.is_set()
+        assert [r.levelname for r in caplog.records] == ["WARNING"]
+        assert "closed by the broker" in caplog.text
+
+    def test_a_channel_closed_by_its_loop_shutting_down_is_not_a_warning(self, channel, caplog):
+        with caplog.at_level("DEBUG", logger="kombu.transport.amqp"):
+            channel._on_aio_channel_closed(None, asyncio.CancelledError())
+
+        assert channel._interrupted.is_set()
+        assert [r.levelname for r in caplog.records] == ["DEBUG"]
+
     async def test_drain_events_no_consumers(self, channel):
         result = await channel.drain_events(timeout=0.01)
         assert result is False
@@ -2135,3 +2150,35 @@ class TestEndToEnd:
 
         assert received_q1 == []
         assert received_q2 == ["for q2"]
+
+
+class TestTransportConnectionClosed:
+    def _transport_with_a_connection(self):
+        transport = Transport(url="amqp://guest:guest@localhost/")
+        transport._connection = object()
+        return transport
+
+    def test_a_connection_closed_by_the_broker_is_a_warning(self, caplog):
+        transport = self._transport_with_a_connection()
+
+        with caplog.at_level("DEBUG", logger="kombu.transport.amqp"):
+            transport._on_connection_closed(transport._connection, ConnectionResetError())
+
+        assert [r.levelname for r in caplog.records] == ["WARNING"]
+        assert "guest:**@localhost" in caplog.text
+
+    def test_a_connection_closed_by_its_loop_shutting_down_is_not_a_warning(self, caplog):
+        transport = self._transport_with_a_connection()
+
+        with caplog.at_level("DEBUG", logger="kombu.transport.amqp"):
+            transport._on_connection_closed(transport._connection, asyncio.CancelledError())
+
+        assert [r.levelname for r in caplog.records] == ["DEBUG"]
+
+    def test_a_replaced_connection_closing_is_ignored(self, caplog):
+        transport = self._transport_with_a_connection()
+
+        with caplog.at_level("DEBUG", logger="kombu.transport.amqp"):
+            transport._on_connection_closed(object(), ConnectionResetError())
+
+        assert caplog.records == []

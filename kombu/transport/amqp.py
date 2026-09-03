@@ -254,10 +254,14 @@ class Channel:
         _sender: Any,
         exc: BaseException | None = None,
     ) -> None:
-        """aio-pika callback: the broker closed this channel."""
+        """aio-pika callback: this channel is gone."""
         if self._closed:
             return
-        logger.warning("AMQP channel closed by the broker: %r", exc)
+        if isinstance(exc, asyncio.CancelledError):
+            # The loop is shutting down under it, not the broker closing it.
+            logger.debug("AMQP channel closed by its loop shutting down")
+        else:
+            logger.warning("AMQP channel closed by the broker: %r", exc)
         self._interrupted.set()
 
     def on_connection_closed(self, exc: BaseException | None = None) -> None:
@@ -1000,11 +1004,11 @@ class Transport(BaseTransport):
         """aio-pika callback: this connection is gone."""
         if connection is not self._connection:
             return  # left over from a connection this transport has replaced
-        logger.warning(
-            "AMQP connection to %s closed: %r",
-            maybe_sanitize_url(self._url),
-            exc,
-        )
+        if isinstance(exc, asyncio.CancelledError):
+            # The loop is shutting down under it, not the broker closing it.
+            logger.debug("AMQP connection to %s closed by its loop shutting down", maybe_sanitize_url(self._url))
+        else:
+            logger.warning("AMQP connection to %s closed: %r", maybe_sanitize_url(self._url), exc)
         for channel in list(self._channels):
             channel.on_connection_closed(exc)
 
