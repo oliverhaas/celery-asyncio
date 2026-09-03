@@ -1,25 +1,26 @@
-import logging
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
 import pytest
 from kombu import Exchange, Queue
 
 from celery import Celery, chord
 from celery.contrib.testing.worker import start_worker
 from celery.result import allow_join_result
+from celery.utils.eventloop import default_loop_runner
 from tests.integration.conftest import TEST_BACKEND, TEST_BROKER
 
-logger = logging.getLogger(__name__)
+HEADER_QUEUE = "header_queue"
+CALLBACK_QUEUE = "chord_callback_queue"
+
+
+async def delete_queues(app: Celery) -> None:
+    async with app.connection_for_write() as connection:
+        channel = await connection.channel()
+        for queue in (HEADER_QUEUE, CALLBACK_QUEUE):
+            await channel.queue_delete(queue)
 
 
 @pytest.fixture
 def app():
-    """
-    Celery app configured to:
-    - Use quorum queues with topic exchanges
-    - Route chord_unlock to a dedicated quorum queue
-    """
+    """Quorum queues behind topic exchanges, chord_unlock routed to one of them."""
     app = Celery("test_app", broker=TEST_BROKER, backend=TEST_BACKEND)
 
     app.conf.task_default_exchange_type = "topic"
@@ -29,36 +30,38 @@ def app():
 
     app.conf.task_queues = [
         Queue(
-            "header_queue",
+            HEADER_QUEUE,
             Exchange("header_exchange", type="topic"),
             routing_key="header_rk",
             queue_arguments={"x-queue-type": "quorum"},
         ),
         Queue(
-            "chord_callback_queue",
+            CALLBACK_QUEUE,
             Exchange("chord_callback_exchange", type="topic"),
-            routing_key="chord_callback_queue",
+            routing_key=CALLBACK_QUEUE,
             queue_arguments={"x-queue-type": "quorum"},
         ),
     ]
 
     app.conf.task_routes = {
         "celery.chord_unlock": {
-            "queue": "chord_callback_queue",
+            "queue": CALLBACK_QUEUE,
             "exchange": "chord_callback_exchange",
-            "routing_key": "chord_callback_queue",
+            "routing_key": CALLBACK_QUEUE,
             "exchange_type": "topic",
         },
     }
 
-    return app
+    yield app
+
+    # Quorum queues are durable, so they outlive the run unless deleted.
+    default_loop_runner().run(delete_queues(app))
 
 
 @pytest.fixture
 def add(app):
     @app.task(bind=True, max_retries=3, default_retry_delay=1)
     def add(self, x, y):
-        time.sleep(0.05)
         return x + y
 
     return add
@@ -73,82 +76,27 @@ def summarize(app):
     return summarize
 
 
-def wait_for_chord_unlock(chord_result, timeout=10, interval=0.2):
-    """
-    Waits for chord_unlock to be enqueued by polling the `parent` of the chord result.
-    This confirms that the header group finished and the callback is ready to run.
-    """
-    start = time.monotonic()
-    while time.monotonic() - start < timeout:
-        if chord_result.parent and chord_result.parent.ready():
-            return True
-        time.sleep(interval)
-    return False
-
-
 @pytest.mark.amqp
-@pytest.mark.timeout(90)
-@pytest.mark.xfail(
-    reason="chord_unlock routed to quorum/topic queue intermittently fails under load",
-    strict=False,
-)
-def test_chord_unlock_stress_routing_to_quorum_queue(app, add, summarize):
-    """
-    Reproduces Celery Discussion #9742 (intermittently):
-    When chord_unlock is routed to a quorum queue via topic exchange, it may not be consumed
-    even if declared and bound, leading to stuck results.
-
-    This stress test submits many chords rapidly, each routed explicitly via a topic exchange,
-    and waits to see how many complete.
-    """
+@pytest.mark.timeout(120)
+def test_chords_complete_over_quorum_queues_behind_topic_exchanges(app, add, summarize):
+    """Celery discussion #9742: chords routed this way got stuck on RabbitMQ."""
     chord_count = 50
     header_fanout = 3
-    failures = []
 
-    pending_results = []
-
-    with allow_join_result():
-        # Submit chords BEFORE worker is running
+    with (
+        start_worker(app, queues=[HEADER_QUEUE, CALLBACK_QUEUE], loglevel="info", perform_ping_check=False),
+        allow_join_result(),
+    ):
+        results = []
         for i in range(chord_count):
             header = [
-                add.s(i, j).set(
-                    queue="header_queue",
-                    exchange="header_exchange",
-                    routing_key="header_rk",
-                )
+                add.s(i, j).set(queue=HEADER_QUEUE, exchange="header_exchange", routing_key="header_rk")
                 for j in range(header_fanout)
             ]
-
             callback = summarize.s().set(
-                queue="chord_callback_queue",
-                exchange="chord_callback_exchange",
-                routing_key="chord_callback_queue",
+                queue=CALLBACK_QUEUE, exchange="chord_callback_exchange", routing_key=CALLBACK_QUEUE
             )
+            results.append((i, chord(header)(callback)))
 
-            result = chord(header)(callback)
-            pending_results.append((i, result))
-
-        # Wait for chord_unlock tasks to be dispatched before starting the worker
-        for i, result in pending_results:
-            if not wait_for_chord_unlock(result):
-                logger.warning(f"[!] Chord {i}: unlock was not dispatched within timeout")
-
-        # Start worker that consumes both header and callback queues
-        with start_worker(
-            app, queues=["header_queue", "chord_callback_queue"], loglevel="info", perform_ping_check=False
-        ):
-            # Poll all chord results
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = {executor.submit(result.get, timeout=20): (i, result) for i, result in pending_results}
-
-                for future in as_completed(futures):
-                    i, result = futures[future]
-                    try:
-                        res = future.result()
-                        logger.info(f"[✓] Chord {i} completed: {res}")
-                    except Exception as exc:
-                        logger.error(f"[✗] Chord {i} failed or stuck: {exc}")
-                        failures.append((i, exc))
-
-    # Assertion: all chords should have completed
-    assert not failures, f"{len(failures)} of {chord_count} chords failed or got stuck"
+        for i, result in results:
+            assert result.get(timeout=30) == sum(i + j for j in range(header_fanout))
