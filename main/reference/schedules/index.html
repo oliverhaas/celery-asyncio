@@ -576,6 +576,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../user-guide/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../user-guide/django/" class="md-nav__link">
         
   
@@ -1555,15 +1583,15 @@ month, and/or a month in the year in any of the following formats:</p>
 <div class="language-text highlight"><pre><span></span><code>- A (list of) integers from 0-59 that represent the minutes of
   an hour of when execution should occur; or
 - A string representing a Crontab pattern.  This may get pretty
-  advanced, like ``minute=&#39;*/15&#39;`` (for every quarter) or
-  ``minute=&#39;1,13,30-45,50-59/2&#39;``.
+  advanced, like ``minute='*/15'`` (for every quarter) or
+  ``minute='1,13,30-45,50-59/2'``.
 </code></pre></div>
 <p>.. attribute:: hour</p>
 <div class="language-text highlight"><pre><span></span><code>- A (list of) integers from 0-23 that represent the hours of
   a day of when execution should occur; or
 - A string representing a Crontab pattern.  This may get pretty
-  advanced, like ``hour=&#39;*/3&#39;`` (for every three hours) or
-  ``hour=&#39;0,8-17/2&#39;`` (at midnight, and every two hours during
+  advanced, like ``hour='*/3'`` (for every three hours) or
+  ``hour='0,8-17/2'`` (at midnight, and every two hours during
   office hours).
 </code></pre></div>
 <p>.. attribute:: day_of_week</p>
@@ -1571,24 +1599,24 @@ month, and/or a month in the year in any of the following formats:</p>
   6, that represent the days of a week that execution should
   occur.
 - A string representing a Crontab pattern.  This may get pretty
-  advanced, like ``day_of_week=&#39;mon-fri&#39;`` (for weekdays only).
-  (Beware that ``day_of_week=&#39;*/2&#39;`` does not literally mean
-  &#39;every two days&#39;, but &#39;every day that is divisible by two&#39;!)
+  advanced, like ``day_of_week='mon-fri'`` (for weekdays only).
+  (Beware that ``day_of_week='*/2'`` does not literally mean
+  'every two days', but 'every day that is divisible by two'!)
 </code></pre></div>
 <p>.. attribute:: day_of_month</p>
 <div class="language-text highlight"><pre><span></span><code>- A (list of) integers from 1-31 that represents the days of the
   month that execution should occur.
 - A string representing a Crontab pattern.  This may get pretty
-  advanced, such as ``day_of_month=&#39;2-30/2&#39;`` (for every even
-  numbered day) or ``day_of_month=&#39;1-7,15-21&#39;`` (for the first and
+  advanced, such as ``day_of_month='2-30/2'`` (for every even
+  numbered day) or ``day_of_month='1-7,15-21'`` (for the first and
   third weeks of the month).
 </code></pre></div>
 <p>.. attribute:: month_of_year</p>
 <div class="language-text highlight"><pre><span></span><code>- A (list of) integers from 1-12 that represents the months of
   the year during which execution can occur.
 - A string representing a Crontab pattern.  This may get pretty
-  advanced, such as ``month_of_year=&#39;*/3&#39;`` (for the first month
-  of every quarter) or ``month_of_year=&#39;2-12/2&#39;`` (for every even
+  advanced, such as ``month_of_year='*/3'`` (for the first month
+  of every quarter) or ``month_of_year='2-12/2'`` (for every even
   numbered month).
 </code></pre></div>
 <p>.. attribute:: nowfun</p>
@@ -1637,11 +1665,11 @@ present in <code>month_of_year</code>.</p>
 
 <a href="#celery.schedules.crontab.__init__" class="headerlink" title="Permanent link">&para;</a></h3>
 <div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">__init__</span><span class="p">(</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">minute</span><span class="p">:</span> <span class="n">Cronspec</span> <span class="o">=</span> <span class="s2">&quot;*&quot;</span><span class="p">,</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">hour</span><span class="p">:</span> <span class="n">Cronspec</span> <span class="o">=</span> <span class="s2">&quot;*&quot;</span><span class="p">,</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">day_of_week</span><span class="p">:</span> <span class="n">Cronspec</span> <span class="o">=</span> <span class="s2">&quot;*&quot;</span><span class="p">,</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">day_of_month</span><span class="p">:</span> <span class="n">Cronspec</span> <span class="o">=</span> <span class="s2">&quot;*&quot;</span><span class="p">,</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">month_of_year</span><span class="p">:</span> <span class="n">Cronspec</span> <span class="o">=</span> <span class="s2">&quot;*&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">minute</span><span class="p">:</span> <span class="n">Cronspec</span> <span class="o">=</span> <span class="s2">"*"</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">hour</span><span class="p">:</span> <span class="n">Cronspec</span> <span class="o">=</span> <span class="s2">"*"</span><span class="p">,</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">day_of_week</span><span class="p">:</span> <span class="n">Cronspec</span> <span class="o">=</span> <span class="s2">"*"</span><span class="p">,</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">day_of_month</span><span class="p">:</span> <span class="n">Cronspec</span> <span class="o">=</span> <span class="s2">"*"</span><span class="p">,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">month_of_year</span><span class="p">:</span> <span class="n">Cronspec</span> <span class="o">=</span> <span class="s2">"*"</span><span class="p">,</span>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
 </span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </span></code></pre></div>

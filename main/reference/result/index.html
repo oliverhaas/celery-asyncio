@@ -576,6 +576,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../user-guide/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../user-guide/django/" class="md-nav__link">
         
   
@@ -1184,6 +1212,28 @@
     <span class="md-ellipsis">
       
         aget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#celery.result.EagerResult.aforget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        aforget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#celery.result.EagerResult.arevoke" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        arevoke
       
     </span>
   </a>
@@ -1897,6 +1947,28 @@
     <span class="md-ellipsis">
       
         aget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#celery.result.EagerResult.aforget" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        aforget
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#celery.result.EagerResult.arevoke" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        arevoke
       
     </span>
   </a>
@@ -2840,6 +2912,60 @@ would fall through to :meth:<code>AsyncResult.aget</code>, which reads the value
 straight out of the cache and so returns the <code>Ignore</code>/<code>Reject</code>
 instance for a task that produced no result, where :meth:<code>get</code> returns
 <code>None</code>.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="celery.result.EagerResult.aforget" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">aforget</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#celery.result.EagerResult.aforget" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">aforget</span><span class="p">()</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Async version of :meth:<code>forget</code>.</p>
+<p>An eager result was never stored in a backend, so there is nothing to
+remove. Without this override :meth:<code>AsyncResult.aforget</code> would try to
+clear the read-only <code>_cache</code> property and talk to a backend that is
+not there.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="celery.result.EagerResult.arevoke" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">arevoke</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#celery.result.EagerResult.arevoke" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nf">arevoke</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Async version of :meth:<code>revoke</code>.</p>
+<p>The task already ran in this process, so the state is flipped locally
+instead of broadcasting a revoke to workers.</p>
 
 
     </div>

@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://oliverhaas.github.io/celery-asyncio/main/user-guide/architecture/">
+        <link rel="canonical" href="https://oliverhaas.github.io/celery-asyncio/main/user-guide/testing/">
       
       
-        <link rel="prev" href="../../getting-started/migration/">
+        <link rel="prev" href="../configuration/">
       
       
-        <link rel="next" href="../async-tasks/">
+        <link rel="next" href="../django/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Architecture - celery-asyncio</title>
+        <title>Testing - celery-asyncio</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#architecture" class="md-skip">
+        <a href="#testing" class="md-skip">
           Skip to content
         </a>
       
@@ -120,7 +120,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Architecture
+              Testing
             
           </span>
         </div>
@@ -489,37 +489,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Architecture
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
         
   
   
@@ -535,120 +508,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#worker-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Worker model
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Worker model">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#main-thread" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Main thread
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#loop-workers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Loop workers
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sync-workers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sync workers
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#python-314t-free-threading" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Python 3.14t free-threading
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#consumer-loop" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Consumer loop
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#bootsteps" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Bootsteps
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#shutdown-and-restart" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Shutdown and restart
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -714,10 +573,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../testing/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -733,6 +619,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#configuring-the-test-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuring the test app
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-a-task-in-a-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running a task in a worker
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#async-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Async tasks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#one-worker-for-the-whole-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One worker for the whole session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#available-fixtures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Available fixtures
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#without-the-fixtures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Without the fixtures
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1257,71 +1229,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#worker-model" class="md-nav__link">
+  <a href="#configuring-the-test-app" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Worker model
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Worker model">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#main-thread" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Main thread
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#loop-workers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Loop workers
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sync-workers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sync workers
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#python-314t-free-threading" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Python 3.14t free-threading
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#consumer-loop" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Consumer loop
+        Configuring the test app
       
     </span>
   </a>
@@ -1329,10 +1240,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bootsteps" class="md-nav__link">
+  <a href="#running-a-task-in-a-worker" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Bootsteps
+        Running a task in a worker
       
     </span>
   </a>
@@ -1340,10 +1251,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#shutdown-and-restart" class="md-nav__link">
+  <a href="#async-tasks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Shutdown and restart
+        Async tasks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#one-worker-for-the-whole-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One worker for the whole session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#available-fixtures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Available fixtures
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#without-the-fixtures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Without the fixtures
       
     </span>
   </a>
@@ -1370,63 +1314,161 @@
   
 
 
-<h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
-<h2 id="worker-model">Worker model<a class="headerlink" href="#worker-model" title="Permanent link">&para;</a></h2>
-<p>The celery-asyncio worker uses a multi-threaded architecture:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Main thread
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  |
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>  +-- Consumer event loop (asyncio)
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  |     - Broker connection (Redis/AMQP)
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>  |     - Message dispatch
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  |     - Timer/scheduler
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>  |
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  +-- Loop worker threads (N)
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>  |     - Each runs its own asyncio event loop
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>  |     - Async tasks dispatched here
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>  |     - Semaphore limits concurrency per thread
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>  |
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>  +-- Sync worker threads (M)
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>        - ThreadPoolExecutor
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>        - Sync tasks dispatched here
+<h1 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h1>
+<p><code>celery.contrib.pytest</code> ships fixtures that hand a test a configured app and,
+when it needs one, a worker running in a thread. The distribution does not
+register the plugin through an entry point, so pytest has to be told about it.
+Put this in the project's root <code>conftest.py</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">pytest_plugins</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"celery.contrib.pytest"</span><span class="p">,)</span>
 </span></code></pre></div>
-<h3 id="main-thread">Main thread<a class="headerlink" href="#main-thread" title="Permanent link">&para;</a></h3>
-<p>Owns the broker connection and runs the consumer event loop. Messages are received here and dispatched to the appropriate worker thread based on whether the task is async or sync.</p>
-<h3 id="loop-workers">Loop workers<a class="headerlink" href="#loop-workers" title="Permanent link">&para;</a></h3>
-<p>Each loop worker runs its own asyncio event loop. Async tasks (<code>async def</code>) are scheduled directly on these loops. A semaphore controls how many tasks can run concurrently per loop worker.</p>
-<p>The number of loop workers and per-worker concurrency are configurable:</p>
-<div class="language-console highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="gp"># </span><span class="m">2</span><span class="w"> </span>loop<span class="w"> </span>workers,<span class="w"> </span><span class="m">500</span><span class="w"> </span>concurrent<span class="w"> </span>tasks<span class="w"> </span><span class="nv">each</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="m">1000</span><span class="w"> </span>total
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="go">celery -A app worker --loop-workers=2 --loop-concurrency=500</span>
+<p>The <code>pytest</code> extra pulls in pytest itself:</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="go">pip install "celery-asyncio[pytest]"</span>
 </span></code></pre></div>
-<h3 id="sync-workers">Sync workers<a class="headerlink" href="#sync-workers" title="Permanent link">&para;</a></h3>
-<p>Synchronous tasks run in a <code>ThreadPoolExecutor</code>. The number of sync worker threads is configurable:</p>
-<div class="language-console highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="go">celery -A app worker --sync-workers=4</span>
+<h2 id="configuring-the-test-app">Configuring the test app<a class="headerlink" href="#configuring-the-test-app" title="Permanent link">&para;</a></h2>
+<p><code>celery_app</code> is a <code>Celery</code> instance built for one test. Override <code>celery_config</code>
+to say which broker and result backend it uses:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">pytest_plugins</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"celery.contrib.pytest"</span><span class="p">,)</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span><span class="p">(</span><span class="n">scope</span><span class="o">=</span><span class="s2">"session"</span><span class="p">)</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="k">def</span><span class="w"> </span><span class="nf">celery_config</span><span class="p">():</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="k">return</span> <span class="p">{</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>        <span class="s2">"broker_url"</span><span class="p">:</span> <span class="s2">"memory://"</span><span class="p">,</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>        <span class="s2">"result_backend"</span><span class="p">:</span> <span class="s2">"cache+memory://"</span><span class="p">,</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>    <span class="p">}</span>
 </span></code></pre></div>
-<h3 id="python-314t-free-threading">Python 3.14t free-threading<a class="headerlink" href="#python-314t-free-threading" title="Permanent link">&para;</a></h3>
-<p>With Python 3.14t (free-threaded build), all threads run with true parallelism since the GIL is disabled. This means sync tasks in the thread pool actually execute in parallel, not just concurrently.</p>
-<h2 id="consumer-loop">Consumer loop<a class="headerlink" href="#consumer-loop" title="Permanent link">&para;</a></h2>
-<p>The consumer loop in the main thread:</p>
-<ol>
-<li>Drains the timer heap (fires scheduled entries like ETA/countdown tasks)</li>
-<li>Blocks on <code>drain_events()</code> until a message arrives or timeout</li>
-<li>Batch-drains remaining messages non-blocking to fill the concurrency pipeline</li>
-<li>Checks restart conditions (max tasks, max memory, stuck threads)</li>
-</ol>
-<h2 id="bootsteps">Bootsteps<a class="headerlink" href="#bootsteps" title="Permanent link">&para;</a></h2>
-<p>The worker startup/shutdown sequence uses async bootsteps. Each step's <code>start()</code> and <code>stop()</code> methods are coroutines:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">MyStep</span><span class="p">(</span><span class="n">bootsteps</span><span class="o">.</span><span class="n">Step</span><span class="p">):</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="p">):</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>        <span class="o">...</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parent</span><span class="p">):</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>        <span class="o">...</span>
+<p><code>memory://</code> keeps the whole round trip inside the process, which is enough for
+most task tests. Point <code>broker_url</code> at <code>redis://</code> or <code>amqp://</code> when the test is
+about transport behaviour.</p>
+<h2 id="running-a-task-in-a-worker">Running a task in a worker<a class="headerlink" href="#running-a-task-in-a-worker" title="Permanent link">&para;</a></h2>
+<p><code>celery_worker</code> starts a worker in a thread on the shared event loop and stops
+it when the test returns. A task registered after the worker started is not in
+its strategy table, so call <code>reload()</code> before dispatching:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="n">celery_app</span><span class="p">):</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="nd">@celery_app</span><span class="o">.</span><span class="n">task</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"add"</span><span class="p">)</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>        <span class="k">return</span> <span class="n">x</span> <span class="o">+</span> <span class="n">y</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="k">return</span> <span class="n">add</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="k">def</span><span class="w"> </span><span class="nf">test_add</span><span class="p">(</span><span class="n">celery_worker</span><span class="p">,</span> <span class="n">add</span><span class="p">):</span>
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>    <span class="n">celery_worker</span><span class="o">.</span><span class="n">reload</span><span class="p">()</span>
+</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>    <span class="k">assert</span> <span class="n">add</span><span class="o">.</span><span class="n">delay</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span> <span class="o">==</span> <span class="mi">5</span>
 </span></code></pre></div>
-<h2 id="shutdown-and-restart">Shutdown and restart<a class="headerlink" href="#shutdown-and-restart" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>Graceful shutdown</strong>: <code>SIGTERM</code> or <code>SIGINT</code> sets <code>state.should_stop</code>, the consumer loop exits, active tasks finish</li>
-<li><strong>Draining</strong>: stops consuming new messages, rejects/requeues prefetched tasks, waits for active tasks to complete</li>
-<li><strong>Restart</strong>: <code>max_tasks_per_child</code> or <code>max_memory_per_child</code> triggers drain + <code>os.execv</code> restart</li>
-<li><strong>Hard timeout</strong>: stuck sync tasks are cancelled via <code>threading.Timer</code>, stuck threads trigger worker restart</li>
-</ul>
+<p>Without the <code>reload()</code> the worker answers with
+<code>Received unregistered task of type 'add'</code> and the result never arrives.</p>
+<p>For tasks that live in a module, name the module in <code>celery_includes</code> instead.
+The fixture imports it before the worker starts, so no <code>reload()</code> is needed:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span><span class="p">(</span><span class="n">scope</span><span class="o">=</span><span class="s2">"session"</span><span class="p">)</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">celery_includes</span><span class="p">():</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="k">return</span> <span class="p">[</span><span class="s2">"myapp.tasks"</span><span class="p">]</span>
+</span></code></pre></div>
+<h2 id="async-tasks">Async tasks<a class="headerlink" href="#async-tasks" title="Permanent link">&para;</a></h2>
+<p>Calling an <code>async def</code> task directly returns a coroutine, so a test that
+exercises the body without a broker has to await it:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_add_body</span><span class="p">(</span><span class="n">add</span><span class="p">):</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="k">assert</span> <span class="k">await</span> <span class="n">add</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span> <span class="o">==</span> <span class="mi">5</span>
+</span></code></pre></div>
+<p>Through a worker there is no difference between an async and a sync task:
+<code>delay()</code> and <code>apply_async()</code> return an <code>AsyncResult</code> for both. <code>adelay()</code> and
+<code>aapply_async()</code> are the async-native equivalents for when the test is itself a
+coroutine.</p>
+<h2 id="one-worker-for-the-whole-session">One worker for the whole session<a class="headerlink" href="#one-worker-for-the-whole-session" title="Permanent link">&para;</a></h2>
+<p>Starting and stopping a worker for every test adds up. The session-scoped
+<code>celery_session_app</code> and <code>celery_session_worker</code> start one worker for the whole
+run instead. They read the same <code>celery_config</code>, <code>celery_includes</code> and
+<code>celery_worker_parameters</code> fixtures, all of which are session-scoped already.
+Tasks have to be registered on <code>celery_session_app</code>, not on <code>celery_app</code>: the
+two are different instances.</p>
+<h2 id="available-fixtures">Available fixtures<a class="headerlink" href="#available-fixtures" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Fixture</th>
+<th>Scope</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>celery_app</code></td>
+<td>function</td>
+<td>A <code>Celery</code> instance configured from <code>celery_config</code></td>
+</tr>
+<tr>
+<td><code>celery_worker</code></td>
+<td>function</td>
+<td>A worker on that app, started in a thread</td>
+</tr>
+<tr>
+<td><code>celery_session_app</code></td>
+<td>session</td>
+<td>One app for the whole run</td>
+</tr>
+<tr>
+<td><code>celery_session_worker</code></td>
+<td>session</td>
+<td>One worker for the whole run</td>
+</tr>
+<tr>
+<td><code>celery_config</code></td>
+<td>session</td>
+<td>Override to configure the app; returns <code>{}</code> by default</td>
+</tr>
+<tr>
+<td><code>celery_parameters</code></td>
+<td>session</td>
+<td>Override to change the <code>Celery()</code> constructor arguments</td>
+</tr>
+<tr>
+<td><code>celery_worker_parameters</code></td>
+<td>session</td>
+<td>Override to change the <code>WorkController</code> arguments, for example the queues to consume</td>
+</tr>
+<tr>
+<td><code>celery_includes</code></td>
+<td>session</td>
+<td>Override to return module names the worker imports at startup</td>
+</tr>
+<tr>
+<td><code>celery_class_tasks</code></td>
+<td>session</td>
+<td>Override to return class-based tasks to register</td>
+</tr>
+<tr>
+<td><code>celery_enable_logging</code></td>
+<td>session</td>
+<td>Override to <code>True</code> to let the app configure logging</td>
+</tr>
+<tr>
+<td><code>celery_worker_pool</code></td>
+<td>session</td>
+<td>The pool the test worker runs; <code>"asyncio"</code></td>
+</tr>
+<tr>
+<td><code>depends_on_current_app</code></td>
+<td>function</td>
+<td>Sets the test app as the current app</td>
+</tr>
+</tbody>
+</table>
+<p>Setting the environment variable <code>NO_WORKER</code> makes <code>celery_worker</code> and
+<code>celery_session_worker</code> yield nothing instead of starting a worker.</p>
+<h2 id="without-the-fixtures">Without the fixtures<a class="headerlink" href="#without-the-fixtures" title="Permanent link">&para;</a></h2>
+<p><code>celery.contrib.testing.worker.start_worker</code> is the context manager the fixtures
+are built on, for tests that need to control when the worker runs:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">celery.contrib.testing.worker</span><span class="w"> </span><span class="kn">import</span> <span class="n">start_worker</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="k">with</span> <span class="n">start_worker</span><span class="p">(</span><span class="n">app</span><span class="p">,</span> <span class="n">perform_ping_check</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="k">assert</span> <span class="n">add</span><span class="o">.</span><span class="n">delay</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span> <span class="o">==</span> <span class="mi">5</span>
+</span></code></pre></div>
 
 
 

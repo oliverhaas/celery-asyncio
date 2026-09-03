@@ -576,6 +576,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../user-guide/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../user-guide/django/" class="md-nav__link">
         
   
@@ -1060,17 +1088,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#kombu.connection.Connection.qos_semantics_matches_spec" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        qos_semantics_matches_spec
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#kombu.connection.Connection.client" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1527,17 +1544,6 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#kombu.connection.Connection.qos_semantics_matches_spec" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        qos_semantics_matches_spec
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
   <a href="#kombu.connection.Connection.client" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1786,7 +1792,7 @@
 <p><code>kombu.Connection</code> is the broker connection. It is an async context manager;
 the synchronous form exists for sync callers such as Flower and is driven by a
 long-lived background loop.</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">Connection</span><span class="p">(</span><span class="s2">&quot;redis://localhost:6379&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">Connection</span><span class="p">(</span><span class="s2">"redis://localhost:6379"</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">channel</span> <span class="o">=</span> <span class="k">await</span> <span class="n">conn</span><span class="o">.</span><span class="n">default_channel</span><span class="p">()</span>
 </span></code></pre></div>
 <h2 id="connection_1">Connection<a class="headerlink" href="#connection_1" title="Permanent link">&para;</a></h2>
@@ -1814,13 +1820,15 @@ long-lived background loop.</p>
         channel = await conn.channel()
         await channel.publish(b'hello', exchange='', routing_key='myqueue')</p>
 <div class="language-text highlight"><pre><span></span><code># Memory transport (useful for testing)
-async with Connection(&#39;memory://&#39;) as conn:
+async with Connection('memory://') as conn:
     ...
 </code></pre></div>
 <p>Arguments:
     hostname: Broker URL (e.g., 'redis://localhost:6379', 'memory://').</p>
 <p>Keyword Arguments:
-    transport_options: Additional options for the transport.</p>
+    transport_options: Additional options for the transport. Everything
+        else a broker needs, credentials, virtual host, port, TLS, is
+        part of the URL.</p>
 
 
 
@@ -1970,33 +1978,6 @@ notion of exclusive ownership.</p>
 
 
 
-<h3 id="kombu.connection.Connection.qos_semantics_matches_spec" class="doc doc-heading">
-            <span class="doc doc-object-name doc-attribute-name">qos_semantics_matches_spec</span>
-
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-property"><code>property</code></small>
-  </span>
-
-<a href="#kombu.connection.Connection.qos_semantics_matches_spec" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">qos_semantics_matches_spec</span><span class="p">:</span> <span class="nb">bool</span>
-</span></code></pre></div>
-
-    <div class="doc doc-contents ">
-
-        <p>Whether the transport's QoS semantics match the AMQP spec.</p>
-<p>RabbitMQ 3.3+ changed basic_qos semantics (global vs per-consumer).
-Returns False for AMQP transports to trigger the global flag.
-For Redis/Memory, returns True (spec-like semantics).</p>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-attribute">
-
-
-
 <h3 id="kombu.connection.Connection.client" class="doc doc-heading">
             <span class="doc doc-object-name doc-attribute-name">client</span>
 
@@ -2087,6 +2068,10 @@ For Redis/Memory, returns True (spec-like semantics).</p>
     <div class="doc doc-contents ">
 
         <p>Close the connection.</p>
+<p>A close that fails leaves the connection open rather than closed: the
+transport is still there to try again on, where marking the connection
+closed first would have made a second :meth:<code>close</code> a no-op and left
+the transport running with nothing able to reach it.</p>
 
 
     </div>
@@ -2136,7 +2121,10 @@ For Redis/Memory, returns True (spec-like semantics).</p>
     <div class="doc doc-contents ">
 
         <p>Get or create the default channel.</p>
-<p>The default channel is reused for convenience operations.</p>
+<p>The default channel is reused for convenience operations. Opening one
+is an await, so the check and the assignment are held under a lock:
+without it two concurrent first callers each opened a channel and one
+of them was left behind, still registered on the broker.</p>
 
 
     </div>
@@ -2256,10 +2244,12 @@ For Redis/Memory, returns True (spec-like semantics).</p>
 
         <p>Wait for a single event from the broker.</p>
 <p>This will block until a message arrives or timeout is reached.</p>
+<p>Only the default channel is drained. A consumer built on a channel of
+its own, from :meth:<code>channel</code>, has to be drained through that channel.</p>
 <p>Args:
     timeout: Maximum time to wait in seconds.</p>
 <p>Raises:
-    socket.timeout: If timeout is reached with no events.</p>
+    TimeoutError: If timeout is reached with no events.</p>
 
 
     </div>

@@ -676,6 +676,34 @@
   
   
     <li class="md-nav__item">
+      <a href="user-guide/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="user-guide/django/" class="md-nav__link">
         
   
@@ -1271,15 +1299,15 @@
 <li><strong><code>async def</code> tasks</strong> run directly on the event loop, no thread overhead</li>
 <li><strong>Sync tasks</strong> run in a thread pool alongside async tasks in the same worker</li>
 <li><strong>Valkey/Redis and AMQP transports</strong> via the bundled asyncio <code>kombu</code> package</li>
-<li><strong>Full CLI compatibility</strong> with upstream Celery (<code>celery -A app worker</code>, <code>celery inspect</code>, etc.)</li>
-<li><strong>Celery Flower</strong> works out of the box for monitoring</li>
+<li><strong>Familiar CLI</strong> (<code>celery -A app worker</code>, <code>celery inspect</code>, <code>celery beat</code>), minus the flags that only applied to the prefork pool</li>
+<li><strong>Celery Flower</strong> for monitoring, installed with <code>--no-deps</code> alongside the <code>flower</code> extra (<a href="getting-started/quickstart/">how</a>)</li>
 <li><strong>Django 6.0 Tasks</strong> support via <a href="https://github.com/oliverhaas/django-tasks-celery">django-tasks-celery</a></li>
 <li><strong>Targeting Python 3.14t</strong> free-threading for true parallelism</li>
 </ul>
 <h2 id="quick-example">Quick example<a class="headerlink" href="#quick-example" title="Permanent link">&para;</a></h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">celery</span><span class="w"> </span><span class="kn">import</span> <span class="n">Celery</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">app</span> <span class="o">=</span> <span class="n">Celery</span><span class="p">(</span><span class="s2">&quot;tasks&quot;</span><span class="p">,</span> <span class="n">broker</span><span class="o">=</span><span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">)</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">app</span> <span class="o">=</span> <span class="n">Celery</span><span class="p">(</span><span class="s2">"tasks"</span><span class="p">,</span> <span class="n">broker</span><span class="o">=</span><span class="s2">"redis://localhost:6379/0"</span><span class="p">)</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nd">@app</span><span class="o">.</span><span class="n">task</span>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>

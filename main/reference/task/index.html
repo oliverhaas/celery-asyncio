@@ -576,6 +576,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../user-guide/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../user-guide/django/" class="md-nav__link">
         
   
@@ -2009,7 +2037,7 @@ eta (~datetime.datetime): Absolute time and date of when the task
 
 expires (float, ~datetime.datetime): Datetime or
     seconds in the future for the task should expire.
-    The task won&#39;t be executed after the expiration time.
+    The task won't be executed after the expiration time.
 
 shadow (str): Override task name used in logs/monitoring.
     Default is retrieved from :meth:`shadow_name`.
@@ -2050,7 +2078,7 @@ priority (int): The task priority, a number between 0 and 9.
 
 serializer (str): Serialization method to use.
     Can be `pickle`, `json`, `yaml`, `msgpack` or any custom
-    serialization method that&#39;s been registered
+    serialization method that's been registered
     with :mod:`kombu.serialization.registry`.
     Defaults to the :attr:`serializer` attribute.
 
@@ -2216,6 +2244,10 @@ Returns:
     Although the task will never return above as <code>retry</code> raises an
     exception to notify the worker, we use <code>raise</code> in front of the
     retry to convey that the rest of the block won't be executed.</p>
+<p>Note:
+    From an <code>async def</code> task body this stalls the loop the body runs
+    on while the retry is published. <code>raise await self.aretry(...)</code>
+    does the same without stalling it.</p>
 <p>Arguments:
     args (Tuple): Positional arguments to retry with.
     kwargs (Dict): Keyword arguments to retry with.
@@ -2232,15 +2264,15 @@ countdown (float): Time in seconds to delay the retry for.
 eta (~datetime.datetime): Explicit time and date to run the
     retry at.
 max_retries (int): If set, overrides the default retry limit for
-    this execution.  Changes to this parameter don&#39;t propagate to
+    this execution.  Changes to this parameter don't propagate to
     subsequent task retry attempts.  A value of :const:`None`,
-    means &quot;use the default&quot;, so if you want infinite retries you&#39;d
+    means "use the default", so if you want infinite retries you'd
     have to set the :attr:`max_retries` attribute of the task to
     :const:`None` first.
 time_limit (int): If set, overrides the default time limit.
 soft_time_limit (int): If set, overrides the default soft
     time limit.
-throw (bool): If this is :const:`False`, don&#39;t raise the
+throw (bool): If this is :const:`False`, don't raise the
     :exc:`~@Retry` exception, that tells the worker to mark
     the task as being retried.  Note that this means the task
     will be marked as failed if the task raises an exception,

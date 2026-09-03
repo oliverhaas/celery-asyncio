@@ -16,7 +16,7 @@
         <link rel="prev" href="../async-tasks/">
       
       
-        <link rel="next" href="../django/">
+        <link rel="next" href="../testing/">
       
       
         
@@ -627,6 +627,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Result backend">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transport-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transport options
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -645,6 +662,39 @@
     <span class="md-ellipsis">
       
         Worker settings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#acknowledgement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Acknowledgement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prefetch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prefetch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connection-loss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection loss
       
     </span>
   </a>
@@ -688,6 +738,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Testing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1231,6 +1309,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Result backend">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transport-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transport options
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1249,6 +1344,39 @@
     <span class="md-ellipsis">
       
         Worker settings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#acknowledgement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Acknowledgement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prefetch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prefetch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connection-loss" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection loss
       
     </span>
   </a>
@@ -1312,18 +1440,48 @@
 <h2 id="broker">Broker<a class="headerlink" href="#broker" title="Permanent link">&para;</a></h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">app</span><span class="o">.</span><span class="n">config_from_object</span><span class="p">({</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="c1"># Valkey/Redis</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="s2">&quot;broker_url&quot;</span><span class="p">:</span> <span class="s2">&quot;redis://localhost:6379/0&quot;</span><span class="p">,</span>  <span class="c1"># or valkey://</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="s2">"broker_url"</span><span class="p">:</span> <span class="s2">"redis://localhost:6379/0"</span><span class="p">,</span>  <span class="c1"># or valkey://</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="c1"># RabbitMQ (AMQP)</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="c1"># &quot;broker_url&quot;: &quot;amqp://guest:guest@localhost:5672//&quot;,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="c1"># "broker_url": "amqp://guest:guest@localhost:5672//",</span>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">})</span>
 </span></code></pre></div>
 <h2 id="result-backend">Result backend<a class="headerlink" href="#result-backend" title="Permanent link">&para;</a></h2>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">app</span><span class="o">.</span><span class="n">config_from_object</span><span class="p">({</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="s2">&quot;result_backend&quot;</span><span class="p">:</span> <span class="s2">&quot;redis://localhost:6379/1&quot;</span><span class="p">,</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="s2">"result_backend"</span><span class="p">:</span> <span class="s2">"redis://localhost:6379/1"</span><span class="p">,</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="p">})</span>
 </span></code></pre></div>
 <p>Without a result backend, task return values are discarded. Set <code>result_extended = True</code> to store extra metadata (task name, args, kwargs, worker hostname).</p>
+<h3 id="transport-options">Transport options<a class="headerlink" href="#transport-options" title="Permanent link">&para;</a></h3>
+<p><code>result_backend_transport_options</code> is passed through to the backend. The
+Valkey/Redis backend reads one key of its own:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>additional_connection_errors</code></td>
+<td><code>()</code></td>
+<td>Extra exception classes, or dotted paths to them, to treat as connection errors and retry</td>
+</tr>
+</tbody>
+</table>
+<p>A proxy or a managed Valkey/Redis service in front of the server raises its own
+exception type when it drops a connection, and the retry machinery only knows
+the client library's types. List those here so they are retried instead of
+surfacing as a hard failure. An entry that does not resolve to an exception
+class is skipped with a warning rather than failing backend construction:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">app</span><span class="o">.</span><span class="n">config_from_object</span><span class="p">({</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="s2">"result_backend_transport_options"</span><span class="p">:</span> <span class="p">{</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>        <span class="s2">"additional_connection_errors"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"mypackage.errors.ProxyDisconnected"</span><span class="p">],</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="p">},</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="p">})</span>
+</span></code></pre></div>
 <h2 id="pool-sizing">Pool sizing<a class="headerlink" href="#pool-sizing" title="Permanent link">&para;</a></h2>
 <p>The asyncio pool is sized by three settings, not by <code>worker_concurrency</code>:</p>
 <table>
@@ -1359,8 +1517,8 @@
 <p>Async task capacity is <code>worker_loop_workers × worker_loop_concurrency</code>. Sync tasks
 run in a separate pool of <code>worker_sync_workers</code> threads. On Python 3.14t both pools
 run in parallel.</p>
-<p><code>worker_concurrency</code> and <code>-c</code> are accepted for compatibility with upstream Celery,
-and are used to size autoscaling, but the asyncio pool does not read them.</p>
+<p><code>worker_concurrency</code> and <code>-c</code> are accepted for compatibility with upstream Celery
+and size the prefetch count, but the asyncio pool does not read them for capacity.</p>
 <h2 id="worker-settings">Worker settings<a class="headerlink" href="#worker-settings" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1396,36 +1554,144 @@ and are used to size autoscaling, but the asyncio pool does not read them.</p>
 <td>False</td>
 <td>Acknowledge tasks after execution</td>
 </tr>
+<tr>
+<td><code>worker_soft_shutdown_timeout</code></td>
+<td>0.0</td>
+<td>Seconds to let active tasks finish before cancelling them on shutdown; 0 cancels straight away</td>
+</tr>
+<tr>
+<td><code>worker_enable_soft_shutdown_on_idle</code></td>
+<td>False</td>
+<td>Wait out <code>worker_soft_shutdown_timeout</code> even with no active tasks</td>
+</tr>
+<tr>
+<td><code>worker_deduplicate_successful_tasks</code></td>
+<td>False</td>
+<td>On a redelivered message, look the task id up in the result backend first and skip it if it already succeeded. Needs <code>task_acks_late</code> and a persistent backend</td>
+</tr>
 </tbody>
 </table>
+<h2 id="acknowledgement">Acknowledgement<a class="headerlink" href="#acknowledgement" title="Permanent link">&para;</a></h2>
+<p><code>task_acks_late</code> moves the acknowledgement to after the task has run, so a task
+whose worker dies mid-execution is redelivered. These settings decide what
+happens to a message when the task that ran late-acknowledged did not succeed:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>task_acks_on_failure</code></td>
+<td>None</td>
+<td>Acknowledge the message when the task raises</td>
+</tr>
+<tr>
+<td><code>task_acks_on_timeout</code></td>
+<td>None</td>
+<td>Acknowledge the message when the task hits its time limit</td>
+</tr>
+<tr>
+<td><code>task_acks_on_failure_or_timeout</code></td>
+<td>True</td>
+<td>Covers both of the above; deprecated in 6.0, to be removed in 7.0</td>
+</tr>
+</tbody>
+</table>
+<p><code>None</code> means "fall back to <code>task_acks_on_failure_or_timeout</code>", so the default
+behaviour is unchanged from upstream: a failed or timed-out task is
+acknowledged and not redelivered. Set one of the two to <code>False</code> to have that
+kind of outcome redelivered instead. All three only apply to tasks that are
+acknowledged late; without <code>task_acks_late</code> the message is already gone by the
+time the task runs. The per-task attributes <code>acks_on_failure</code> and
+<code>acks_on_timeout</code> override the app setting.</p>
+<h2 id="prefetch">Prefetch<a class="headerlink" href="#prefetch" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>CLI flag</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>worker_prefetch_multiplier</code></td>
+<td><code>--prefetch-multiplier</code></td>
+<td>4</td>
+<td>Multiplied by the concurrency to get the prefetch count the worker asks the transport for</td>
+</tr>
+<tr>
+<td><code>worker_enable_prefetch_count_reduction</code></td>
+<td></td>
+<td>True</td>
+<td>After a connection loss, reconnect with a prefetch count reduced by the number of tasks still running</td>
+</tr>
+</tbody>
+</table>
+<p>What the prefetch count means depends on the broker. On AMQP it is the usual
+cap on unacknowledged messages. Valkey and Redis cannot push, so there it is
+the batch size one consume round-trip claims into a local buffer: it bounds the
+buffer, not the number of unacknowledged messages.</p>
+<p>With <code>worker_enable_prefetch_count_reduction</code> on, a worker that reconnects
+while N tasks are still running comes back with a lower count and restores the
+full one as those tasks finish, so it does not claim a second full batch on top
+of the work already in hand.</p>
+<h2 id="connection-loss">Connection loss<a class="headerlink" href="#connection-loss" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>worker_cancel_long_running_tasks_on_connection_loss</code></td>
+<td>False</td>
+<td>On losing the broker connection, cancel the running tasks that have <code>task_acks_late</code> set</td>
+</tr>
+</tbody>
+</table>
+<p>A late-acknowledged task cannot be acknowledged once the connection is gone, so
+the broker redelivers it and the work is done twice. Turning this on cancels
+those tasks instead and lets the redelivery be the only run. It is off by
+default, and leaving it off logs a pending-deprecation warning on every
+reconnect.</p>
 <h2 id="serialization">Serialization<a class="headerlink" href="#serialization" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">app</span><span class="o">.</span><span class="n">config_from_object</span><span class="p">({</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="s2">&quot;task_serializer&quot;</span><span class="p">:</span> <span class="s2">&quot;json&quot;</span><span class="p">,</span>       <span class="c1"># json, pickle, msgpack, yaml</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="s2">&quot;result_serializer&quot;</span><span class="p">:</span> <span class="s2">&quot;json&quot;</span><span class="p">,</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="s2">&quot;accept_content&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;json&quot;</span><span class="p">],</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="p">})</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">app</span><span class="o">.</span><span class="n">config_from_object</span><span class="p">({</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="s2">"task_serializer"</span><span class="p">:</span> <span class="s2">"json"</span><span class="p">,</span>       <span class="c1"># json, pickle, msgpack, yaml</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="s2">"result_serializer"</span><span class="p">:</span> <span class="s2">"json"</span><span class="p">,</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="s2">"accept_content"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"json"</span><span class="p">],</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="p">})</span>
 </span></code></pre></div>
 <h2 id="task-autodiscovery">Task autodiscovery<a class="headerlink" href="#task-autodiscovery" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">app</span> <span class="o">=</span> <span class="n">Celery</span><span class="p">(</span><span class="s2">&quot;myapp&quot;</span><span class="p">)</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">app</span><span class="o">.</span><span class="n">config_from_object</span><span class="p">({</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="s2">&quot;include&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;myapp.tasks&quot;</span><span class="p">,</span> <span class="s2">&quot;myapp.other_tasks&quot;</span><span class="p">],</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">})</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">app</span> <span class="o">=</span> <span class="n">Celery</span><span class="p">(</span><span class="s2">"myapp"</span><span class="p">)</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">app</span><span class="o">.</span><span class="n">config_from_object</span><span class="p">({</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="s2">"include"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"myapp.tasks"</span><span class="p">,</span> <span class="s2">"myapp.other_tasks"</span><span class="p">],</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="p">})</span>
 </span></code></pre></div>
 <p>Or with Django:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">app</span><span class="o">.</span><span class="n">autodiscover_tasks</span><span class="p">()</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">app</span><span class="o">.</span><span class="n">autodiscover_tasks</span><span class="p">()</span>
 </span></code></pre></div>
 <h2 id="cli-options">CLI options<a class="headerlink" href="#cli-options" title="Permanent link">&para;</a></h2>
-<div class="language-console highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="go">celery -A app worker [OPTIONS]</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="go">Options:</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="go">  --loglevel=INFO          Log level (DEBUG, INFO, WARNING, ERROR)</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="go">  -E / --task-events       Enable task events for Flower</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="go">  --loop-workers=N         Number of async loop workers (default: 1)</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="go">  --loop-concurrency=N     Max concurrent async tasks per loop worker (default: 10)</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="go">  --sync-workers=N         Number of sync worker threads (default: 1)</span>
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="go">  -c / --concurrency=N     Accepted for compatibility; does not size the asyncio pool</span>
-</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="go">  --max-tasks-per-child=N  Restart after N tasks</span>
-</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="go">  --max-memory-per-child=N Restart if RSS exceeds N KiB</span>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="go">celery -A app worker [OPTIONS]</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="go">Options:</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="go">  --loglevel=INFO          Log level (DEBUG, INFO, WARNING, ERROR)</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="go">  -E / --task-events       Enable task events for Flower</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="go">  --loop-workers=N         Number of async loop workers (default: 1)</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="go">  --loop-concurrency=N     Max concurrent async tasks per loop worker (default: 10)</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="go">  --sync-workers=N         Number of sync worker threads (default: 1)</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="go">  -c / --concurrency=N     Accepted for compatibility; does not size the asyncio pool</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="go">  --max-tasks-per-child=N  Restart after N tasks</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="go">  --max-memory-per-child=N Restart if RSS exceeds N KiB</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="go">  --prefetch-multiplier=N  Prefetch count per concurrency slot (default: 4)</span>
 </span></code></pre></div>
 
 
