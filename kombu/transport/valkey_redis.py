@@ -381,15 +381,8 @@ class Channel:
         # ceiling on how long one drain_events wait blocks in Redis. Zero would spin.
         self._block_timeout: float = _duration_option(opts, "block_timeout", DEFAULT_BLOCK_TIMEOUT)
 
-        # Long-lived consumer iteration tasks; created lazily by drain_events.
-        # Each task runs a single FAST→SLOW (or XREAD) cycle bounded by
-        # `_block_timeout`, then exits. drain_events restarts them. They are
-        # never cancelled in the hot path; close() sets _closing and awaits
-        # them to drain naturally.
-        # `_started_at` and `_stall_warned` provide per-task stall detection:
-        # when one iteration hangs while the other keeps delivering, the
-        # hung-task warning still fires (asyncio.wait's FIRST_COMPLETED
-        # would otherwise mask it).
+        # Never cancelled: close() waits for the running cycle to end. The per-task
+        # start times catch one iteration hanging while the other keeps delivering.
         self._consume_iter_task: asyncio.Task | None = None
         self._consume_iter_started_at: float = 0.0
         self._consume_iter_stall_warned: bool = False
