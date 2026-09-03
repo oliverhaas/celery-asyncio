@@ -83,7 +83,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     against the default Redis broker they do not fail meaningfully, they fail
     on the first connection argument the transport does not understand.
     """
-    if TEST_BROKER.startswith(("amqp", "amqps", "pyamqp")):
+    if TEST_BROKER.startswith(("amqp", "amqps")):
         return
     marker = pytest.mark.skip(reason=f"requires an AMQP broker, TEST_BROKER is {TEST_BROKER}")
     for item in items:

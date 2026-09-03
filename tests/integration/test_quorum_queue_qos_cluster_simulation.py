@@ -10,6 +10,7 @@ from kombu import Queue
 
 from celery import Celery, _state
 from celery.contrib.testing.worker import start_worker
+from celery.utils.eventloop import default_loop_runner
 
 QOS_GLOBAL_ERROR = "qos.global not allowed"
 
@@ -23,7 +24,7 @@ def create_app(queue_name: str) -> Celery:
     redis_host = os.environ.get("REDIS_HOST", "localhost")
     redis_port = os.environ.get("REDIS_PORT", "6379")
 
-    broker_url = os.environ.get("TEST_BROKER", f"pyamqp://{rabbitmq_user}:{rabbitmq_pass}@localhost:5672//")
+    broker_url = os.environ.get("TEST_BROKER", f"amqp://{rabbitmq_user}:{rabbitmq_pass}@localhost:5672//")
     redis_db = os.environ.get("REDIS_DB", "10")
     backend_url = os.environ.get("TEST_BACKEND", f"redis://{redis_host}:{redis_port}/{redis_db}")
 
@@ -54,8 +55,7 @@ def dummy_task_factory(app: Celery, simulate_qos_issue: bool):
     return dummy_task
 
 
-def run_worker(simulate_qos_issue: bool, result_queue: multiprocessing.Queue):
-    queue_name = f"race_quorum_queue_{uuid.uuid4().hex}"
+def run_worker(queue_name: str, simulate_qos_issue: bool, result_queue: multiprocessing.Queue):
     app = create_app(queue_name)
     logger.info("[Celery config snapshot]:\n%s", pprint.pformat(dict(app.conf)))
     task = dummy_task_factory(app, simulate_qos_issue)
@@ -82,6 +82,13 @@ def run_worker(simulate_qos_issue: bool, result_queue: multiprocessing.Queue):
             result_queue.put({"status": "crash", "reason": "Worker crashed without reporting"})
 
 
+async def delete_queues(queue_names: list[str]) -> None:
+    async with create_app(queue_names[0]).connection_for_write() as connection:
+        channel = await connection.channel()
+        for queue_name in queue_names:
+            await channel.queue_delete(queue_name)
+
+
 @pytest.mark.amqp
 @pytest.mark.timeout(90)
 def test_rabbitmq_quorum_qos_visibility_race():
@@ -93,13 +100,16 @@ def test_rabbitmq_quorum_qos_visibility_race():
     results = []
     processes = []
     queues = []
+    queue_names = []
 
     for i in range(3):
         simulate = i == 0
         q = multiprocessing.Queue()
         queues.append(q)
+        queue_name = f"race_quorum_queue_{uuid.uuid4().hex}"
+        queue_names.append(queue_name)
 
-        p = multiprocessing.Process(target=run_worker, args=(simulate, q))
+        p = multiprocessing.Process(target=run_worker, args=(queue_name, simulate, q))
         p.daemon = True
         processes.append(p)
         p.start()
@@ -130,6 +140,9 @@ def test_rabbitmq_quorum_qos_visibility_race():
             if p.is_alive():
                 p.terminate()
                 p.join(timeout=10)
+
+        # Quorum queues are durable, so they outlive the run unless deleted.
+        default_loop_runner().run(delete_queues(queue_names))
 
         # Reset Celery app/task global state
         _state._set_current_app(None)

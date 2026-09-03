@@ -8,6 +8,7 @@ from kombu import Exchange, Queue
 from celery import Celery, chord
 from celery.contrib.testing.worker import start_worker
 from celery.result import allow_join_result
+from tests.integration.conftest import TEST_BACKEND, TEST_BROKER
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +20,7 @@ def app():
     - Use quorum queues with topic exchanges
     - Route chord_unlock to a dedicated quorum queue
     """
-    app = Celery(
-        "test_app",
-        broker="pyamqp://guest:guest@rabbit:5672//",
-        backend="redis://redis/0",
-    )
+    app = Celery("test_app", broker=TEST_BROKER, backend=TEST_BACKEND)
 
     app.conf.task_default_exchange_type = "topic"
     app.conf.task_default_exchange = "default_exchange"
