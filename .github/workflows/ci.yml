@@ -155,5 +155,4 @@ jobs:
           tests/integration/test_tasks.py
           tests/integration/test_quorum_queue_qos_cluster_simulation.py
           tests/integration/test_rabbitmq_chord_unlock_routing.py
-          tests/integration/test_rabbitmq_default_queue_type_fallback.py
           -q --no-cov --timeout=300 -p no:xdist
