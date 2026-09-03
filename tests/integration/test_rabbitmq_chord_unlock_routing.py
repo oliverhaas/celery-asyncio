@@ -83,10 +83,16 @@ def test_chords_complete_over_quorum_queues_behind_topic_exchanges(app, add, sum
     chord_count = 50
     header_fanout = 3
 
-    with (
-        start_worker(app, queues=[HEADER_QUEUE, CALLBACK_QUEUE], loglevel="info", perform_ping_check=False),
-        allow_join_result(),
-    ):
+    # Named apart from the session worker: both would otherwise be gen<pid>@host,
+    # and on AMQP that is one exclusive pidbox queue two connections cannot share.
+    worker = start_worker(
+        app,
+        hostname="chord-routing@localhost",
+        queues=[HEADER_QUEUE, CALLBACK_QUEUE],
+        loglevel="info",
+        perform_ping_check=False,
+    )
+    with worker, allow_join_result():
         results = []
         for i in range(chord_count):
             header = [
