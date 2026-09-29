@@ -392,3 +392,18 @@ class test_ChainMap:
         callback.assert_not_called()
         a.update(x=1)
         callback.assert_called_once_with(x=1)
+
+    def test_pop_translates_the_key(self):
+        cm = ChainMap(key_t=lambda key: key + "!")
+        cm["foo"] = 1
+
+        assert cm.pop("foo") == 1
+        assert "foo" not in cm
+
+    def test_setdefault_translates_the_key_once(self):
+        cm = ChainMap(key_t=lambda key: key + "!")
+
+        cm.setdefault("foo", 1)
+        cm.setdefault("foo", 2)
+
+        assert cm.changes == {"foo!": 1}

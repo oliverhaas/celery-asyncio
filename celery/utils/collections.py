@@ -179,8 +179,10 @@ class ChainMap(MutableMapping):
         self.maps.insert(1, d)
 
     def pop(self, key, *default):
+        # Translated like every other lookup here, or a key cannot be popped by
+        # the name it was set with (upstream a277d3d67).
         try:
-            return self.maps[0].pop(key, *default)
+            return self.maps[0].pop(self._key(key), *default)
         except KeyError:
             raise KeyError(f"Key not found in the first mapping: {key!r}") from None
 
@@ -231,7 +233,7 @@ class ChainMap(MutableMapping):
         return any(self.maps)
 
     def setdefault(self, key, default=None):
-        key = self._key(key)
+        # Left untranslated: `__contains__` and `__setitem__` both translate it.
         if key not in self:
             self[key] = default
 

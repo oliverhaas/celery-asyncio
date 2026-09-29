@@ -132,6 +132,9 @@ commit it came from.
   process runs (upstream 937b06654)
 - `_regen.__getitem__` raised `TypeError` on a slice, and on any object that is
   not an `int` but defines `__index__` (upstream 8d2bccca0)
+- `ChainMap.pop` did not translate the key, so a key could not be popped by the
+  name it was set with, while `setdefault` translated it a second time on top of
+  the translation `__setitem__` already does (upstream a277d3d67)
 
 ### Changed
 
