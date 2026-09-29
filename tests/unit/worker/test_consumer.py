@@ -1361,6 +1361,17 @@ class test_Consumer_TaskQueues(ConsumerTestCase):
             assert not c.task_consumer.consuming_from(self.extra)
             assert self.extra not in c.app.amqp.queues.consume_from
 
+    async def test_cancel_task_queue_by_alias_stops_consuming_from_the_queue(self):
+        async with KombuConnection("memory://") as conn:
+            c = await self.consumer_on(conn, [])
+            c.app.amqp.queues.add(Queue(self.extra, alias="short"))
+            await c.add_task_queue(self.extra)
+
+            await c.cancel_task_queue("short")
+
+            assert not c.task_consumer.consuming_from(self.extra)
+            assert self.extra not in c.app.amqp.queues.consume_from
+
 
 class FakeMessage:
     """Stand-in for a kombu message the consumer cannot turn into a task."""

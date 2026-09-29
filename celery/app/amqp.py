@@ -216,8 +216,8 @@ class Queues(dict):
         """Deselect queues so that they won't be consumed from.
 
         Arguments:
-            exclude (Sequence[str], str): Names of queues to avoid
-                consuming from.
+            exclude (Sequence[str], str): Names or aliases of queues to
+                avoid consuming from.
         """
         if exclude:
             exclude = maybe_list(exclude)
@@ -228,8 +228,11 @@ class Queues(dict):
                 consume_from = self._default_consume_from
             else:
                 consume_from = self._consume_from
-            for queue in exclude:
-                consume_from.pop(queue, None)
+            for name in exclude:
+                # By the real name, which consume_from is keyed by. Not
+                # self[name]: __missing__ would create an unknown queue.
+                queue = self.aliases.get(name)
+                consume_from.pop(queue.name if queue is not None else name, None)
 
     def new_missing(self, name):
         queue_arguments = None

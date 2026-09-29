@@ -575,8 +575,10 @@ class Consumer:
 
     async def cancel_task_queue(self, queue):
         info("Canceling queue %s", queue)
-        self.app.amqp.queues.deselect(queue)
-        await self.task_consumer.cancel_by_queue(queue)
+        queues = self.app.amqp.queues
+        queues.deselect(queue)
+        # The task consumer knows its queues by their real names only.
+        await self.task_consumer.cancel_by_queue(queues.aliases.get(queue, queue))
 
     def apply_eta_task(self, task):
         """Method called by the timer to apply a task with an ETA/countdown."""

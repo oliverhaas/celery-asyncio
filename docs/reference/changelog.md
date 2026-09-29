@@ -98,6 +98,10 @@ commit it came from.
   stalled them for up to half an hour. Only the descriptors listed in
   `/proc/self/fd`, or `/dev/fd` on macOS and FreeBSD, are tried now, with the
   old scan left for systems that list neither (upstream b171416e0)
+- Excluding a queue by its alias with `worker -X`, or cancelling it with the
+  `cancel_consumer` control command, did nothing, because `Queues.deselect` and
+  the task consumer only matched the real name, so the worker went on consuming
+  from the queue. Both now resolve an alias to its queue (upstream 95c1bf2d4)
 
 #### Beat and schedules
 
