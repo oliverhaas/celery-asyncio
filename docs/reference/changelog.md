@@ -161,6 +161,11 @@ commit it came from.
   gave one key of a dict stamp into a list, because the merge dropped the flag
   on its way into the nested dict. A dict stamp now follows `append_stamps` like
   any other (upstream 0c950f6af)
+- `clone()` shared the original's `kwargs` dict whenever it was given no
+  keyword arguments. Freezing a group that holds a chord with a group body
+  therefore wrote the frozen body tasks, ids and all, into the caller's chord,
+  and running that chord in a group again returned the previous run's results.
+  A clone now gets its own `kwargs` (upstream a8e89e541)
 
 #### App and configuration
 

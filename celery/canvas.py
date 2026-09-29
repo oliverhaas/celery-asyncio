@@ -530,6 +530,10 @@ class Signature(dict):
             args, kwargs, opts = self._merge(args, kwargs, opts)
         else:
             args, kwargs, opts = self.args, self.kwargs, self.options
+        # Its own dict, so freezing the clone cannot rewrite the original. Only
+        # a shallow copy: chunks and xmap keep live iterators in their kwargs.
+        if kwargs is self.kwargs:
+            kwargs = dict(kwargs)
         signature = Signature.from_dict(
             {
                 "task": self.task,

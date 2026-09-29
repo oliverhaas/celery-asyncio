@@ -1826,16 +1826,27 @@ class test_chord(CanvasCase):
         # We also expect the body to have no initial options - since all of the
         # embedded body elements are confirmed to be `body_elem` this is valid
         assert body_elem.options == {}
-        # When we freeze the chord, its body will be cloned and options set
         top_group.freeze()
+        frozen_chord = list(top_group.tasks)[0]
         with subtests.test(msg="Validate body group indices count from 0 after freezing"):
-            assert isinstance(chord_obj.body, group_type)
+            assert isinstance(frozen_chord.body, group_type)
 
-            assert all(embedded_body_elem is not body_elem for embedded_body_elem in chord_obj.body.tasks)
+            assert all(embedded_body_elem is not body_elem for embedded_body_elem in frozen_chord.body.tasks)
             assert all(
                 embedded_body_elem.options["group_index"] == i
-                for i, embedded_body_elem in enumerate(chord_obj.body.tasks)
+                for i, embedded_body_elem in enumerate(frozen_chord.body.tasks)
             )
+        with subtests.test(msg="Original chord signature is not mutated by freeze"):
+            assert all(embedded_body_elem is body_elem for embedded_body_elem in chord_obj.body.tasks)
+            assert body_elem.options == {}
+
+    def test_a_chord_frozen_again_in_a_group_gets_new_body_ids(self):
+        c = chord([self.add.si(1, 1)], group([self.add.s(1), self.add.s(2)]))
+
+        first = group([c]).freeze().results[0]
+        second = group([c]).freeze().results[0]
+
+        assert {r.id for r in first.results}.isdisjoint(r.id for r in second.results)
 
     def test_freeze_tasks_is_not_group(self):
         x = chord([self.add.s(2, 2)], body=self.add.s(), app=self.app)
