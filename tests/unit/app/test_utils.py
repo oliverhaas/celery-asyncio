@@ -1,5 +1,7 @@
 from collections.abc import Mapping, MutableMapping
 
+import pytest
+
 from celery.app.utils import Settings, bugreport, filter_hidden_settings
 
 
@@ -74,3 +76,35 @@ class test_bugreport:
         self.app.conf.broker_url = "nosuchtransport://localhost"
 
         assert "transport:unusable" in bugreport(self.app)
+
+    @pytest.mark.parametrize(
+        "url,shown",
+        [
+            (
+                "sentinel://:s3cret@192.0.2.1:26379/0;sentinel://:s3cret@192.0.2.2:26379/0",
+                ["192.0.2.1:26379", "192.0.2.2:26379"],
+            ),
+            ("sentinel://192.0.2.1:26379;sentinel://192.0.2.2:26379", ["192.0.2.1:26379", "192.0.2.2:26379"]),
+            ("redis://:s3cret;x@192.0.2.2:26379/0", ["192.0.2.2:26379"]),
+            ("cache+memcached://192.0.2.1:11211;192.0.2.2:11211/", ["192.0.2.1:11211", "192.0.2.2:11211"]),
+            ("cache+memcached://user:s3cret@192.0.2.1:11211;user:s3cret@192.0.2.2:11211/", ["192.0.2.2:11211"]),
+            ("sentinel://:s3cret@192.0.2.1:26379;192.0.2.2:26379/0", [":**@192.0.2.1:26379", "192.0.2.2:26379"]),
+            ("sentinel://:s3cret/x@192.0.2.1:26379/0;sentinel://:s3cret@192.0.2.2:26379/0", ["192.0.2.2:26379"]),
+        ],
+        ids=[
+            "passwords",
+            "no-path",
+            "semicolon-in-password",
+            "memcached-servers",
+            "memcached-passwords",
+            "sentinel-servers",
+            "unparsable",
+        ],
+    )
+    def test_masks_each_url_of_a_multi_url_result_backend(self, url, shown):
+        self.app.conf.result_backend = url
+
+        report = bugreport(self.app)
+
+        assert "s3cret" not in report
+        assert [part for part in shown if part not in report] == []

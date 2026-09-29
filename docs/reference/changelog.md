@@ -160,6 +160,14 @@ commit it came from.
   was declared without `x-max-priority` and message priorities had no effect on
   it. Assigning a queue now applies the setting too, and a queue that sets its
   own `x-max-priority` keeps it (upstream a3908d4a1)
+- `filter_hidden_settings` and `bugreport` read a `result_backend` that joins
+  several URLs or servers with `;` as one URL. The passwords of a Sentinel list
+  after its first URL were printed in full, and a server list such as
+  `cache+memcached://h1:11211;h2:11211/`, or a Sentinel list whose first URL had
+  no path, made `celery report`, `inspect conf` and `conf.humanize()` raise
+  `ValueError`. Each URL is now masked on its own, a server list no longer
+  raises, and a URL that can't be parsed shows as `<unparsable url>`
+  (upstream d977c27e7)
 
 #### Results
 

@@ -44,6 +44,14 @@ HIDDEN_SETTINGS = re.compile(
     re.IGNORECASE,
 )
 
+#: Splits the ``;``-joined URLs of a Sentinel backend. A ``;`` that is not in
+#: front of a scheme can be part of a password (upstream d977c27e7).
+_NEXT_URL = re.compile(r";(?=[A-Za-z][A-Za-z0-9+.-]*://)")
+
+#: The servers that a cache or Sentinel backend lists with ``;`` after one
+#: scheme, as in ``cache+memcached://h1:11211;h2:11211/``.
+_SERVERS = re.compile(r"[^:;@]+(?::\d+)?(?:;[^:;@]+(?::\d+)?)*")
+
 E_MIX_OLD_INTO_NEW = """
 
 Cannot mix new and old setting keys, please rename the
@@ -335,6 +343,29 @@ def _unpickle_app_v2(cls, kwargs):
     return cls(**kwargs)
 
 
+def _sanitize_url(url, mask):
+    """Mask the password in ``url``, which can list servers that kombu reads as one bad port."""
+    try:
+        return maybe_sanitize_url(url, mask=mask)
+    except ValueError:
+        scheme, _, rest = url.partition("://")
+        authority = re.match(r"[^/?#]*", rest)[0]
+        userinfo, at, servers = authority.rpartition("@")
+        if not _SERVERS.fullmatch(servers):
+            return "<unparsable url>"
+        if at:
+            # Up to the last `@`, as kombu masks one host: `;` and `@` can be in a password.
+            servers = f"{userinfo.partition(':')[0]}:{mask}@{servers}"
+        return f"{scheme}://{servers}{rest[len(authority) :]}"
+
+
+def _sanitize_urls(value, mask="**"):
+    """Mask the password of each URL in ``value``, as :func:`maybe_sanitize_url` does for one."""
+    if isinstance(value, str):
+        return ";".join(_sanitize_url(url, mask) for url in _NEXT_URL.split(value))
+    return value
+
+
 def filter_hidden_settings(conf):
     """Filter sensitive settings."""
 
@@ -351,7 +382,7 @@ def filter_hidden_settings(conf):
             ):
                 # Not through Connection.as_uri(), which raises on a URL no
                 # transport serves and calls this function anyway.
-                return maybe_sanitize_url(value, mask=mask)
+                return _sanitize_urls(value, mask=mask)
 
         return value
 
@@ -380,7 +411,7 @@ def bugreport(app):
         kombu_v=kombu.__version__,
         py_v=_platform.python_version(),
         transport=transport,
-        results=maybe_sanitize_url(app.conf.result_backend or "disabled"),
+        results=_sanitize_urls(app.conf.result_backend or "disabled"),
         human_settings=app.conf.humanize(),
         loader=qualname(app.loader.__class__),
     )
