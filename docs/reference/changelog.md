@@ -180,6 +180,10 @@ commit it came from.
   `namespace="CELERY"`, and `conf.update(CELERY_ALWAYS_EAGER=True)` left
   `task_always_eager` at its default. Runtime changes now win under any name
   (upstream 319d9c7e0)
+- `ConfigurationView.swap_with` took over the other view's maps and prefix but
+  not its translation between old and new setting names, so a view built
+  without one raised `KeyError` for `CELERY_ALWAYS_EAGER` after the swap. The
+  translation is now swapped in as well (upstream 0e737e633)
 
 #### Results
 

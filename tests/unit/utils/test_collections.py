@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 import tests.skip
+from celery.app.utils import _new_key_to_old, _old_key_to_new
 from celery.exceptions import ExceptionInfo
 from celery.utils.collections import (
     AttributeDict,
@@ -137,6 +138,13 @@ class test_ConfigurationView:
             view["broker_url"]
 
         assert "Key not found: 'broker_url' (with prefix: 'celery_broker_url')" in str(exc_info.value)
+
+    def test_swap_with_carries_over_the_old_and_new_names(self):
+        other = ConfigurationView({"task_always_eager": True}, keys=(_old_key_to_new, _new_key_to_old))
+
+        self.view.swap_with(other)
+
+        assert self.view["CELERY_ALWAYS_EAGER"] is True
 
     def test_isa_mapping(self):
         from collections.abc import Mapping
