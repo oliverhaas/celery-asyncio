@@ -1533,7 +1533,9 @@ class _chain(Signature):
         kwargs = kwargs or {}
         last, (fargs, fkwargs) = None, (args, kwargs)
         for task in self.tasks:
-            res = task.clone(fargs, fkwargs).apply(last and (last.get(),), **dict(self.options, **options))
+            # apply() takes the args because clone() folds them into the
+            # kwargs, where a nested chain or chord keeps only its tasks.
+            res = task.clone().apply((last.get(),) if last else fargs, fkwargs, **dict(self.options, **options))
             res.parent, last, (fargs, fkwargs) = last, res, (None, None)
             # Ignore and Reject both mean "this task produced no result". A
             # non-eager chain stops there because the next step is only sent
@@ -1553,8 +1555,8 @@ class _chain(Signature):
         kwargs = kwargs or {}
         last, (fargs, fkwargs) = None, (args, kwargs)
         for task in self.tasks:
-            res = await task.clone(fargs, fkwargs).aapply(
-                last and (await last.aget(),), **dict(self.options, **options)
+            res = await task.clone().aapply(
+                (await last.aget(),) if last else fargs, fkwargs, **dict(self.options, **options)
             )
             res.parent, last, (fargs, fkwargs) = last, res, (None, None)
             # See the note in apply(): an ignored or rejected step ends the

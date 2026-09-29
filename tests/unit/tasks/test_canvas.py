@@ -892,6 +892,22 @@ class test_chain(CanvasCase):
         res = x.apply(kwargs={"x": 1, "y": 1}).get()
         assert res == 20
 
+    @pytest.mark.parametrize(("args", "kwargs"), [((3,), {}), ((), {"x": 3})])
+    def test_apply_hands_the_arguments_to_a_nested_first_step(self, args, kwargs):
+        nested_chain = chain(chain(self.add.s(y=2), self.mul.s(10)))
+        leading_chord = chain(chord([self.add.s(y=2)], self.xsum.s()), self.mul.s(10))
+
+        assert nested_chain.apply(args=args, kwargs=kwargs).get() == 50
+        assert leading_chord.apply(args=args, kwargs=kwargs).get() == 50
+
+    @pytest.mark.parametrize(("args", "kwargs"), [((3,), {}), ((), {"x": 3})])
+    async def test_aapply_hands_the_arguments_to_a_nested_first_step(self, args, kwargs):
+        nested_chain = chain(chain(self.add.s(y=2), self.mul.s(10)))
+        leading_chord = chain(chord([self.add.s(y=2)], self.xsum.s()), self.mul.s(10))
+
+        assert await (await nested_chain.aapply(args=args, kwargs=kwargs)).aget() == 50
+        assert await (await leading_chord.aapply(args=args, kwargs=kwargs)).aget() == 50
+
     def test_single_expresion(self):
         x = chain(self.add.s(1, 2)).apply()
         assert x.get() == 3

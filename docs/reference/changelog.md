@@ -166,6 +166,10 @@ commit it came from.
   therefore wrote the frozen body tasks, ids and all, into the caller's chord,
   and running that chord in a group again returned the previous run's results.
   A clone now gets its own `kwargs` (upstream a8e89e541)
+- `apply()` and `aapply()` on a chain lost the call's arguments when the first
+  step was a nested chain or a chord, so its first task failed with a missing
+  argument `TypeError`, and a `tasks` keyword replaced the nested chain's tasks.
+  The arguments now reach that step's first tasks (upstream d98d4114e)
 
 #### App and configuration
 
