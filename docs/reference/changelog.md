@@ -143,6 +143,12 @@ commit it came from.
   because a stamp is not routing. A retry is routed from `delivery_info`, which
   carries the exchange but not its type, so the type travels with the task and
   the retry puts it back (upstream e997039a2)
+- When a chord header failed and the body was a group, the body's tasks were
+  revoked before their failures were stored. A worker that handled the revoke
+  first stored them as `REVOKED`, and a caller polling in that window got
+  `TaskRevokedError` instead of the header's exception. The failures are now
+  stored before the revoke goes out, and the worker's `REVOKED` write gives way
+  to them (upstream 135b83c71)
 
 #### App and configuration
 

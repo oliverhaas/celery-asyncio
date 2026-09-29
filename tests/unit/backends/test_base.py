@@ -781,6 +781,22 @@ class test_BaseBackend_dict:
         # The header members will never run either, so they are failed too.
         assert b._handle_group_chord_error.call_args.kwargs["group_callback"] is inner.tasks
 
+    def test_chord_error_from_stack_fails_a_group_callback_before_revoking_it(self, monkeypatch):
+        @self.app.task(shared=False)
+        def add(x, y):
+            return x + y
+
+        states_at_revoke = []
+        monkeypatch.setattr(
+            self.app.control,
+            "revoke",
+            lambda task_ids, **kwargs: states_at_revoke.extend(self.app.AsyncResult(t).state for t in task_ids),
+        )
+
+        self.app.backend.chord_error_from_stack(group(add.s(1, 1), add.s(2, 2), app=self.app), exc=ValueError("boom"))
+
+        assert states_at_revoke == [states.FAILURE, states.FAILURE]
+
     def test_exception_to_python_when_None(self):
         b = BaseBackend(app=self.app)
         assert b.exception_to_python(None) is None

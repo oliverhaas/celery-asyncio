@@ -452,9 +452,9 @@ class Backend:
         """Handle chord errors when the callback is a group.
 
         When a chord header fails and the body is a group, we need to:
-        1. Revoke all pending tasks in the group body
-        2. Mark them as failed with the chord error
-        3. Call error callbacks for each task
+        1. Call error callbacks for each task in the group body
+        2. Mark each task as failed with the chord error
+        3. Revoke them, only once the failures are stored
 
         This prevents the group body tasks from hanging indefinitely (#8786)
         """
@@ -470,9 +470,6 @@ class Backend:
             frozen_group = group_callback.freeze()
 
             if isinstance(frozen_group, GroupResult):
-                # revoke all tasks in the group to prevent execution
-                frozen_group.revoke()
-
                 # Handle each task in the group individually
                 for result in frozen_group.results:
                     try:
@@ -504,6 +501,9 @@ class Backend:
                 frozen_group_id = getattr(frozen_group, "id", None)
                 if frozen_group_id:
                     backend.mark_as_failure(frozen_group_id, original_exc)
+
+                # A worker's REVOKED write gives way to a stored failure, not to a PENDING task
+                frozen_group.revoke()
 
             return None
 
