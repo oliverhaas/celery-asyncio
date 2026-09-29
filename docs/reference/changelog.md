@@ -24,6 +24,8 @@ commit it came from.
 
 ### Fixed
 
+#### Worker
+
 - On Valkey and Redis the prefetch count only sized the batch a consume
   round-trip claimed, and every poll of the worker loop claimed another one. A
   worker kept taking messages off the queue however many it already held, so
@@ -42,6 +44,13 @@ commit it came from.
   Terminating a task could announce its revoke twice. The asyncio pool reports
   a stopped task from its own thread, and could do so before the request had
   noted that it stopped the task itself
+- A `revoke` control command stored `REVOKED` for a task that was already
+  running. A revoke without `terminate` does not stop it, so the task went on
+  to store its real result over that, and a caller polling in between saw
+  `REVOKED` for a task that then finished. The command also wrote to the app's
+  backend when the task names a backend of its own. It now leaves a running
+  task to report its own result and writes to the task's backend (upstream
+  a6bc479c5)
 
 ### Changed
 

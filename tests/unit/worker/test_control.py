@@ -564,6 +564,41 @@ class test_ControlPanel:
 
         state.app.backend.amark_as_revoked.assert_awaited_once_with(tid, reason="revoked", store_result=True)
 
+    def test_revoke_stores_the_result_on_the_task_backend(self):
+        request = Mock()
+        request.id = tid = uuid()
+        request.task.backend.amark_as_revoked = AsyncMock()
+        state = self.create_state()
+        state.app = Mock()
+        state.app.backend.amark_as_revoked = AsyncMock()
+        worker_state.task_reserved(request)
+        try:
+            control.revoke(state, tid)
+        finally:
+            worker_state.task_ready(request)
+            revoked.discard(tid)
+
+        request.task.backend.amark_as_revoked.assert_awaited_once_with(tid, reason="revoked", store_result=True)
+        state.app.backend.amark_as_revoked.assert_not_awaited()
+
+    def test_revoke_leaves_a_running_task_to_report_its_own_result(self):
+        request = Mock()
+        request.id = tid = uuid()
+        request.task.backend.amark_as_revoked = AsyncMock()
+        state = self.create_state()
+        state.app = Mock()
+        state.app.backend.amark_as_revoked = AsyncMock()
+        worker_state.task_reserved(request)
+        worker_state.task_accepted(request)
+        try:
+            control.revoke(state, tid)
+        finally:
+            worker_state.task_ready(request)
+            revoked.discard(tid)
+
+        request.task.backend.amark_as_revoked.assert_not_awaited()
+        state.app.backend.amark_as_revoked.assert_not_awaited()
+
     def test_revoke_terminate(self):
         request = Mock()
         request.id = tid = uuid()

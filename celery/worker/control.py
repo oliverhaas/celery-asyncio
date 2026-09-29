@@ -249,8 +249,11 @@ def _schedule(coro):
         spawn(coro)
 
 
-async def _amark_revoked(backend, task_ids):
+async def _amark_revoked(app_backend, task_ids, requests_by_id):
     for task_id in task_ids:
+        request = requests_by_id.get(task_id)
+        # A task can override its backend.
+        backend = app_backend if request is None else request.task.backend
         try:
             await backend.amark_as_revoked(task_id, reason="revoked", store_result=True)
         except Exception as exc:
@@ -263,12 +266,16 @@ def _revoke(state, task_ids, terminate=False, signal=None, **kwargs):
 
     worker_state.revoked.update(task_ids)
 
+    requests_by_id = {request.id: request for request in _find_requests_by_id(task_ids)}
+    # A running task reports its own result when it finishes (upstream a6bc479c5).
+    unstarted_ids = [task_id for task_id in task_ids if requests_by_id.get(task_id) not in worker_state.active_requests]
+
     # A revoked task that was never delivered has no worker to fail it, so
     # without this its result sits at PENDING and anything waiting on it waits
     # forever (upstream 333a82f74). The async backend call is used rather than
     # the sync one because this runs on the event loop, where a blocking Redis
     # round trip per id would stall the worker.
-    _schedule(_amark_revoked(state.app.backend, list(task_ids)))
+    _schedule(_amark_revoked(state.app.backend, unstarted_ids, requests_by_id))
 
     if terminate:
         signum = _signals.signum(signal or TERM_SIGNAME)
