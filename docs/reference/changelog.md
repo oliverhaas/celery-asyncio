@@ -64,6 +64,10 @@ commit it came from.
   so anyone who could publish to the broker could dump a task's `__dict__` or
   run a private property getter. Names that start with an underscore are now
   ignored (upstream 86ee09300)
+- An exception raised by a `setup_logging` receiver was logged and ignored. The
+  worker ran without the logging the receiver was meant to set up, and a second
+  setup did nothing because the first one counted as done. The exception now
+  propagates, and the setup can be run again (upstream 2c1439757)
 
 #### Beat and schedules
 

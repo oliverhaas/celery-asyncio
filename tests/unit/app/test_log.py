@@ -201,6 +201,25 @@ class test_default_logger:
     def test_setup_logging_subsystem_misc(self, restore_logging):
         self.app.log.setup_logging_subsystem(loglevel=None)
 
+    def test_setup_logging_subsystem_raises_a_receiver_error_and_can_be_retried(self, restore_logging):
+        app = self.Celery(enable_logging=True)
+        app.log.already_setup = False
+        logging.root.handlers = []
+
+        def broken_config(**kwargs):
+            raise ValueError("bad dictConfig")
+
+        signals.setup_logging.connect(broken_config)
+        try:
+            with pytest.raises(ValueError, match="bad dictConfig"):
+                app.log.setup_logging_subsystem()
+        finally:
+            signals.setup_logging.disconnect(broken_config)
+
+        app.log.setup_logging_subsystem()
+
+        assert logging.root.handlers
+
     def test_setup_logging_subsystem_misc2(self, restore_logging):
         self.app.conf.worker_hijack_root_logger = True
         self.app.log.setup_logging_subsystem()
