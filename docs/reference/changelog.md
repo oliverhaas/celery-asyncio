@@ -158,6 +158,8 @@ commit it came from.
   worker only takes a message when a slot is free
 - The static-analysis hack in `celery/__init__.py` is a `TYPE_CHECKING` guard
   (upstream ceb5f9655)
+- `EventReceiver` documents its first argument under the name it actually has
+  (upstream d6fa93d12)
 
 ## v6.0.0a6
 
