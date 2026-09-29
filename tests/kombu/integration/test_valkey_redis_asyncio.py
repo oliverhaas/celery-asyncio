@@ -910,8 +910,10 @@ if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
 
-class TestPrefetchBatching:
-    """One consume round-trip should claim a whole batch once basic_qos is set."""
+class TestPrefetchWindow:
+    """basic_qos caps the unacked messages, and one consume round-trip claims
+    as many of them as the window has room for.
+    """
 
     async def _publish(self, channel, queue_name, count):
         await channel.queue_purge(queue_name)
@@ -970,3 +972,22 @@ class TestPrefetchBatching:
 
         assert not channel._prefetch_buffer
         assert await channel.client.zcard(channel._queue_key(queue_name)) == 3
+
+    async def test_polls_stop_once_the_window_is_full(self, channel):
+        """What the window has no room for stays in Redis, as it would on AMQP."""
+        queue_name = "test_prefetch_window"
+        await self._publish(channel, queue_name, 5)
+
+        delivered = []
+        await channel.basic_consume(
+            queue_name,
+            no_ack=False,
+            callback=lambda body, message: delivered.append(message),
+        )
+        await channel.basic_qos(prefetch_count=2)
+
+        while await channel.drain_events(timeout=0):
+            pass
+
+        assert len(delivered) == 2
+        assert await channel.queue_purge(queue_name) == 3

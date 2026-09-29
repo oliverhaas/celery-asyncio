@@ -115,13 +115,13 @@ the certificate paths in the URL query or in `broker_transport_options`.
 
 ### Settings that mean something different
 
-`worker_prefetch_multiplier` still applies. The worker multiplies it by the
-concurrency to get the initial prefetch count and passes that to the transport,
-same as upstream. What the count then means depends on the broker: on AMQP it is
-the broker's cap on unacknowledged messages, while Valkey and Redis cannot push,
-so there it is the batch size one consume round-trip claims into a local buffer.
-On those brokers it bounds the buffer rather than the number of unacknowledged
-messages. The default is 4.
+`worker_prefetch_multiplier` still applies, and the count it gives caps the
+messages a worker holds unacknowledged on every broker, same as upstream. What
+differs is the concurrency it multiplies: `worker_concurrency` (`-c`, the CPU
+count by default), which the asyncio pool does not read for its size. With
+`task_acks_late`, set `-c` to at least
+`worker_loop_workers × worker_loop_concurrency + worker_sync_workers`, or the
+prefetch count leaves part of the pool idle. The default multiplier is 4.
 
 ## Worker startup
 
@@ -145,7 +145,9 @@ always expand to `0` and to the empty string.
 
 - `-O` / `--optimization`: the `fair` profile only ever described the prefork
   pool, and nothing read the value.
-- `--disable-prefetch`: prefetching is bounded by the asyncio pool's semaphore.
+- `--disable-prefetch`: use `--prefetch-multiplier 1` with `task_acks_late`,
+  and `-c` at the pool's size. The worker then holds no more messages than it
+  can run, so it only takes one when a slot is free.
 - `--autoscale`: it only ever pinned concurrency to the low end of the range,
   since the asyncio pool cannot grow or shrink.
 

@@ -35,8 +35,6 @@ class Tasks(bootsteps.StartStopStep):
             on_decode_error=c.on_decode_error,
         )
 
-        # On Redis the count is a fetch batch size, not a cap on unacked
-        # messages; see the transport's basic_qos.
         c.qos = QoS(
             c.task_consumer.qos,
             c.initial_prefetch_count,

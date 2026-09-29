@@ -4,10 +4,28 @@
 
 ### Fixed
 
+- On Valkey and Redis the prefetch count only sized the batch a consume
+  round-trip claimed, and every poll of the worker loop claimed another one. A
+  worker kept taking messages off the queue however many it already held, so
+  one worker could take a whole queue while the others had nothing to do. The
+  count now caps the unacknowledged messages there as it does on AMQP: a worker
+  at the cap claims nothing more, and an ack or a reject lets the waiting
+  consume claim the next message at once
 - A worker that reconnected while tasks were still running lowered its prefetch
   count and never raised it again, although it logged that it would. Every task
   acked or rejected after the reconnect now gives one multiplier back until the
   count is whole again
+
+### Changed
+
+- With `task_acks_late` on Valkey or Redis, a prefetch count below what the pool
+  runs at once now leaves the rest of the pool idle, as it already did on AMQP.
+  The count is `-c` times `worker_prefetch_multiplier`, and `-c` defaults to the
+  CPU count rather than the pool's size, so set it to at least
+  `worker_loop_workers × worker_loop_concurrency + worker_sync_workers`
+- `--prefetch-multiplier 1` with `task_acks_late` and `-c` at the pool's size
+  now does on Valkey and Redis what the removed `--disable-prefetch` did: the
+  worker only takes a message when a slot is free
 
 ## v6.0.0a6
 

@@ -3590,9 +3590,10 @@ class TestRecoverEdgeCases:
         ch._requeue_by_tag.assert_called_once_with("tag1", leftmost=True)
 
 
-class TestPrefetchBatching:
-    """basic_qos turns one consume round-trip into a batch that is handed out
-    from a local buffer, so N messages cost one script call instead of N.
+class TestPrefetchWindow:
+    """basic_qos caps how many messages a channel holds unacknowledged, as on
+    AMQP. Within that window one consume round-trip claims a batch that is
+    handed out from a local buffer, so N messages cost one script call.
     """
 
     def _channel(self):
@@ -3604,50 +3605,104 @@ class TestPrefetchBatching:
         ch._delivered = {}
         ch._prefetch_count = 0
         ch._prefetch_buffer = deque()
+        ch._claims_in_flight = 0
+        ch._slot_freed = asyncio.Event()
         ch._get_consume_script = AsyncMock()
         ch._deliver_claimed = AsyncMock(return_value=True)
         ch._queue_key = lambda q: f"queue:{q}"
         return ch
 
-    @pytest.mark.asyncio
-    async def test_batch_size_follows_prefetch_count(self):
+    @staticmethod
+    def _full_window(prefetch_count):
+        """A channel owing `prefetch_count` acks, with a message ready in Redis."""
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("q1", MagicMock(), False)
+        ch._delivered = {f"t{i}": ("q1", MagicMock()) for i in range(prefetch_count)}
+        ch._consume_script = AsyncMock(
+            return_value=[b"q1", b"t9", b'{"body": "hello", "properties": {}, "headers": {}}', b"0"],
+        )
+        ch._ack_script = AsyncMock()
+        return ch
+
+    @pytest.mark.parametrize(
+        ("prefetch_count", "unacked", "batch"),
+        [
+            pytest.param(8, 0, "8", id="follows-the-count"),
+            pytest.param(5, 3, "2", id="unacked-messages-hold-their-slots"),
+            pytest.param(10_000, 0, str(MAX_CONSUME_BATCH), id="capped"),
+            pytest.param(0, 1_000, "1", id="no-count-no-cap"),
+        ],
+    )
+    async def test_a_round_trip_claims_what_the_window_has_room_for(self, prefetch_count, unacked, batch):
         ch = self._channel()
+        ch._delivered = {f"t{i}": ("q1", None) for i in range(unacked)}
         script = AsyncMock(return_value=None)
         ch._get_consume_script.return_value = script
 
-        await ch.basic_qos(prefetch_count=8)
+        await ch.basic_qos(prefetch_count=prefetch_count)
         await ch._fast_consume(["q1"])
 
-        assert script.call_args[1]["args"][4] == "8"
+        assert script.call_args[1]["args"][4] == batch
 
-    @pytest.mark.asyncio
-    async def test_unacked_messages_do_not_shrink_the_batch(self):
-        """The count bounds the buffer, not the unacked set: a batch is fetched
-        only once the previous one has been handed out, so subtracting what the
-        consumer still owes would throttle batching to nothing under load.
+    @pytest.mark.parametrize(
+        "free_a_slot",
+        [
+            pytest.param(lambda ch: ch.basic_ack("t0"), id="ack"),
+            pytest.param(lambda ch: ch.basic_reject("t0", requeue=False), id="reject"),
+            pytest.param(lambda ch: ch.basic_qos(prefetch_count=3), id="raised-count"),
+        ],
+    )
+    async def test_a_consume_waiting_on_a_full_window_resumes_when_a_slot_frees(self, free_a_slot):
+        ch = self._full_window(2)
+        await ch.basic_qos(prefetch_count=2)
+        waiting = asyncio.create_task(ch.drain_events(timeout=5))
+        await asyncio.sleep(0.05)
+        ch._consume_script.assert_not_awaited()
+
+        await free_a_slot(ch)
+
+        assert await asyncio.wait_for(waiting, 1) is True
+
+    @pytest.mark.parametrize("fast_mode", [True, False], ids=["script", "bzmpop"])
+    async def test_a_poll_leaves_alone_the_room_a_pending_round_trip_holds(self, fast_mode):
+        """Celery polls right after a fanout delivery such as a control
+        command, while the task queues' own iteration can still be waiting on
+        Redis for what it asked for.
         """
-        ch = self._channel()
-        ch._delivered = {f"t{i}": ("q1", None) for i in range(9)}
-        script = AsyncMock(return_value=None)
-        ch._get_consume_script.return_value = script
+        ch = _make_channel()
+        ch._consumers["tag1"] = ("q1", MagicMock(), False)
+        ch._consume_fast_mode = fast_mode
+        answer = asyncio.Event()
+        calls = 0
 
-        await ch.basic_qos(prefetch_count=5)
-        await ch._fast_consume(["q1"])
+        async def first_call_waits(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                await answer.wait()
 
-        assert script.call_args[1]["args"][4] == "5"
+        ch._consume_script = AsyncMock(side_effect=first_call_waits if fast_mode else None, return_value=None)
+        ch.client.bzmpop = AsyncMock(side_effect=None if fast_mode else first_call_waits, return_value=None)
+        await ch.basic_qos(prefetch_count=1)
+        assert await ch.drain_events(timeout=0.05) is False
 
-    @pytest.mark.asyncio
-    async def test_batch_size_is_capped(self):
-        ch = self._channel()
-        script = AsyncMock(return_value=None)
-        ch._get_consume_script.return_value = script
+        assert await ch.drain_events(timeout=0) is False
+        assert ch._consume_script.await_count == (1 if fast_mode else 0)
 
-        await ch.basic_qos(prefetch_count=10_000)
-        await ch._fast_consume(["q1"])
+        answer.set()
+        await asyncio.wait_for(ch.close(), 1)
 
-        assert script.call_args[1]["args"][4] == str(MAX_CONSUME_BATCH)
+    async def test_close_does_not_wait_out_a_consume_waiting_for_room(self):
+        ch = self._full_window(2)
+        ch._requeue_by_tag = AsyncMock()
+        await ch.basic_qos(prefetch_count=2)
+        waiting = asyncio.create_task(ch.drain_events(timeout=5))
+        await asyncio.sleep(0.05)
 
-    @pytest.mark.asyncio
+        await asyncio.wait_for(ch.close(), 1)
+
+        assert await waiting is False
+
     async def test_extra_messages_are_buffered_then_drained(self):
         ch = self._channel()
         script = AsyncMock(

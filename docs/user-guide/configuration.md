@@ -102,10 +102,17 @@ time the task runs. The per-task attributes `acks_on_failure` and
 | `worker_prefetch_multiplier` | `--prefetch-multiplier` | 4 | Multiplied by the concurrency to get the prefetch count the worker asks the transport for |
 | `worker_enable_prefetch_count_reduction` | | True | After a connection loss, reconnect with a prefetch count reduced by the number of tasks still running |
 
-What the prefetch count means depends on the broker. On AMQP it is the usual
-cap on unacknowledged messages. Valkey and Redis cannot push, so there it is
-the batch size one consume round-trip claims into a local buffer: it bounds the
-buffer, not the number of unacknowledged messages.
+The prefetch count caps how many messages the worker holds unacknowledged. On
+AMQP, RabbitMQ enforces it for each queue the worker consumes. Valkey and Redis
+cannot push, so there the transport enforces it, for all of the worker's queues
+together: one consume round-trip claims as many messages as the cap has room
+for, up to 100, and a worker at the cap claims nothing more until it acks or
+rejects one.
+
+A task acknowledged late holds its slot while it runs. With `task_acks_late`,
+a prefetch count below what the pool can run at once leaves the rest of the
+pool idle, and the count follows `-c`, not the pool's size, so set `-c` to at
+least `worker_loop_workers × worker_loop_concurrency + worker_sync_workers`.
 
 With `worker_enable_prefetch_count_reduction` on, a worker that reconnects
 while N tasks are still running comes back with the count lowered by one

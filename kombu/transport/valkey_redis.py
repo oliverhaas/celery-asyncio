@@ -336,6 +336,12 @@ class Channel:
         self._fanout_tags: set[str] = set()
         self._prefetch_count = 0
         self._prefetch_buffer: deque[tuple[str, str, str, int]] = deque()
+        # Messages a consume round-trip is fetching that are not in _delivered
+        # or the buffer yet. They count against the prefetch window already.
+        self._claims_in_flight = 0
+        # Set whenever the prefetch window can have room again; a consume
+        # iteration facing a full window waits on it.
+        self._slot_freed = asyncio.Event()
         self._delivery_tag_counter = 0
 
         # Per-queue TTL state
@@ -1229,63 +1235,118 @@ class Channel:
         HMGET), SLOW the blocking BZMPOP it falls back to once the script
         reports every queue empty.
         """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        # Here rather than in Redis, where an ack could not end the wait.
+        if not await self._wait_for_room(deadline):
+            return False
+        if await self._deliver_buffered():
+            return True
+
         if self._consume_fast_mode:
             if await self._fast_consume(queues):
                 return True
+            if self._room() == 0:
+                # The window filled up meanwhile, which says nothing about the
+                # queues being empty.
+                return False
             # FAST returned nil, so all queues are empty: switch to SLOW.
             self._consume_fast_mode = False
 
-        delivered = await self._slow_consume(queues, timeout)
+        # What the wait for room left over, and never zero: BZMPOP reads that
+        # as "block forever".
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return False
+        delivered = await self._slow_consume(queues, remaining)
         if delivered:
             self._consume_fast_mode = True  # Switch back to FAST
         return delivered
 
-    async def basic_qos(self, prefetch_count: int = 0) -> None:
-        """Set how many messages one consume round-trip may claim.
+    def _room(self) -> int | None:
+        """How many more messages the prefetch window lets this channel claim.
 
-        Redis cannot push, so this is a fetch batch size rather than AMQP's cap
-        on unacknowledged messages: the consume script claims up to this many
-        messages at once and they are handed out from a local buffer, saving a
-        round-trip each. It does not bound how many messages go unacknowledged,
-        which stays a matter for the consumer; what it bounds is the buffer,
-        since a batch is fetched only once the previous one has been handed out.
-        Claimed messages carry their visibility deadline from the moment the
-        script pops them, so a worker that dies holding a full buffer loses
-        nothing.
+        Unacked deliveries, buffered messages and claims in flight each hold a
+        slot. None when no prefetch count is set, which leaves the window open.
+        """
+        if not self._prefetch_count:
+            return None
+        held = len(self._delivered) + len(self._prefetch_buffer) + self._claims_in_flight
+        return max(self._prefetch_count - held, 0)
+
+    async def _wait_for_room(self, deadline: float) -> bool:
+        """Wait until the prefetch window has room, or the deadline passes.
+
+        Buffered messages are inside the window already, so they end the wait
+        too. False means the deadline passed or the channel is closing.
+        """
+        while not self._prefetch_buffer and self._room() == 0:
+            if self._closing:
+                return False
+            self._slot_freed.clear()
+            try:
+                async with asyncio.timeout_at(deadline):
+                    await self._slot_freed.wait()
+            except TimeoutError:
+                return False
+        return not self._closing
+
+    async def basic_qos(self, prefetch_count: int = 0) -> None:
+        """Cap the unacked messages this channel holds; zero lifts the cap.
+
+        One window covers all regular queues, unlike RabbitMQ's per-consumer count,
+        so a no_ack consumer on a capped channel waits too. Fanout and get() never wait.
         """
         self._prefetch_count = max(int(prefetch_count), 0)
+        self._slot_freed.set()
 
     async def _fast_consume(self, queues: list[str]) -> bool:
         """FAST mode: atomic Lua script for non-blocking consume."""
-        # Looping, so one undeliverable message cannot strand the rest behind it.
-        while self._prefetch_buffer:
-            if await self._deliver_claimed(*self._prefetch_buffer.popleft()):
-                return True
+        if await self._deliver_buffered():
+            return True
 
-        batch = max(min(self._prefetch_count, MAX_CONSUME_BATCH), 1)
+        room = self._room()
+        if room == 0:
+            return False
+        batch = 1 if room is None else min(room, MAX_CONSUME_BATCH)
         queue_keys = [self._queue_key(q) for q in queues]
+        # Set at the pop, so a worker that dies holding a full buffer loses nothing.
         new_queue_at = time() + self._visibility_timeout + self._requeue_check_interval
 
-        script = await self._get_consume_script()
-        result = await script(
-            keys=queue_keys,
-            args=[
-                self._global_keyprefix,
-                MESSAGE_KEY_PREFIX,
-                str(new_queue_at),
-                MESSAGES_INDEX_PREFIX,
-                str(batch),
-                *queues,
-                *("1" if q in self._no_ack_queues else "0" for q in queues),
-            ],
-        )
+        self._claims_in_flight += batch
+        try:
+            script = await self._get_consume_script()
+            result = await script(
+                keys=queue_keys,
+                args=[
+                    self._global_keyprefix,
+                    MESSAGE_KEY_PREFIX,
+                    str(new_queue_at),
+                    MESSAGES_INDEX_PREFIX,
+                    str(batch),
+                    *queues,
+                    *("1" if q in self._no_ack_queues else "0" for q in queues),
+                ],
+            )
+        finally:
+            # The script can claim fewer than it was asked for.
+            self._claims_in_flight -= batch
+            self._slot_freed.set()
 
         if not result:
             return False
 
-        claimed = [self._parse_consume_result(result[i : i + 4]) for i in range(0, len(result), 4)]
-        self._prefetch_buffer.extend(claimed[1:])
-        return await self._deliver_claimed(*claimed[0])
+        # Buffered before anything awaits, so the window never loses count.
+        self._prefetch_buffer.extend(self._parse_consume_result(result[i : i + 4]) for i in range(0, len(result), 4))
+        return await self._deliver_buffered()
+
+    async def _deliver_buffered(self) -> bool:
+        """Hand out the next claimed message waiting in the buffer."""
+        # Looping, so one undeliverable message cannot strand the rest behind it.
+        while self._prefetch_buffer:
+            if await self._deliver_claimed(*self._prefetch_buffer.popleft()):
+                return True
+        return False
 
     async def _deliver_claimed(
         self,
@@ -1301,7 +1362,7 @@ class Channel:
         except BaseException:
             # The script already popped this tag, so a cancellation here would hide
             # the message until the visibility timeout. Put it back uncounted: nobody saw it.
-            self._delivered.pop(delivery_tag, None)
+            self._forget_delivery(delivery_tag)
             await self._restore_to_queue(queue_name, delivery_tag)
             raise
         if not delivered:
@@ -1337,7 +1398,7 @@ class Channel:
             queue,
             delivery_tag,
         )
-        self._delivered.pop(delivery_tag, None)
+        self._forget_delivery(delivery_tag)
         await self._zadd_restore(queue, delivery_tag, score)
 
     async def _zadd_restore(
@@ -1363,34 +1424,43 @@ class Channel:
 
     async def _slow_consume(self, queues: list[str], timeout: float) -> bool:
         """SLOW mode: blocking BZMPOP with pipeline index refresh + HMGET."""
+        if self._room() == 0:
+            return False
         queue_keys = [self._queue_key(q) for q in queues]
 
-        result = await self.client.bzmpop(
-            timeout,
-            len(queue_keys),
-            queue_keys,
-            min=True,
-        )
+        # Taken before the pop, as a popped message is outside the window until
+        # delivered. Held until the callback returns, which errs toward claiming less.
+        self._claims_in_flight += 1
+        try:
+            result = await self.client.bzmpop(
+                timeout,
+                len(queue_keys),
+                queue_keys,
+                min=True,
+            )
 
-        if not result:
-            return False
+            if not result:
+                return False
 
-        queue_key_raw, members = result
-        queue_key = queue_key_raw.decode() if isinstance(queue_key_raw, bytes) else queue_key_raw
-        queue_key = self._unprefixed(queue_key)
-        queue = queue_key.removeprefix(QUEUE_KEY_PREFIX)
+            queue_key_raw, members = result
+            queue_key = queue_key_raw.decode() if isinstance(queue_key_raw, bytes) else queue_key_raw
+            queue_key = self._unprefixed(queue_key)
+            queue = queue_key.removeprefix(QUEUE_KEY_PREFIX)
 
-        delivery_tag_raw, score_raw = members[0]
-        delivery_tag = delivery_tag_raw.decode() if isinstance(delivery_tag_raw, bytes) else delivery_tag_raw
-        original_score = float(score_raw)
+            delivery_tag_raw, score_raw = members[0]
+            delivery_tag = delivery_tag_raw.decode() if isinstance(delivery_tag_raw, bytes) else delivery_tag_raw
+            original_score = float(score_raw)
 
-        # BZMPOP popped this tag server-side. From here on we either deliver
-        # it or push it back, even on cancellation, so the message isn't
-        # stuck in messages_index for the visibility-timeout window.
-        delivered = await self._claim_and_deliver(queue, delivery_tag, original_score)
-        if delivered is None:
-            return await self._drain_expired_and_deliver(queue)
-        return delivered
+            # BZMPOP popped this tag server-side. From here on we either deliver
+            # it or push it back, even on cancellation, so the message isn't
+            # stuck in messages_index for the visibility-timeout window.
+            delivered = await self._claim_and_deliver(queue, delivery_tag, original_score)
+            if delivered is None:
+                return await self._drain_expired_and_deliver(queue)
+            return delivered
+        finally:
+            self._claims_in_flight -= 1
+            self._slot_freed.set()
 
     async def _claim_and_deliver(
         self,
@@ -1441,7 +1511,7 @@ class Channel:
         try:
             delivered = await self._deliver_to_consumer(queue, message)
         except BaseException:
-            self._delivered.pop(delivery_tag, None)
+            self._forget_delivery(delivery_tag)
             await self._restore_to_queue(queue, delivery_tag, original_score)
             raise
         if not delivered:
@@ -1684,7 +1754,7 @@ class Channel:
             delivery_tag,
             exc_info=error,
         )
-        self._delivered.pop(delivery_tag, None)
+        self._forget_delivery(delivery_tag)
         if delivery_tag in self._fanout_tags:
             # A fanout delivery has no message hash to requeue from and the
             # stream offset has already moved past it.
@@ -1694,13 +1764,24 @@ class Channel:
 
     # ---- ack / reject / recover -------------------------------------------
 
+    def _forget_delivery(self, delivery_tag: str) -> tuple[str, Message] | None:
+        """Stop tracking a delivery, which frees its slot in the prefetch window.
+
+        Callers run it before their own round-trip to Redis, so an iteration
+        waiting for room claims the next message meanwhile.
+        """
+        entry = self._delivered.pop(delivery_tag, None)
+        if entry is not None:
+            self._slot_freed.set()
+        return entry
+
     async def basic_ack(self, delivery_tag: str, multiple: bool = False) -> None:
         if delivery_tag in self._fanout_tags:
             self._fanout_tags.discard(delivery_tag)
-            self._delivered.pop(delivery_tag, None)
+            self._forget_delivery(delivery_tag)
             return
 
-        entry = self._delivered.pop(delivery_tag, None)
+        entry = self._forget_delivery(delivery_tag)
         if entry:
             queue, _ = entry
             # Atomic ack via Lua script (ZREM + ZREM + DEL in one round-trip)
@@ -1721,10 +1802,10 @@ class Channel:
     ) -> None:
         if delivery_tag in self._fanout_tags:
             self._fanout_tags.discard(delivery_tag)
-            self._delivered.pop(delivery_tag, None)
+            self._forget_delivery(delivery_tag)
             return
 
-        entry = self._delivered.pop(delivery_tag, None)
+        entry = self._forget_delivery(delivery_tag)
         if entry:
             queue, _ = entry
             if requeue:
@@ -1756,6 +1837,7 @@ class Channel:
                 continue
             await self._restore_to_queue(claimed[0], claimed[1])
         self._prefetch_buffer = keep
+        self._slot_freed.set()
 
     async def basic_recover(self, requeue: bool = True) -> None:
         await self._restore_prefetch_buffer()
@@ -1765,6 +1847,7 @@ class Channel:
                     await self._requeue_by_tag(delivery_tag, leftmost=True)
         self._delivered.clear()
         self._fanout_tags.clear()
+        self._slot_freed.set()
 
     async def _requeue_by_tag(
         self,
@@ -2065,6 +2148,8 @@ class Channel:
             return
         self._closed = True
         self._closing = True
+        # An iteration waiting for room would otherwise hold up the drain below.
+        self._slot_freed.set()
         # Deregister first: celery opens a channel per unit of work on some paths,
         # and doing it here also covers a close cancelled while draining.
         self._transport.forget_channel(self)
