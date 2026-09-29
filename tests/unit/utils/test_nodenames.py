@@ -1,3 +1,4 @@
+import pytest
 from kombu import Queue
 
 from celery.utils.nodenames import host_format, node_format, worker_direct
@@ -18,3 +19,17 @@ class test_process_index_expansion:
 
     def test_host_format_expands_both(self):
         assert host_format("%i%I", host="example.com") == "0"
+
+
+class test_percent_escape:
+    @pytest.mark.parametrize(
+        "template,expected",
+        [
+            ("logs/%%n-%n.log", "logs/%n-worker.log"),
+            ("%%x.log", "%x.log"),
+            ("%%%n.log", "%worker.log"),
+            ("%%%%n.log", "%%n.log"),
+        ],
+    )
+    def test_double_percent_expands_to_a_literal_percent(self, template, expected):
+        assert node_format(template, "worker@example.com") == expected

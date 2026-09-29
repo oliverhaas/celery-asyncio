@@ -255,6 +255,11 @@ commit it came from.
 - `ConfigurationView` printed the prefixed key in both halves of its `KeyError`,
   so the message read as if the prefix had never been applied (upstream
   53b3245eb)
+- The `%%` escape in the formats of `-n`, `--logfile`, `--pidfile` and
+  `--statedb` was never matched, so the letter after it was expanded anyway:
+  `logs/%%n-%n.log` became `logs/%worker-worker.log`, and `%%x` raised a
+  `ValueError` that recommended `%%`. `%%` now gives a literal `%` (upstream
+  31b6167d9)
 
 #### Testing
 

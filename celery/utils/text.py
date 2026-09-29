@@ -32,7 +32,9 @@ Possible causes: Did you forget to escape the expand sign (use '%%{0!r}'),
 or did you escape and the value was expanded twice? (%%N -> %N -> %hostname)?
 """.strip()
 
-RE_FORMAT = re.compile(r"%(\w)")
+# `%` too, or the `%%` escape `simple_format` maps to a literal `%` never
+# matches (upstream 31b6167d9).
+RE_FORMAT = re.compile(r"%([%\w])")
 
 
 def str_to_list(s: str) -> list[str]:
