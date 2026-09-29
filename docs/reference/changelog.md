@@ -70,6 +70,12 @@ commit it came from.
 - `crontab.remaining_estimate` restricted a missed hour or minute slot to the
   current day, so a slot missed on an earlier day was reported as next due far
   later than it was (upstream f37bb7350)
+- `crontab.is_due` walked forward from the last run one estimate at a time to
+  decide whether a missed run fell inside `beat_cron_starting_deadline`, and
+  each step was the length of the previous gap. The gaps between slots are not
+  all equal, so on a non-uniform schedule it stepped over feasible runs and
+  reported one as too stale to catch up on. It now asks the schedule once
+  whether anything was due since the deadline (upstream 93431e7b4)
 
 ### Changed
 

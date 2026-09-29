@@ -1015,6 +1015,30 @@ class test_crontab_is_due:
             assert remaining == expected_remaining
             assert not due
 
+    def test_execution_due_within_deadline_on_a_non_uniform_schedule(self):
+        self.app.conf.beat_cron_starting_deadline = 1800
+        cron = crontab(minute="0,45", app=self.app)
+        last_run = datetime(2022, 12, 5, 8, 45)
+        now = datetime(2022, 12, 5, 10, 20)
+        expected_remaining = (datetime(2022, 12, 5, 10, 45) - now).total_seconds()
+
+        with patch_crontab_nowfun(cron, now):
+            due, remaining = cron.is_due(last_run)
+            assert remaining == expected_remaining
+            assert due
+
+    def test_execution_due_when_the_missed_run_lands_exactly_on_the_deadline(self):
+        self.app.conf.beat_cron_starting_deadline = 1800
+        cron = crontab(minute="0,45", app=self.app)
+        last_run = datetime(2022, 12, 5, 8, 45)
+        now = datetime(2022, 12, 5, 10, 30)
+        expected_remaining = (datetime(2022, 12, 5, 10, 45) - now).total_seconds()
+
+        with patch_crontab_nowfun(cron, now):
+            due, remaining = cron.is_due(last_run)
+            assert remaining == expected_remaining
+            assert due
+
     def test_execution_not_due_if_last_run_in_future(self):
         # Should not run if the last_run hasn't happened yet.
         last_run = datetime(2022, 12, 6, 7, 30)

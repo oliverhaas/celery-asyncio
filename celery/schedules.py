@@ -689,26 +689,17 @@ class crontab(BaseSchedule):
 
         deadline_secs = self.app.conf.beat_cron_starting_deadline
         has_passed_deadline = False
-        if deadline_secs is not None:
-            # Make sure we're looking at the latest possible feasible run
-            # date when checking the deadline.
-            last_date_checked = last_run_at
-            last_feasible_rem_secs = rem_secs
-            while rem_secs < 0:
-                last_date_checked = last_date_checked + abs(rem_delta)
-                rem_delta = self.remaining_estimate(last_date_checked)
-                rem_secs = rem_delta.total_seconds()
-                if rem_secs < 0:
-                    last_feasible_rem_secs = rem_secs
-
-            # if rem_secs becomes 0 or positive, second-to-last
-            # last_date_checked must be the last feasible run date.
-            # Check if the last feasible date is within the deadline
-            # for running
-            has_passed_deadline = -last_feasible_rem_secs > deadline_secs
-            if has_passed_deadline:
-                # Should not be due if we've passed the deadline for looking
-                # at past runs
+        if deadline_secs is not None and rem_secs < 0:
+            # The microsecond keeps a run on the far edge inside the window
+            # (upstream 93431e7b4).
+            now = self.maybe_make_aware(self.now())
+            deadline_since = (
+                now.astimezone(timezone.utc) - timedelta(seconds=deadline_secs, microseconds=1)
+            ).astimezone(now.tzinfo)
+            if self.remaining_estimate(deadline_since).total_seconds() > 0:
+                # Nothing was due between then and now, so the run that was
+                # missed is too stale to catch up on.
+                has_passed_deadline = True
                 due = False
 
         if due or has_passed_deadline:
