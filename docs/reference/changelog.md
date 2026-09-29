@@ -150,6 +150,14 @@ commit it came from.
   stored before the revoke goes out, and the worker's `REVOKED` write gives way
   to them (upstream 135b83c71)
 
+#### Canvas
+
+- `clone()` deep-copied a signature's options, but a signature inside them, such
+  as a callback under `link`, `link_error` or `chord`, came out sharing its
+  options with the original. Stamping or freezing a clone's callback therefore
+  changed the original's. A deep copy of a signature now copies its options too
+  (upstream cdd516f71)
+
 #### App and configuration
 
 - Every subclass of `Celery` looked as though it brought its own task class,

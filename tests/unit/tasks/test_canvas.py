@@ -216,6 +216,19 @@ class test_Signature(CanvasCase):
             "task_id": "2",
         }
 
+    @pytest.mark.parametrize("option", ["link", "link_error", "chord"])
+    def test_clone_copies_the_callbacks(self, option):
+        callback = self.add.s(1)
+        template = self.add.s(2, 3).set(**{option: callback if option == "chord" else [callback]})
+
+        cloned = template.clone().options[option]
+        cloned_callback = signature(cloned if option == "chord" else cloned[0], app=self.app)
+        cloned_callback.stamp(workflow_id="clone")
+        cloned_callback.freeze(_id="clone-callback")
+
+        assert "workflow_id" not in callback.options
+        assert callback.id is None
+
     def test_link(self):
         x = signature(SIG)
         x.link(SIG)

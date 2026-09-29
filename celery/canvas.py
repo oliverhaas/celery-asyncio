@@ -873,8 +873,11 @@ class Signature(dict):
         return reprcall(self["task"], args, kwargs)
 
     def __deepcopy__(self, memo):
-        memo[id(self)] = self
-        return dict(self)  # TODO: Potential bug of being a shallow copy
+        clone = dict(self)
+        memo[id(self)] = clone
+        # Preparing a canvas mutates the options, but the args may be lazy.
+        clone["options"] = deepcopy(self.options, memo)
+        return clone
 
     def __invert__(self):
         return self.apply_async().get()
