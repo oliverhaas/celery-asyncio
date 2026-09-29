@@ -116,3 +116,8 @@ def setup_default_app(app, use_trap=False):
             app.close()
         _state._on_app_finalizers = prev_finalizers
         _state._apps = prev_apps
+        # A per-test app keeps its backend connections open for as long as it
+        # holds the backend (upstream a7e0b3876, 9f5d35872).
+        if app._backend is not None:
+            app._backend_cache = None
+            app._local.backend = None

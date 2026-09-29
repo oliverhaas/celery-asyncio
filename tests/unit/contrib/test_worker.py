@@ -8,6 +8,7 @@ import pytest
 # to install the celery.ping task that the test lib uses
 import celery.contrib.testing.tasks  # noqa
 from celery import Celery
+from celery.contrib.testing.app import TestApp, setup_default_app
 from celery.contrib.testing.worker import TestWorkController, start_worker
 
 
@@ -106,3 +107,14 @@ class test_worker:
             with pytest.raises(RuntimeError, match="stopped before it was ready"):
                 with start_worker(app=self.app, loglevel=0, perform_ping_check=False, startup_timeout=10.0):
                     pytest.fail("start_worker yielded a worker that never started")
+
+
+class test_setup_default_app:
+    @pytest.mark.parametrize("thread_safe", [False, True])
+    def test_teardown_lets_go_of_the_backend(self, thread_safe):
+        app = TestApp(config={"result_backend_thread_safe": thread_safe})
+
+        with setup_default_app(app):
+            backend = app.backend
+
+        assert app.backend is not backend

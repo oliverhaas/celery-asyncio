@@ -139,6 +139,13 @@ commit it came from.
   so the message read as if the prefix had never been applied (upstream
   53b3245eb)
 
+#### Testing
+
+- The function-scoped app fixtures build an app per test, and the app held on
+  to its backend, and with it the backend's connections, after the test ended.
+  The fixture now lets go of the backend at teardown (upstream a7e0b3876,
+  9f5d35872)
+
 ### Changed
 
 - With `task_acks_late` on Valkey or Redis, a prefetch count below what the pool
