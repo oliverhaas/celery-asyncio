@@ -32,6 +32,7 @@ from celery.utils.debug import cry
 from celery.utils.imports import qualname
 from celery.utils.log import get_logger, in_sighandler, set_in_sighandler
 from celery.utils.text import pluralize
+from celery.utils.time import humanize_seconds
 from celery.worker import WorkController
 from celery.worker.background import spawn
 from celery.worker.components import stop_pool
@@ -174,9 +175,38 @@ class Worker(WorkController):
     async def purge_messages(self):
         # This runs on the worker's own event loop, so the blocking
         # Control.purge() would ask the loop it is on to run something for it.
-        count = await self.app.control.apurge()
+        conn = self.app.connection_for_write()
+        try:
+            await self._ensure_connected(conn)
+            count = await self.app.control.apurge(connection=conn)
+        finally:
+            await conn.close()
         if count:  # pragma: no cover
             print(f"purge: Erased {count} {pluralize(count, 'message')} from the queue.\n", flush=True)
+
+    async def _ensure_connected(self, conn):
+        """Connect to the broker, retrying if the app is configured to.
+
+        ``--purge`` runs from :meth:`on_start`, before the consumer and its
+        retries, which makes ``broker_connection_retry_on_startup`` the setting
+        that decides whether to retry, falling back to ``broker_connection_retry``
+        for apps that predate it.
+        """
+        retry = self.app.conf.broker_connection_retry_on_startup
+        if retry is None:
+            retry = self.app.conf.broker_connection_retry
+        if not retry:
+            await conn.connect()
+            return
+
+        def _error_handler(exc, interval):
+            logger.error(
+                "purge: Connection error: %s. Trying again %s...",
+                exc,
+                humanize_seconds(interval, "in", " "),
+            )
+
+        await conn.ensure_connection(_error_handler, self.app.conf.broker_connection_max_retries)
 
     def tasklist(self, include_builtins=True, sep="\n", int_="celery."):
         return sep.join(

@@ -83,6 +83,12 @@ commit it came from.
   dropped from the set as it was added and ran anyway. The worker now stamps
   such ids with its own clock, and workers exchange only the ids (upstream
   263584bab)
+- `celery worker --purge` gave up on the first connection error when the broker
+  was not up yet, and the worker exited, whatever
+  `broker_connection_retry_on_startup` said. The purge now retries like the
+  consumer does: `broker_connection_retry_on_startup` decides, falling back to
+  `broker_connection_retry`, up to `broker_connection_max_retries` (upstream
+  4c6619c50)
 
 #### Beat and schedules
 

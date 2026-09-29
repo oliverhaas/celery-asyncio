@@ -1,9 +1,10 @@
 import asyncio
 import signal
 import threading
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from kombu.transport import memory
 
 from celery import platforms, signals
 from celery.apps.worker import (
@@ -38,8 +39,32 @@ class test_Worker_on_start(WorkerCase):
 
         await worker.purge_messages()
 
-        assert purged == [None]
+        assert len(purged) == 1
         worker.app.control.purge.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("retry_on_startup", "retry"),
+        [(True, False), (None, True)],
+        ids=["retry_on_startup", "falls_back_to_broker_connection_retry"],
+    )
+    async def test_purge_waits_for_a_broker_that_is_not_up_yet(self, retry_on_startup, retry, capsys):
+        self.app.conf.broker_connection_retry_on_startup = retry_on_startup
+        self.app.conf.broker_connection_retry = retry
+        worker = self.create_worker(purge=True)
+        await self.app.control.apurge()
+        await self.app.asend_task("tests.purged")
+        refusals = [ConnectionRefusedError(111, "Connection refused")] * 2
+        comes_up = memory.Transport.connect
+
+        async def connect(transport):
+            if refusals:
+                raise refusals.pop()
+            await comes_up(transport)
+
+        with patch.object(memory.Transport, "connect", connect), patch("asyncio.sleep", new_callable=AsyncMock):
+            await worker.purge_messages()
+
+        assert "Erased 1 message" in capsys.readouterr().out
 
     async def test_purges_before_touching_the_process(self):
         worker = self.create_worker(purge=True)
