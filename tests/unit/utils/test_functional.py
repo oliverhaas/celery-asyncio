@@ -135,6 +135,19 @@ class test_regen:
             g[11]
         assert list(iter(g)) == list(range(10))
 
+    def test_gen__slice(self, g):
+        assert g[:3] == [0, 1, 2]
+        assert g[2:5] == [2, 3, 4]
+        assert g[::2] == [0, 2, 4, 6, 8]
+        assert g[-3:] == [7, 8, 9]
+
+    def test_gen__index_only_object(self, g):
+        class Two:
+            def __index__(self):
+                return 2
+
+        assert g[Two()] == 2
+
     def test_gen__negative_index(self, g):
         assert g[-1] == 9
         assert g[-2] == 8

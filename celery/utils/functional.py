@@ -4,6 +4,7 @@
 
 import annotationlib
 import inspect
+import operator
 from collections import UserList
 from collections.abc import Callable
 from functools import partial
@@ -258,6 +259,12 @@ class _regen(UserList, list):  # type: ignore[misc]
         yield from self.__lookahead_consume()
 
     def __getitem__(self, index):
+        if isinstance(index, slice):
+            # An open-ended slice consumes everything regardless, so consume
+            # rather than special-case the few lazy cases (upstream 8d2bccca0).
+            return self.data[index]
+        # Anything a list accepts, and the error a list gives for the rest.
+        index = operator.index(index)
         if index < 0:
             return self.data[index]
         # Consume elements up to the desired index prior to attempting to

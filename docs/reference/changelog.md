@@ -130,6 +130,8 @@ commit it came from.
   each call, and the result backend is resolved per thread, so each new thread
   paid for the scan again. Cached, since entry points cannot change while the
   process runs (upstream 937b06654)
+- `_regen.__getitem__` raised `TypeError` on a slice, and on any object that is
+  not an `int` but defines `__index__` (upstream 8d2bccca0)
 
 ### Changed
 
