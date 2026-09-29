@@ -162,6 +162,8 @@ commit it came from.
   (upstream d6fa93d12)
 - `on_timeout` no longer calls `traceback_clear` on an exception whose frame is
   still executing, which could not release anything (upstream 2c42237d3)
+- `chord_unlock` builds its callback signature once instead of twice (upstream
+  d7e81785b)
 
 ## v6.0.0a6
 
