@@ -620,13 +620,10 @@ class crontab(BaseSchedule):
             and dow_num in self.day_of_week
         )
 
+        # Not restricted to today: this asks what was due after `last_run_at`, so
+        # a slot missed on an earlier day still counts (upstream f37bb7350).
         execute_this_hour = (
-            execute_this_date
-            and last_run_at.day == now.day
-            and last_run_at.month == now.month
-            and last_run_at.year == now.year
-            and last_run_at.hour in self.hour
-            and last_run_at.minute < max(self.minute)
+            execute_this_date and last_run_at.hour in self.hour and last_run_at.minute < max(self.minute)
         )
 
         if execute_this_hour:

@@ -67,6 +67,9 @@ commit it came from.
   entry on top of the heap changed while `is_due()` ran, so the caller slept
   until an instant that had already passed, or for the wrong entry's interval
   (upstream 777edfcb0, 574f31091)
+- `crontab.remaining_estimate` restricted a missed hour or minute slot to the
+  current day, so a slot missed on an earlier day was reported as next due far
+  later than it was (upstream f37bb7350)
 
 ### Changed
 
