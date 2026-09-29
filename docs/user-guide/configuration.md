@@ -159,8 +159,11 @@ which has no header, so the method is written in front of the payload instead.
 
 A compressed result is binary, so `result_compression` is only honoured by a
 backend that hands arbitrary bytes back unchanged. The Valkey/Redis, filesystem
-and cache backends do. A backend that cannot ignores the setting and warns
-once, when it is built.
+and cache backends do, except Valkey/Redis with `decode_responses` in its URL,
+set to any value, `false` included. A backend that cannot ignores the setting
+and warns once, when it is built. A client with `decode_responses` cannot read
+a result that another worker stored compressed either, so drop the parameter
+from every result backend URL before turning compression on.
 
 Reading is driven by the stored payload rather than by the setting, so results
 written before compression was turned on stay readable, and a reader with no

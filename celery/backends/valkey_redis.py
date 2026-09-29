@@ -9,6 +9,7 @@ the preferred library (with automatic fallback if only one is installed):
 """
 
 import asyncio
+import warnings
 from collections.abc import Iterable
 from functools import partial
 from ssl import CERT_NONE, CERT_OPTIONAL, CERT_REQUIRED
@@ -99,6 +100,12 @@ celery will not validate the identity of the broker when connecting. This \
 leaves you vulnerable to man in the middle attacks.
 """
 
+W_REDIS_DECODE_RESPONSES_COMPRESSION = """\
+The Valkey/Redis result backend decodes every reply as text (decode_responses),
+which a compressed result is not, so the result_compression setting is ignored
+and results are stored uncompressed.
+"""
+
 E_REDIS_SSL_PARAMS_AND_SCHEME_MISMATCH = """
 SSL connection parameters have been provided but the specified URL scheme \
 is redis:// or valkey://. An SSL connection URL should use the scheme \
@@ -138,7 +145,8 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
     supports_autoexpire = True
     supports_native_join = True
-    #: A value is stored and returned as the byte string it was given.
+    #: A value is stored and returned as the byte string it was given, unless
+    #: the client decodes replies (decode_responses), which turns this off.
     supports_result_compression = True
 
     #: Maximal length of string value.
@@ -267,6 +275,10 @@ return false
 
         if url:
             self.connparams = self._params_from_url(url, self.connparams)
+
+        if self.compression and self.connparams.get("decode_responses"):
+            warnings.warn(W_REDIS_DECODE_RESPONSES_COMPRESSION, UserWarning, stacklevel=2)
+            self.compression = None
 
         # If we've received SSL parameters via query string or the
         # redis_backend_use_ssl dict, check ssl_cert_reqs is valid. If set

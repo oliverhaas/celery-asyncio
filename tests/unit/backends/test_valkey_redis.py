@@ -10,6 +10,7 @@ from pickle import dumps, loads
 from unittest.mock import ANY, AsyncMock, Mock, call, patch
 
 import pytest
+from kombu.utils.encoding import ensure_bytes
 
 try:
     from redis import CredentialProvider, exceptions
@@ -271,6 +272,17 @@ class test_RedisBackend(basetest_RedisBackend):
         b.mark_as_done(task_id, 42)
 
         assert b.get(b.get_key_for_task(task_id)).startswith(COMPRESSED_PAYLOAD_MAGIC)
+        assert b.get_result(task_id) == 42
+
+    def test_decode_responses_in_the_url_stores_results_uncompressed(self):
+        self.app.conf.result_compression = "gzip"
+        with pytest.warns(UserWarning, match="decode_responses"):
+            b = self.Backend(app=self.app, url="redis://localhost/10?decode_responses=true")
+        task_id = uuid()
+
+        b.mark_as_done(task_id, 42)
+
+        assert not ensure_bytes(b.get(b.get_key_for_task(task_id))).startswith(COMPRESSED_PAYLOAD_MAGIC)
         assert b.get_result(task_id) == 42
 
     @pytest.mark.usefixtures("depends_on_current_app")

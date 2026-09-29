@@ -175,6 +175,11 @@ commit it came from.
   `TimeoutError` after handing back every result that was asked for. They now
   return once nothing is outstanding, the way `wait_for` returns a ready result
   before it looks at the deadline (upstream 1ea3d4f64)
+- With `decode_responses` in the Valkey/Redis result backend URL, the client
+  decodes every reply as text, yet `result_compression` still compressed the
+  stored results, so every read of one failed with `UnicodeDecodeError`. The
+  backend now ignores `result_compression` in that case, warns when it is built
+  and stores results uncompressed (upstream 28a3d8774)
 
 #### Events
 
