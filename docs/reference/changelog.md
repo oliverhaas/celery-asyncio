@@ -173,6 +173,13 @@ commit it came from.
   `"CELERY_ALWAYS_EAGER" in app.conf` was false, and a `setdefault` under that
   name stored a second value that the other name did not see. Membership now
   tries every name a lookup tries (upstream 560d97298)
+- A setting changed at runtime was ignored when the configuration or the
+  defaults held it under another name. Assigning
+  `app.conf.worker_prefetch_multiplier` still read
+  `CELERY_WORKER_PREFETCH_MULTIPLIER` from a config loaded with
+  `namespace="CELERY"`, and `conf.update(CELERY_ALWAYS_EAGER=True)` left
+  `task_always_eager` at its default. Runtime changes now win under any name
+  (upstream 319d9c7e0)
 
 #### Results
 
