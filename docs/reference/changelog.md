@@ -194,6 +194,11 @@ commit it came from.
   `CELERY_ROUTES` or a namespaced name such as `CELERY_TASK_ROUTES`, were
   stored, but tasks kept going to their old queues. The router is now rebuilt
   for every form and name (upstream 6ed1ec1ad)
+- `app.conf.find_option()` and `celery.app.defaults.find()` returned a
+  setting's default value in place of its `Option` for a full name such as
+  `task_always_eager`, although a short name such as `always_eager` got the
+  `Option`. Every name now finds the `Option`, whose `default` holds the value
+  (upstream 07ee451b5)
 
 #### Results
 

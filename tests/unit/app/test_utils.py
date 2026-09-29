@@ -19,6 +19,9 @@ class test_Settings:
     def test_find(self):
         assert self.app.conf.find_option("always_eager")
 
+    def test_find_option_finds_the_same_option_by_qualified_name(self):
+        assert self.app.conf.find_option("task_always_eager").type is self.app.conf.find_option("always_eager").type
+
     def test_get_by_parts(self):
         self.app.conf.task_do_this_and_that = 303
         assert self.app.conf.get_by_parts("task", "do", "this", "and", "that") == 303
