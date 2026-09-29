@@ -139,6 +139,13 @@ commit it came from.
 - `filter_hidden_settings` matched `broker_url` as a substring, and `broker_url`
   does not occur in `broker_read_url`, so a split broker setup printed both
   passwords in full in a bug report (upstream 835d5bce8)
+- `before_task_publish` receivers got the per-call `retry_policy` as passed,
+  which is `None` unless the caller gave one, and the `task-sent` event was
+  published with the same value. Without a per-call policy the event therefore
+  retried forever on a broker outage instead of giving up as
+  `task_publish_retry_policy` says. Both now get a copy of the merged policy the
+  task is published with, which a receiver can change for that publish without
+  changing the configured one (upstream e1dba84f8)
 
 #### Results
 

@@ -605,7 +605,9 @@ class AMQP:
             wire as properties of the message.
             """
             retry = default_retry if retry is None else retry
-            _rp = dict(default_policy, **retry_policy) if retry_policy else default_policy
+            # A copy either way: a before_task_publish receiver may change the
+            # policy of this publish, and must not change the configured one.
+            _rp = dict(default_policy, **retry_policy) if retry_policy else dict(default_policy)
             headers2, properties, body, sent_event = message
             if headers:
                 headers2.update(headers)
@@ -664,7 +666,7 @@ class AMQP:
                     declare=declare,
                     headers=headers2,
                     properties=properties,
-                    retry_policy=retry_policy,
+                    retry_policy=_rp,
                 )
 
             await producer.publish(
@@ -694,7 +696,7 @@ class AMQP:
                         "routing_key": routing_key,
                     }
                 )
-                evd.publish("task-sent", sent_event, producer, retry=retry, retry_policy=retry_policy)
+                evd.publish("task-sent", sent_event, producer, retry=retry, retry_policy=_rp)
 
         return asend_task_message
 
