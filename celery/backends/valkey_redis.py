@@ -970,6 +970,7 @@ return false
 
         ids.difference_update(cached_ids)
         iterations = 0
+        time_elapsed = 0.0
 
         while ids:
             keys = list(ids)
@@ -982,11 +983,19 @@ return false
                 if on_message is not None:
                     on_message(value)
                 results.append((bytes_to_str(key), value))
-            if timeout and iterations * interval >= timeout:
+            if not ids:
+                # Nothing left to time out on, as in `wait_for`.
+                break
+            # Not truthiness: a timeout of 0 polls once, it does not wait forever
+            # (upstream 1ea3d4f64).
+            if timeout is not None and time_elapsed >= timeout:
                 raise TimeoutError(f"Operation timed out ({timeout})")
             if on_interval:
                 on_interval()
-            await asyncio.sleep(interval)
+            # Sleeping a whole interval would round a sub-interval timeout up.
+            nap = interval if timeout is None else min(interval, timeout - time_elapsed)
+            await asyncio.sleep(nap)
+            time_elapsed += nap
             iterations += 1
             if max_iterations and iterations >= max_iterations:
                 break

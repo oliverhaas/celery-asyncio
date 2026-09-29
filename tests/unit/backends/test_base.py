@@ -1390,6 +1390,30 @@ class test_KeyValueStoreBackend:
         with pytest.raises(self.b.TimeoutError):
             list(self.b.get_many(tasks, timeout=0.01, interval=0.01))
 
+    def test_get_many_raises_at_once_on_a_timeout_of_zero(self):
+        sleep = self.patching("time.sleep")
+        sleep.side_effect = AssertionError("slept despite a spent budget")
+
+        with pytest.raises(self.b.TimeoutError):
+            list(self.b.get_many([uuid() for _ in range(2)], timeout=0, interval=0.01))
+
+    def test_get_many_returns_every_ready_result_on_a_spent_budget(self):
+        ids = {uuid(): i for i in range(3)}
+
+        def results_arrive():
+            for task_id, i in ids.items():
+                self.b.mark_as_done(task_id, i)
+
+        assert len(list(self.b.get_many(list(ids), timeout=0.01, interval=0.01, on_interval=results_arrive))) == 3
+
+    def test_get_many_does_not_sleep_past_the_deadline(self):
+        sleep = self.patching("time.sleep")
+
+        with pytest.raises(self.b.TimeoutError):
+            list(self.b.get_many([uuid()], timeout=0.1, interval=10))
+
+        assert sleep.call_args_list == [call(0.1)]
+
     def test_get_many_passes_ready_states(self):
         tasks_length = 10
         ready_states = frozenset({states.SUCCESS})

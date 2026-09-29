@@ -1268,6 +1268,9 @@ class _AsyncRedis:
     async def get(self, key):
         return self.keyspace.get(key)
 
+    async def mget(self, keys):
+        return [self.keyspace.get(key) for key in keys]
+
     async def set(self, key, value):
         self.keyspace[key] = value
         return True
@@ -1476,6 +1479,49 @@ class test_RedisBackend_await_for:
 
         assert seen
         assert {meta["status"] for meta in seen} == {states.PENDING}
+
+
+class test_RedisBackend_aget_many:
+    """Polling for several results at once over the native async client."""
+
+    def setup_method(self):
+        from celery.backends.valkey_redis import RedisBackend
+
+        class _RedisBackend(RedisBackend):
+            redis = redis
+
+            def _create_async_client(self_inner, **params):
+                return _AsyncRedis(self_inner.client)
+
+        self.b = _RedisBackend(app=self.app)
+
+    @pytest.mark.timeout(30)
+    async def test_raises_at_once_on_a_timeout_of_zero(self):
+        started = time.monotonic()
+
+        with pytest.raises(TimeoutError):
+            await self.b.aget_many([uuid()], timeout=0, interval=10)
+
+        assert time.monotonic() - started < 5
+
+    @pytest.mark.timeout(30)
+    async def test_does_not_sleep_past_the_deadline(self):
+        started = time.monotonic()
+
+        with pytest.raises(TimeoutError):
+            await self.b.aget_many([uuid()], timeout=0.05, interval=10)
+
+        assert time.monotonic() - started < 5
+
+    @pytest.mark.timeout(30)
+    async def test_returns_every_ready_result_on_a_spent_budget(self):
+        ids = [uuid() for _ in range(3)]
+
+        def results_arrive():
+            for i, tid in enumerate(ids):
+                self.b.store_result(tid, i, states.SUCCESS)
+
+        assert len(await self.b.aget_many(ids, timeout=0.01, interval=0.01, on_interval=results_arrive)) == 3
 
 
 class test_RedisBackend_async_groups:

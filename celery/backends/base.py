@@ -1390,6 +1390,7 @@ class BaseKeyValueStoreBackend(Backend):
 
         ids.difference_update(cached_ids)
         iterations = 0
+        time_elapsed = 0.0
         while ids:
             keys = list(ids)
             r = self._mget_to_results(self.mget([self.get_key_for_task(k) for k in keys]), keys, READY_STATES)
@@ -1399,11 +1400,18 @@ class BaseKeyValueStoreBackend(Backend):
                 if on_message is not None:
                     on_message(value)
                 yield bytes_to_str(key), value
-            if timeout and iterations * interval >= timeout:
+            if not ids:
+                # Nothing left to time out on, as in `wait_for`.
+                break
+            # See `wait_for`: a timeout of 0 is a real budget, not "no budget"
+            # (upstream 1ea3d4f64).
+            if timeout is not None and time_elapsed >= timeout:
                 raise TimeoutError(f"Operation timed out ({timeout})")
             if on_interval:
                 on_interval()
-            time.sleep(interval)  # don't busy loop.
+            nap = interval if timeout is None else min(interval, timeout - time_elapsed)
+            time.sleep(nap)  # don't busy loop.
+            time_elapsed += nap
             iterations += 1
             if max_iterations and iterations >= max_iterations:
                 break

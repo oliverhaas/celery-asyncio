@@ -112,6 +112,10 @@ commit it came from.
   no timeout, so a wait shorter than one interval was rounded up to a full one
   and a zero timeout polled forever. It now checks the budget against `None` and
   trims the last sleep to what is left of it (upstream 79f3ed8d8)
+- `get_many` and its async counterpart had the same two faults, and also raised
+  `TimeoutError` after handing back every result that was asked for. They now
+  return once nothing is outstanding, the way `wait_for` returns a ready result
+  before it looks at the deadline (upstream 1ea3d4f64)
 
 ### Changed
 
