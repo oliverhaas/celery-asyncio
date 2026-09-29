@@ -1043,7 +1043,7 @@ class ResultSet(ResultBase):
             if isinstance(meta, list):
                 value = []
                 for children_result in meta:
-                    value.append(children_result.get())
+                    value.append(children_result.get(propagate=propagate, disable_sync_subtasks=disable_sync_subtasks))
             else:
                 value = meta["result"]
                 if propagate and meta["status"] in states.PROPAGATE_STATES:
@@ -1176,7 +1176,9 @@ class ResultSet(ResultBase):
                 # Nested ResultSet - need to await each child
                 value = []
                 for children_result in meta:
-                    value.append(await children_result.aget())
+                    value.append(
+                        await children_result.aget(propagate=propagate, disable_sync_subtasks=disable_sync_subtasks)
+                    )
             else:
                 value = meta["result"]
                 if propagate and meta["status"] in states.PROPAGATE_STATES:

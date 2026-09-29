@@ -255,6 +255,11 @@ commit it came from.
   stored results, so every read of one failed with `UnicodeDecodeError`. The
   backend now ignores `result_compression` in that case, warns when it is built
   and stores results uncompressed (upstream 28a3d8774)
+- `join_native` and `ajoin_native`, which `GroupResult.get()` and `aget()` use,
+  fetched the members of a nested group without the caller's `propagate` and
+  `disable_sync_subtasks`. `get(propagate=False)` raised a nested member's
+  failure instead of returning it, and a join allowed inside a task raised
+  `RuntimeError` on a nested group. Both are now passed on (upstream eb3dfa384)
 
 #### Events
 

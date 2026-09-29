@@ -6,11 +6,19 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
-from celery import states, uuid
+from celery import _state, states, uuid
 from celery.app.task import Context
 from celery.backends.base import Backend, SyncBackendMixin
 from celery.exceptions import Ignore, ImproperlyConfigured, IncompleteStream, TimeoutError
-from celery.result import AsyncResult, EagerResult, GroupResult, ResultSet, assert_will_not_block, result_from_tuple
+from celery.result import (
+    AsyncResult,
+    EagerResult,
+    GroupResult,
+    ResultSet,
+    assert_will_not_block,
+    denied_join_result,
+    result_from_tuple,
+)
 from celery.utils.serialization import pickle
 
 PYTRACEBACK = """\
@@ -875,6 +883,21 @@ class test_GroupResult:
         ts.iter_native.return_value = iter([(uuid(), {"status": states.FAILURE, "result": KeyError()})])
         with pytest.raises(KeyError):
             ts.join_native(propagate=True)
+
+    async def test_a_nested_group_is_joined_with_the_callers_options(self, monkeypatch):
+        monkeypatch.setattr("celery.result.task_join_will_block", _state.orig_task_join_will_block)
+        failed = mock_task("failed", states.FAILURE, ValueError("failed"))
+        save_result(self.app, failed)
+        first, second = make_mock_group(self.app, 2)
+        nested = self.app.GroupResult(uuid(), [second, self.app.AsyncResult(failed["id"])])
+        ts = self.app.GroupResult(uuid(), [first, nested])
+        assert ts.supports_native_join
+
+        with denied_join_result():
+            joined = ts.get(propagate=False, disable_sync_subtasks=False)
+            ajoined = await ts.aget(propagate=False, disable_sync_subtasks=False)
+
+        assert repr(joined) == repr(ajoined) == "[0, [1, ValueError('failed')]]"
 
     def test_failed_join_report(self):
         res = Mock()
