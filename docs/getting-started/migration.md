@@ -107,7 +107,7 @@ These settings no longer apply:
   `broker_failover_strategy`, `broker_pool_limit` (there is no producer pool;
   a connection belongs to the loop that opened it) and
   `broker_native_delayed_delivery_queue_type`
-- `result_compression`, `result_exchange` and `result_exchange_type`
+- `result_exchange` and `result_exchange_type`
 
 `broker_use_ssl` and `broker_transport` are still accepted, and still ignored.
 TLS and the transport come from the broker URL: `amqps://` or `rediss://`, with
@@ -215,6 +215,9 @@ celery -A myapp flower
 ## What's new
 
 - Native async tasks: `async def` tasks run on the event loop
+- `result_compression` compresses the stored result. Celery registered and
+  documented the setting from 4.0 on without anything ever reading it, so
+  results were always stored uncompressed
 - Valkey support: first-class `valkey://` URL scheme
 - AMQP via aio-pika: native asyncio RabbitMQ support
 - Python 3.14 only, uses latest language features

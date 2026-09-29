@@ -10,6 +10,7 @@ import pytest
 import tests.skip
 from celery import states, uuid
 from celery.backends import filesystem
+from celery.backends.base import COMPRESSED_PAYLOAD_MAGIC
 from celery.backends.filesystem import FilesystemBackend
 from celery.exceptions import ImproperlyConfigured
 
@@ -45,6 +46,14 @@ class test_FilesystemBackend:
         url = "file://localhost" + self.directory
         tb = FilesystemBackend(app=self.app, url=url)
         assert tb.path == self.path
+
+    def test_a_compressed_result_survives_a_round_trip_through_a_real_directory(self):
+        self.app.conf.result_compression = "gzip"
+        tb = FilesystemBackend(app=self.app, url=self.url)
+        tid = uuid()
+        tb.mark_as_done(tid, 42)
+        assert tb.get(tb.get_key_for_task(tid)).startswith(COMPRESSED_PAYLOAD_MAGIC)
+        assert tb.get_result(tid) == 42
 
     def test_missing_task_is_PENDING(self):
         tb = FilesystemBackend(app=self.app, url=self.url)

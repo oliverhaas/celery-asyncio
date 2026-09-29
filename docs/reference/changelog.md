@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+A sweep of upstream Celery's main branch for fixes that still apply here. The
+two packages parted ways, but the parts that came from the same place drifted
+the same way, and each entry that came out of the sweep names the upstream
+commit it came from.
+
+### Added
+
+- `result_compression` compresses the stored result. Celery registered and
+  documented the setting from 4.0 on without anything reading it, so results
+  were always stored uncompressed. A task message keeps its compression method
+  in a header, and a stored result has no header, so the method is written in
+  front of the payload behind a marker that cannot begin the output of any
+  serializer this package ships with. Reading is driven by that marker rather
+  than by the setting, so a result written before compression was turned on
+  stays readable and a reader without the setting can still read a compressed
+  one. Only a backend that hands arbitrary bytes back unchanged honours the
+  setting, which every backend that stores a result here does; one that cannot
+  warns once and stores uncompressed. An unrecognised method raises
+  `ImproperlyConfigured` when the backend is built (upstream 7c846b63b)
+
 ### Fixed
 
 - On Valkey and Redis the prefetch count only sized the batch a consume

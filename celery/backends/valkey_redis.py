@@ -138,6 +138,8 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
 
     supports_autoexpire = True
     supports_native_join = True
+    #: A value is stored and returned as the byte string it was given.
+    supports_result_compression = True
 
     #: Maximal length of string value.
     #: 512 MB - https://redis.io/topics/data-types
@@ -789,10 +791,11 @@ return false
         goes on to fail, or a retry that finally succeeds, has to be able to
         record its outcome.
 
-        For non-JSON serializers we can't peek at the status field inside
-        Lua, so fall back to the base implementation.
+        For non-JSON serializers, and for a compressed payload that cjson
+        cannot read either, we can't peek at the status field inside Lua, so
+        fall back to the base implementation.
         """
-        if self.serializer != "json":
+        if self.serializer != "json" or self.compression:
             return await super()._astore_result(task_id, result, state, traceback, request=request, **kwargs)
 
         meta = self._get_result_meta(result=result, state=state, traceback=traceback, request=request)

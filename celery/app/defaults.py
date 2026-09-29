@@ -147,6 +147,7 @@ NAMESPACES = Namespace(
     result=Namespace(
         __old__=old_ns("celery_result"),
         backend=Option(type="string"),
+        compression=Option(type="string"),
         cache_max=Option(
             -1,
             type="int",

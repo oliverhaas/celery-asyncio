@@ -5,7 +5,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, Mock, call, patch, sentinel
 from uuid import UUID
 
 import pytest
-from kombu.serialization import prepare_accept_content
+from kombu.serialization import dumps, prepare_accept_content
 from kombu.utils.encoding import bytes_to_str, ensure_bytes
 
 import celery
@@ -13,14 +13,24 @@ from celery import chord, group, signals, signature, states, uuid
 from celery.app.task import Context, Task
 from celery.app.trace import build_async_tracer, build_tracer
 from celery.backends.base import (
+    COMPRESSED_PAYLOAD_MAGIC,
     BaseBackend,
     DisabledBackend,
     KeyValueStoreBackend,
     _create_chord_error_with_cause,
     _create_fake_task_request,
     _nulldict,
+    compress_payload,
+    decompress_payload,
 )
-from celery.exceptions import BackendGetMetaError, BackendStoreError, ChordError, SecurityError, TimeoutError
+from celery.exceptions import (
+    BackendGetMetaError,
+    BackendStoreError,
+    ChordError,
+    ImproperlyConfigured,
+    SecurityError,
+    TimeoutError,
+)
 from celery.result import GroupResult, result_from_tuple
 from celery.utils import serialization
 from celery.utils.functional import pass1
@@ -1845,3 +1855,72 @@ class test_backend_retries:
         self.app.conf.result_backend_thread_safe = False
         b = BaseBackend(app=self.app)
         assert b.thread_safe is False
+
+
+class CompressibleBackend(BaseBackend):
+    supports_result_compression = True
+
+
+class test_result_compression:
+    def test_a_compressed_payload_is_smaller_than_the_original(self):
+        payload = ensure_bytes('{"result": ' + '"x" ' * 500 + "}")
+        assert len(compress_payload(payload, "gzip")) < len(payload)
+
+    @pytest.mark.parametrize("method", ["gzip", "bzip2", "lzma", "zstd"])
+    def test_every_registered_method_round_trips(self, method):
+        assert decompress_payload(compress_payload(b"hello", method)) == b"hello"
+
+    def test_a_text_payload_is_left_alone(self):
+        assert decompress_payload('{"status": "SUCCESS"}') == '{"status": "SUCCESS"}'
+
+    def test_a_memoryview_is_decompressed(self):
+        payload = memoryview(compress_payload(b"hello", "gzip"))
+        assert decompress_payload(payload) == b"hello"
+
+    def test_the_marker_cannot_start_a_serialized_payload(self):
+        for serializer in ("json", "pickle", "msgpack", "yaml"):
+            _, _, payload = dumps({"status": "SUCCESS", "result": 42}, serializer=serializer)
+            assert not ensure_bytes(payload).startswith(COMPRESSED_PAYLOAD_MAGIC)
+
+    @pytest.mark.parametrize("method", ["gzip", "zlib"])
+    def test_a_compressed_result_reads_back(self, method):
+        self.app.conf.result_compression = method
+        b = CompressibleBackend(app=self.app)
+
+        encoded = b.encode({"status": states.SUCCESS, "result": 42})
+
+        assert encoded.startswith(COMPRESSED_PAYLOAD_MAGIC)
+        assert b.decode(encoded) == {"status": states.SUCCESS, "result": 42}
+
+    def test_a_result_stored_before_the_setting_was_turned_on_still_reads(self):
+        plain = CompressibleBackend(app=self.app).encode({"status": states.SUCCESS})
+        self.app.conf.result_compression = "gzip"
+        assert CompressibleBackend(app=self.app).decode(plain) == {"status": states.SUCCESS}
+
+    def test_a_reader_without_the_setting_can_read_a_compressed_result(self):
+        self.app.conf.result_compression = "gzip"
+        compressed = CompressibleBackend(app=self.app).encode({"status": states.SUCCESS})
+        self.app.conf.result_compression = None
+        assert CompressibleBackend(app=self.app).decode(compressed) == {"status": states.SUCCESS}
+
+    def test_a_binary_serializer_survives_compression(self):
+        self.app.conf.result_compression = "gzip"
+        b = CompressibleBackend(app=self.app, serializer="pickle", accept=["pickle"])
+        assert b.decode(b.encode({"status": states.SUCCESS, "result": 42})) == {
+            "status": states.SUCCESS,
+            "result": 42,
+        }
+
+    def test_a_backend_that_cannot_hold_bytes_ignores_the_setting(self):
+        self.app.conf.result_compression = "gzip"
+        with pytest.warns(UserWarning, match="BaseBackend"):
+            b = BaseBackend(app=self.app)
+        assert b.compression is None
+        assert not ensure_bytes(b.encode({"status": states.SUCCESS})).startswith(COMPRESSED_PAYLOAD_MAGIC)
+
+    def test_an_unknown_method_names_the_ones_that_exist(self):
+        self.app.conf.result_compression = "rot13"
+        with pytest.raises(ImproperlyConfigured) as exc_info:
+            CompressibleBackend(app=self.app)
+        assert "rot13" in str(exc_info.value)
+        assert "application/x-gzip" in str(exc_info.value)

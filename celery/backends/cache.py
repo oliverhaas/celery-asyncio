@@ -56,6 +56,8 @@ class CacheBackend(KeyValueStoreBackend):
 
     servers = None
     supports_autoexpire = True
+    #: The only client is the in-memory one, which stores the value as given.
+    supports_result_compression = True
     supports_native_join = True
     implements_incr = True
 

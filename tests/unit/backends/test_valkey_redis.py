@@ -18,6 +18,7 @@ except ImportError:
     CredentialProvider = None
 
 from celery import signature, states, uuid
+from celery.backends.base import COMPRESSED_PAYLOAD_MAGIC
 from celery.canvas import Signature
 from celery.contrib.testing.mocks import ContextMock
 from celery.exceptions import (
@@ -262,6 +263,16 @@ class NonCredentialProvider:
 
 
 class test_RedisBackend(basetest_RedisBackend):
+    def test_a_compressed_result_survives_a_round_trip(self):
+        self.app.conf.result_compression = "gzip"
+        b = self.Backend(app=self.app)
+        task_id = uuid()
+
+        b.mark_as_done(task_id, 42)
+
+        assert b.get(b.get_key_for_task(task_id)).startswith(COMPRESSED_PAYLOAD_MAGIC)
+        assert b.get_result(task_id) == 42
+
     @pytest.mark.usefixtures("depends_on_current_app")
     def test_reduce(self):
         pytest.importorskip("redis")
@@ -1406,6 +1417,16 @@ class test_RedisBackend_astore_result:
         await self.b._astore_result(uuid(), "revoked", states.REVOKED)
 
         assert script.await_args.kwargs["args"][2:] == sorted(states.READY_STATES)
+
+    async def test_a_stored_success_survives_a_later_state_when_compressed(self):
+        self.app.conf.result_compression = "gzip"
+        b = self.Backend(app=self.app)
+        task_id = uuid()
+
+        await b.astore_result(task_id, "done", states.SUCCESS)
+        await b.astore_result(task_id, "late", states.STARTED)
+
+        assert (await b.aget_task_meta(task_id, cache=False))["result"] == "done"
 
     async def test_a_late_revoke_leaves_a_stored_failure_alone(self):
         b = self.Backend(app=self.app, serializer="pickle")

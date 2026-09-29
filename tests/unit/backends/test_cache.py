@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from celery import signature, states, uuid
+from celery.backends.base import COMPRESSED_PAYLOAD_MAGIC
 from celery.backends.cache import CacheBackend, backends
 from celery.exceptions import ImproperlyConfigured
 
@@ -39,6 +40,13 @@ class test_CacheBackend:
         self.tb.mark_as_done(self.tid, 42)
         assert self.tb.get_state(self.tid) == states.SUCCESS
         assert self.tb.get_result(self.tid) == 42
+
+    def test_a_compressed_result_survives_a_round_trip(self):
+        self.app.conf.result_compression = "gzip"
+        tb = CacheBackend(backend="memory://", app=self.app)
+        tb.mark_as_done(self.tid, 42)
+        assert tb.get(tb.get_key_for_task(self.tid)).startswith(COMPRESSED_PAYLOAD_MAGIC)
+        assert tb.get_result(self.tid) == 42
 
     def test_is_pickled(self):
         result = {"foo": "baz", "bar": SomeClass(12345)}

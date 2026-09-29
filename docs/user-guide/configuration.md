@@ -142,6 +142,33 @@ app.config_from_object({
 })
 ```
 
+### Compression
+
+```python
+app.config_from_object({
+    "task_compression": "gzip",      # gzip, bzip2, lzma, zstd
+    "result_compression": "gzip",
+})
+```
+
+`brotli` joins that list when the `brotli` extra is installed.
+
+`task_compression` compresses the task message body, and the broker carries the
+method in a message header. `result_compression` compresses the stored result,
+which has no header, so the method is written in front of the payload instead.
+
+A compressed result is binary, so `result_compression` is only honoured by a
+backend that hands arbitrary bytes back unchanged. The Valkey/Redis, filesystem
+and cache backends do. A backend that cannot ignores the setting and warns
+once, when it is built.
+
+Reading is driven by the stored payload rather than by the setting, so results
+written before compression was turned on stay readable, and a reader with no
+compression configured can still read a compressed result. Roll the setting out
+to readers first if writers and readers run different versions.
+
+An unrecognised method raises `ImproperlyConfigured` when the backend is built.
+
 ## Task autodiscovery
 
 ```python

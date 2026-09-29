@@ -18,6 +18,9 @@ from functools import partial
 from uuid import UUID
 
 from asgiref.sync import sync_to_async
+from kombu.compression import compress, decompress
+from kombu.compression import encoders as compression_encoders
+from kombu.compression import get_encoder as get_compression_encoder
 from kombu.serialization import dumps, loads, prepare_accept_content
 from kombu.serialization import registry as serializer_registry
 from kombu.utils.encoding import bytes_to_str, ensure_bytes
@@ -55,6 +58,10 @@ __all__ = ("BaseBackend", "KeyValueStoreBackend", "DisabledBackend")
 
 EXCEPTION_ABLE_CODECS = frozenset({"pickle"})
 
+#: Leads a compressed result payload: ``MAGIC + content-type + b"\0" + body``.
+#: A stored result carries no header, and no serializer here emits a leading NUL.
+COMPRESSED_PAYLOAD_MAGIC = b"\x00celery-compressed\x00"
+
 logger = get_logger(__name__)
 
 E_NO_BACKEND = """
@@ -70,6 +77,42 @@ as this pattern requires synchronization.
 
 Result backends that supports chords: Redis, Database, and more.
 """
+
+E_UNKNOWN_COMPRESSION = """\
+Unknown compression method {0!r} configured in result_compression.
+Available methods are: {1}.
+"""
+
+W_COMPRESSION_UNSUPPORTED = """\
+The {0} result backend cannot store compressed payloads, so the
+result_compression setting is ignored and results are stored uncompressed.
+"""
+
+
+def compress_payload(payload, compression):
+    """Compress an encoded result payload so that it describes its own method.
+
+    `compression` names a method in the kombu compression registry.
+    """
+    body, content_type = compress(payload, compression)
+    return b"".join([COMPRESSED_PAYLOAD_MAGIC, content_type.encode("utf-8"), b"\x00", body])
+
+
+def decompress_payload(payload):
+    """Undo :func:`compress_payload`, leaving an unmarked payload untouched.
+
+    Keying off the payload rather than off a setting keeps results written
+    before compression was turned on readable, and lets a reader with no
+    compression configured read one written by a worker that had it.
+    """
+    if isinstance(payload, memoryview):
+        payload = payload.tobytes()
+    if not isinstance(payload, (bytes, bytearray)):
+        return payload
+    if not payload.startswith(COMPRESSED_PAYLOAD_MAGIC):
+        return payload
+    content_type, _, body = payload[len(COMPRESSED_PAYLOAD_MAGIC) :].partition(b"\x00")
+    return decompress(body, content_type.decode("utf-8"))
 
 
 def unpickle_backend(cls, args, kwargs):
@@ -129,6 +172,10 @@ class Backend:
     #: Set to true if the backend is persistent by default.
     persistent = True
 
+    #: If true the backend hands arbitrary bytes back unchanged, so it can hold
+    #: a compressed payload. :setting:`result_compression` is ignored when not.
+    supports_result_compression = False
+
     retry_policy = {
         "max_retries": 20,
         "interval_start": 0,
@@ -151,6 +198,7 @@ class Backend:
         conf = self.app.conf
         self.serializer = serializer or conf.result_serializer
         (self.content_type, self.content_encoding, self.encoder) = serializer_registry._encoders[self.serializer]
+        self.compression = self.prepare_compression(conf.get("result_compression"))
         cmax = max_cached_results or conf.result_cache_max
         self._cache = _nulldict() if cmax == -1 else LRUCache(limit=cmax)
 
@@ -575,6 +623,8 @@ class Backend:
 
     def encode(self, data):
         _, _, payload = self._encode(data)
+        if self.compression:
+            payload = compress_payload(payload, self.compression)
         return payload
 
     def _encode(self, data):
@@ -592,9 +642,30 @@ class Backend:
         if payload is None:
             return payload
         payload = payload or str(payload)
+        payload = decompress_payload(payload)
         return loads(
             payload, content_type=self.content_type, content_encoding=self.content_encoding, accept=self.accept
         )
+
+    def prepare_compression(self, compression):
+        """Return the method to compress stored results with, or `None`.
+
+        `None` means results are stored uncompressed, either because nothing
+        was configured or because this backend cannot hold a compressed
+        payload.
+        """
+        if not compression:
+            return None
+        if not self.supports_result_compression:
+            warnings.warn(W_COMPRESSION_UNSUPPORTED.format(type(self).__name__), UserWarning, stacklevel=2)
+            return None
+        try:
+            get_compression_encoder(compression)
+        except KeyError as exc:
+            raise ImproperlyConfigured(
+                E_UNKNOWN_COMPRESSION.format(compression, ", ".join(sorted(compression_encoders())))
+            ) from exc
+        return compression
 
     def prepare_expires(self, value, type=None):
         if value is None:
