@@ -291,7 +291,20 @@ class AppPickler:
         return self.build_standard_kwargs(*args)
 
     def build_standard_kwargs(
-        self, main, changes, loader, backend, amqp, events, log, control, accept_magic_kwargs, config_source=None
+        self,
+        main,
+        changes,
+        loader,
+        backend,
+        amqp,
+        events,
+        log,
+        control,
+        accept_magic_kwargs,
+        config_source=None,
+        # Trailing and optional so a payload written before it existed still
+        # loads, and simply leaves the flag off.
+        config_source_silent=False,
     ):
         return {
             "main": main,
@@ -303,6 +316,7 @@ class AppPickler:
             "log": log,
             "control": control,
             "set_as_current": False,
+            "config_source_silent": config_source_silent,
             "config_source": config_source,
         }
 

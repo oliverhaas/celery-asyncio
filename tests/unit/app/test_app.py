@@ -53,6 +53,16 @@ class ObjectConfig2:
     UNDERSTAND_ME = True
 
 
+class CustomReduceApp(Celery):
+    """Defines ``__reduce_args__``, which sends ``__reduce__`` down the deprecated v1 path.
+
+    Module level, because a class defined inside a test cannot be pickled.
+    """
+
+    def __reduce_args__(self):
+        return super().__reduce_args__()
+
+
 class test_module:
     def test_default_app(self):
         assert _app.default_app == _state.default_app
@@ -918,6 +928,28 @@ class test_App:
         assert self.app.loader._conf
 
         self.assert_config2()
+
+    def test_config_from_object__silent_survives_the_lazy_load(self):
+        self.app.config_from_object("nonexistent.module", silent=True)
+
+        assert self.app.conf.get("SOME_CONFIG") is None
+
+    def test_config_from_object__silent_survives_pickling(self):
+        self.app.config_from_object("nonexistent.module", silent=True)
+        assert not self.app.configured
+
+        unpickled = loads(dumps(self.app))
+
+        assert unpickled.conf.get("SOME_CONFIG") is None
+
+    def test_config_from_object__silent_survives_the_v1_reduction(self):
+        app = CustomReduceApp("silent-v1", set_as_current=False)
+        assert app._using_v1_reduce
+        app.config_from_object("nonexistent.module", silent=True)
+
+        unpickled = loads(dumps(app))
+
+        assert unpickled.conf.get("SOME_CONFIG") is None
 
     def test_config_from_object__compat(self):
 

@@ -94,6 +94,10 @@ commit it came from.
   because the `hasattr` check saw the `task_cls` that `Celery` itself defines.
   The Django fixup therefore skipped installing `DjangoTask` on any subclassed
   app, and `delay_on_commit` was missing from its tasks (upstream 8ea291fb4)
+- `config_from_object(silent=True)` was dropped on the floor, because the import
+  it asks to silence happens later, in `_load_config`. The flag is now kept and
+  carried through the reductions, so an app pickled before its configuration was
+  read does not lose it (upstream 2c4d47da0)
 
 ### Changed
 
