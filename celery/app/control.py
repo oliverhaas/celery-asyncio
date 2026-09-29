@@ -317,7 +317,8 @@ class Inspect:
 
         Arguments:
             taskinfoitems (Sequence[str]): List of :class:`~celery.app.task.Task`
-                                           attributes to include.
+                                           attributes to include. Names that
+                                           start with an underscore are ignored.
 
         Returns:
             Dict: Dictionary ``{HOSTNAME: [TASK1_INFO, ...]}``.

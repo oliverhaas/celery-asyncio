@@ -60,6 +60,10 @@ commit it came from.
   neither the variable nor what it expects, at import time before the
   worker could log anything. They now raise `ImproperlyConfigured` naming both
   (upstream 4623c4c84)
+- The `registered` control command read any task attribute the caller named,
+  so anyone who could publish to the broker could dump a task's `__dict__` or
+  run a private property getter. Names that start with an underscore are now
+  ignored (upstream 86ee09300)
 
 #### Beat and schedules
 

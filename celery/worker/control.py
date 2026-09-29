@@ -510,11 +510,13 @@ def registered(state, taskinfoitems=None, builtins=False, **kwargs):
 
     Arguments:
         taskinfoitems (Sequence[str]): List of task attributes to include.
-            Defaults to ``exchange,routing_key,rate_limit``.
+            Defaults to ``exchange,routing_key,rate_limit``. Names that
+            start with an underscore are ignored.
         builtins (bool): Also include built-in tasks.
     """
     reg = state.app.tasks
     taskinfoitems = taskinfoitems or DEFAULT_TASK_INFO_ITEMS
+    taskinfoitems = [item for item in taskinfoitems if isinstance(item, str) and not item.startswith("_")]
 
     tasks = reg if builtins else (task for task in reg if not task.startswith("celery."))
 

@@ -324,6 +324,24 @@ class test_ControlPanel:
         finally:
             control.DEFAULT_TASK_INFO_ITEMS = prev
 
+    def test_dump_tasks_reads_no_private_or_dunder_attribute(self):
+        read = []
+
+        class LeakyTask(self.app.Task):
+            @property
+            def _secret(self):
+                read.append(True)
+                return "s3cret"
+
+        @self.app.task(base=LeakyTask, name="c.unittest.leaky", rate_limit=10, shared=False)
+        def leaky():
+            pass
+
+        info = self.panel.handle("dump_tasks", arguments={"taskinfoitems": ["__dict__", "_secret", "rate_limit"]})
+
+        assert "c.unittest.leaky [rate_limit=10]" in info
+        assert not read
+
     def test_stats(self):
         prev_count, worker_state.total_count = worker_state.total_count, 100
         try:
