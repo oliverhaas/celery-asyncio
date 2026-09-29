@@ -344,7 +344,11 @@ def filter_hidden_settings(conf):
         if isinstance(key, str):
             if HIDDEN_SETTINGS.search(key):
                 return mask
-            elif "broker_url" in key.lower() or "backend" in key.lower():
+            # Suffix, not substring: "broker_url" is not inside "broker_read_url",
+            # so a split broker printed its passwords (upstream 835d5bce8).
+            elif (
+                key.lower().endswith(("broker_url", "broker_read_url", "broker_write_url")) or "backend" in key.lower()
+            ):
                 # Not through Connection.as_uri(), which raises on a URL no
                 # transport serves and calls this function anyway.
                 return maybe_sanitize_url(value, mask=mask)

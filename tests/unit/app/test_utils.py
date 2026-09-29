@@ -45,6 +45,17 @@ class test_filter_hidden_settings:
 
         assert censored["broker_url"] == "amqp://user:********@host:5672//"
 
+    def test_masks_the_password_in_a_split_broker_url(self):
+        censored = filter_hidden_settings(
+            {
+                "broker_read_url": "amqp://user:s3cret@read-host:5672//",
+                "broker_write_url": "amqp://user:s3cret@write-host:5672//",
+            }
+        )
+
+        assert censored["broker_read_url"] == "amqp://user:********@read-host:5672//"
+        assert censored["broker_write_url"] == "amqp://user:********@write-host:5672//"
+
     def test_masks_a_url_of_a_transport_it_does_not_know(self):
         # Censoring through kombu.Connection made `celery report` raise on
         # the very configuration someone would be reporting.

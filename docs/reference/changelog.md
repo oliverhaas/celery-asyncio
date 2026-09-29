@@ -98,6 +98,9 @@ commit it came from.
   it asks to silence happens later, in `_load_config`. The flag is now kept and
   carried through the reductions, so an app pickled before its configuration was
   read does not lose it (upstream 2c4d47da0)
+- `filter_hidden_settings` matched `broker_url` as a substring, and `broker_url`
+  does not occur in `broker_read_url`, so a split broker setup printed both
+  passwords in full in a bug report (upstream 835d5bce8)
 
 ### Changed
 
