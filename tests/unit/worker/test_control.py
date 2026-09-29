@@ -896,3 +896,37 @@ class test_ControlPanel:
             assert ret[req1.id][0] == "reserved"
         finally:
             worker_state.reserved_requests.clear()
+
+    @pytest.mark.parametrize(
+        ("rate_limited", "starts", "after_connection_loss"),
+        [(False, False, []), (True, False, []), (False, True, ["active"])],
+        ids=["waiting", "waiting_with_rate_limit", "started"],
+    )
+    def test_query_task_finds_a_task_with_an_eta(self, rate_limited, starts, after_connection_loss):
+        c = consumer.Consumer(
+            on_task_request=Mock(),
+            app=self.app,
+            pool=Mock(),
+            timer=Timer(),
+            controller=Mock(state=worker_state),
+            disable_rate_limits=not rate_limited,
+        )
+        c.qos = Mock()
+        panel = self.create_panel(consumer=c)
+        message = self.task_message_from_sig(self.app, self.mytask.s().set(countdown=60))
+        task_id = message.headers["id"]
+        receive = self.mytask.start_strategy(self.app, c)
+
+        def states():
+            return [state for state, _ in panel.handle("query_task", {"ids": [task_id]}).values()]
+
+        try:
+            receive(message, None, message.ack, message.reject, [])
+            assert states() == ["scheduled"]
+            if starts:
+                c.timer.apply_entry(c.timer.queue[0])
+                worker_state.task_accepted(c.on_task_request.call_args[0][0])
+            c.on_close()
+            assert states() == after_connection_loss
+        finally:
+            worker_state.reset_state()

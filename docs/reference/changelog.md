@@ -73,6 +73,9 @@ commit it came from.
   `WorkerLostError`, a `Reject` without requeue, or a hard time limit. The
   failed task's request is now current while the signal is sent (upstream
   beef13ac9)
+- `inspect().query_task()` found nothing for a task that was waiting for its
+  ETA or countdown, although `inspect().scheduled()` listed it. It now reports
+  such a task as `scheduled` (upstream 4d386839b)
 
 #### Beat and schedules
 

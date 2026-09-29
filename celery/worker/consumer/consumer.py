@@ -42,6 +42,7 @@ from celery.worker.state import (
     maybe_shutdown,
     requests,
     reserved_requests,
+    scheduled_requests,
     successful_requests,
     task_reserved,
 )
@@ -483,6 +484,11 @@ class Consumer:
                     requests.pop(request.id, None)
             reserved_requests.clear()
             reserved_requests.update(tuple(active_requests))
+            # Their timer entries went with the timer above, so none of them
+            # runs here and the broker delivers them again.
+            for request in tuple(scheduled_requests):
+                requests.pop(request.id, None)
+            scheduled_requests.clear()
         if self.pool and self.pool.flush:
             self.pool.flush()
 

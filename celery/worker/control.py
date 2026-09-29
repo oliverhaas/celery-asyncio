@@ -153,6 +153,8 @@ def _state_of_task(request):
             return "active"
         elif request in worker_state.reserved_requests:
             return "reserved"
+        elif request in worker_state.scheduled_requests:
+            return "scheduled"
     return "ready"
 
 

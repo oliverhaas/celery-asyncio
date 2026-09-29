@@ -35,9 +35,11 @@ __all__ = (
     "SOFTWARE_INFO",
     "reserved_requests",
     "active_requests",
+    "scheduled_requests",
     "total_count",
     "revoked",
     "task_reserved",
+    "task_scheduled",
     "maybe_shutdown",
     "task_accepted",
     "task_ready",
@@ -92,6 +94,10 @@ reserved_requests: weakref.WeakSet[Request] = weakref.WeakSet()
 #: set of currently active :class:`~celery.worker.request.Request`'s.
 active_requests: weakref.WeakSet[Request] = weakref.WeakSet()
 
+#: set of :class:`~celery.worker.request.Request`'s waiting for their
+#: ETA/countdown. A rate-limited one stays here until it gets a token.
+scheduled_requests: weakref.WeakSet[Request] = weakref.WeakSet()
+
 #: A limited set of successful :class:`~celery.worker.request.Request`'s.
 successful_requests = LimitedSet(maxlen=SUCCESSFUL_MAX, expires=SUCCESSFUL_EXPIRES)
 
@@ -120,6 +126,7 @@ def reset_state():
         requests.clear()
         reserved_requests.clear()
         active_requests.clear()
+        scheduled_requests.clear()
         successful_requests.clear()
         total_count.clear()
         is_draining = False
@@ -141,6 +148,14 @@ def task_reserved(request):
     with _lock:
         requests[request.id] = request
         reserved_requests.add(request)
+        scheduled_requests.discard(request)
+
+
+def task_scheduled(request):
+    """Update global state when a task is set aside for its ETA/countdown."""
+    with _lock:
+        requests[request.id] = request
+        scheduled_requests.add(request)
 
 
 def task_accepted(request):
