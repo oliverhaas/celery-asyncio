@@ -54,6 +54,12 @@ commit it came from.
 - `add_task_queue` looked a known queue up instead of selecting it again, so a
   queue that a `cancel_consumer` had deselected stayed deselected and was
   dropped from `consume_from` on the next reconnect (upstream 7f9a6e5d0)
+- The four `CELERY_WORKER_REVOKES_MAX`, `CELERY_WORKER_SUCCESSFUL_MAX`,
+  `CELERY_WORKER_REVOKE_EXPIRES` and `CELERY_WORKER_SUCCESSFUL_EXPIRES`
+  variables raised a bare `ValueError` on a value that is not a number, naming
+  neither the variable nor what it expects, at import time before the
+  worker could log anything. They now raise `ImproperlyConfigured` naming both
+  (upstream 4623c4c84)
 
 ### Changed
 

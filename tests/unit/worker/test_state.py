@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from celery import uuid
-from celery.exceptions import WorkerShutdown, WorkerTerminate
+from celery.exceptions import ImproperlyConfigured, WorkerShutdown, WorkerTerminate
 from celery.platforms import EX_OK
 from celery.utils.collections import LimitedSet
 from celery.worker import state
@@ -232,6 +232,23 @@ class test_state_configuration:
         assert state.SUCCESSFUL_MAX == 1000
         assert state.REVOKE_EXPIRES == 10800
         assert state.SUCCESSFUL_EXPIRES == 10800
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("CELERY_WORKER_REVOKES_MAX", "int"),
+            ("CELERY_WORKER_SUCCESSFUL_MAX", "int"),
+            ("CELERY_WORKER_REVOKE_EXPIRES", "float"),
+            ("CELERY_WORKER_SUCCESSFUL_EXPIRES", "float"),
+        ],
+    )
+    def test_a_value_that_is_not_a_number_names_its_variable(self, name, expected):
+        with patch.dict(os.environ, {name: "abc"}):
+            with pytest.raises(ImproperlyConfigured) as exc_info:
+                self.import_state()
+
+        assert name in str(exc_info.value)
+        assert f"expected {expected}" in str(exc_info.value)
 
     def test_import_state_leaves_the_package_attribute_alone(self):
         import celery.worker

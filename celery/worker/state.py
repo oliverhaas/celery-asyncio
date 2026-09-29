@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from celery.worker.request import Request
 
 from celery import __version__
-from celery.exceptions import WorkerShutdown, WorkerTerminate
+from celery.exceptions import ImproperlyConfigured, WorkerShutdown, WorkerTerminate
 from celery.utils.collections import LimitedSet
 
 __all__ = (
@@ -56,19 +56,32 @@ SOFTWARE_INFO = {
     "sw_sys": platform.system(),
 }
 
+
+def _env(name: str, default: float, cast: type) -> int | float:
+    # This runs at import, before logging: a bare ValueError names nothing
+    # (upstream 4623c4c84).
+    value = os.environ.get(name)
+    if value is None:
+        return cast(default)
+    try:
+        return cast(value)
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"Invalid value for {name}: expected {cast.__name__}, got {value!r}") from exc
+
+
 #: maximum number of revokes to keep in memory.
-REVOKES_MAX = int(os.environ.get("CELERY_WORKER_REVOKES_MAX", 50000))
+REVOKES_MAX = _env("CELERY_WORKER_REVOKES_MAX", 50000, int)
 
 #: maximum number of successful tasks to keep in memory.
-SUCCESSFUL_MAX = int(os.environ.get("CELERY_WORKER_SUCCESSFUL_MAX", 1000))
+SUCCESSFUL_MAX = _env("CELERY_WORKER_SUCCESSFUL_MAX", 1000, int)
 
 #: how many seconds a revoke will be active before
 #: being expired when the max limit has been exceeded.
-REVOKE_EXPIRES = float(os.environ.get("CELERY_WORKER_REVOKE_EXPIRES", 10800))
+REVOKE_EXPIRES = _env("CELERY_WORKER_REVOKE_EXPIRES", 10800, float)
 
 #: how many seconds a successful task will be cached in memory
 #: before being expired when the max limit has been exceeded.
-SUCCESSFUL_EXPIRES = float(os.environ.get("CELERY_WORKER_SUCCESSFUL_EXPIRES", 10800))
+SUCCESSFUL_EXPIRES = _env("CELERY_WORKER_SUCCESSFUL_EXPIRES", 10800, float)
 
 #: Mapping of reserved task_id->Request.
 requests: dict[str, Request] = {}
