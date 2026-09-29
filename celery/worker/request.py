@@ -462,6 +462,10 @@ class Request:
     def terminate(self, pool, signal=None):
         signal = _signals.signum(signal or TERM_SIGNAME)
         if self.time_start:
+            # The pool reports the stopped job from its own thread, possibly
+            # before this returns, and on_failure reads the flag to tell
+            # whether the revoke still has to be announced.
+            self._already_revoked = True
             try:
                 pool.terminate_job(self.id, signal)
             except NotImplementedError:
@@ -477,6 +481,9 @@ class Request:
     def cancel(self, pool, signal=None, emit_retry=True):
         signal = _signals.signum(signal or TERM_SIGNAME)
         if self.time_start:
+            # Set before the job stops, as in terminate(): on_failure would
+            # otherwise announce the cancelled job as revoked.
+            self._already_cancelled = True
             try:
                 pool.terminate_job(self.id, signal)
             except NotImplementedError:
@@ -501,10 +508,6 @@ class Request:
             self.task.backend.mark_as_retry(self.id, exc, request=self._context)
 
             self.task.on_retry(exc, self.id, self.args, self.kwargs, None)
-
-        self._already_cancelled = True
-
-        if emit_retry:
             send_retry(self.task, request=self._context, einfo=None)
 
     def _announce_revoked(self, reason, terminated, signum, expired):

@@ -15,6 +15,13 @@
   count and never raised it again, although it logged that it would. Every task
   acked or rejected after the reconnect now gives one multiplier back until the
   count is whole again
+- A task the worker cancelled, on a lost broker connection or at a cold
+  shutdown, could be stored as `REVOKED`, so `AsyncResult.get()` raised
+  `TaskRevokedError` for a task the broker was about to redeliver, and at a cold
+  shutdown a late-acknowledged task was acknowledged and never redelivered.
+  Terminating a task could announce its revoke twice. The asyncio pool reports
+  a stopped task from its own thread, and could do so before the request had
+  noted that it stopped the task itself
 
 ### Changed
 

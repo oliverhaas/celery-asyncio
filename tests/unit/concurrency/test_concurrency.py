@@ -600,11 +600,11 @@ class test_async_task_failures(AioPoolCase):
 
 
 class test_async_task_termination(AioPoolCase):
-    def _long_task(self, name):
+    def _long_task(self, name, **options):
         """Register an async task that reports how it ended."""
         marks = {"started": threading.Event(), "cancelled": threading.Event(), "completed": threading.Event()}
 
-        @self.app.task(name=name, shared=False)
+        @self.app.task(name=name, shared=False, **options)
         async def long_one():
             marks["started"].set()
             try:
@@ -661,6 +661,48 @@ class test_async_task_termination(AioPoolCase):
         assert wait_until(lambda: not pool._async_jobs)
         assert not marks["completed"].is_set()
         assert self.meta(req.id)["status"] == states.RETRY
+
+    def test_cancelling_is_a_retry_not_a_revoke_when_the_pool_reports_first(self):
+        # The pool reports the cancelled coroutine from its loop thread, here
+        # while cancel() is still in the task's on_retry handler.
+        reported = threading.Event()
+        marks = self._long_task("aio.cancel_me_slowly", on_retry=lambda *args: reported.wait(10))
+        pool = self.start_pool()
+        message = self.TaskMessage("aio.cancel_me_slowly", args=(), kwargs={})
+        req = Request(message, app=self.app, on_ack=Mock(), on_reject=Mock())
+        req.on_failure = report_when_done(req.on_failure, reported)
+        req.execute_using_pool(pool)
+        assert marks["started"].wait(10)
+
+        with collect_signal(signals.task_revoked) as revoked:
+            req.cancel(pool)
+
+        assert revoked == []
+        assert self.meta(req.id)["status"] == states.RETRY
+
+    def test_terminating_announces_the_revoke_once_when_the_pool_reports_first(self):
+        # As above, with terminate() still publishing its task-revoked event.
+        reported = threading.Event()
+        revokes = []
+
+        def send(type, **fields):
+            if type == "task-revoked":
+                revokes.append(fields)
+                if len(revokes) == 1:
+                    reported.wait(10)
+
+        marks = self._long_task("aio.terminate_me_slowly")
+        pool = self.start_pool()
+        message = self.TaskMessage("aio.terminate_me_slowly", args=(), kwargs={})
+        eventer = Mock(enabled=True, send=Mock(side_effect=send))
+        req = Request(message, app=self.app, on_ack=Mock(), on_reject=Mock(), eventer=eventer)
+        req.on_failure = report_when_done(req.on_failure, reported)
+        req.execute_using_pool(pool)
+        assert marks["started"].wait(10)
+
+        req.terminate(pool)
+
+        assert len(revokes) == 1
 
 
 class test_async_task_time_limits(AioPoolCase):
