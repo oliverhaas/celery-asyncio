@@ -956,6 +956,15 @@ class test_App:
 
         assert unpickled.conf.get("SOME_CONFIG") is None
 
+    def test_config_from_object__takes_defaults_after_a_failed_silent_reload(self):
+        self.app.config_from_object({"worker_prefetch_multiplier": 10})
+        assert self.app.conf.worker_prefetch_multiplier == 10
+
+        self.app.config_from_object("nonexistent.module", silent=True)
+        self.app.add_defaults({"worker_prefetch_multiplier": 20})
+
+        assert self.app.conf.worker_prefetch_multiplier == 20
+
     def test_config_from_object__compat(self):
 
         class Config:

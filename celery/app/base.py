@@ -817,8 +817,10 @@ class Celery:
         self._config_source_silent = silent
         self.namespace = namespace or self.namespace
         if force or self.configured:
-            self._conf = None
             if self.loader.config_from_object(obj, silent=silent):
+                # Not before the load: a silent failure leaves `configured` set,
+                # and `add_defaults` and the rest read `_conf` (upstream 1a3ea2eb8).
+                self._conf = None
                 return self.conf
 
     def config_from_envvar(self, variable_name, silent=False, force=False):

@@ -208,6 +208,11 @@ commit it came from.
   subclass, raised `TypeError` the first time `app.backend` was read, because it
   was searched for `://` like a URL. The class is now used as given (upstream
   c1fd34ebc)
+- A failed `config_from_object(..., silent=True)` on an app that had already
+  read its configuration left the app without a settings object, so
+  `add_defaults`, `add_periodic_task`, `config_from_cmdline` and pickling the
+  app raised `AttributeError`. The settings are now only replaced once the new
+  source has loaded (upstream 1a3ea2eb8)
 
 #### Results
 
