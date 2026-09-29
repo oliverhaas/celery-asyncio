@@ -923,6 +923,17 @@ class test_chain(CanvasCase):
 
         assert await (await chain(*tasks, app=self.app).aapply()).aget() == 6
 
+    @pytest.mark.parametrize(
+        "leading", [[group], [group, group], [chain]], ids=["empty_group", "empty_groups", "empty_chain"]
+    )
+    def test_apply_async_hands_the_arguments_past_empty_leading_steps(self, leading):
+        c = chain(*(step(app=self.app) for step in leading), self.add.s(10), app=self.app)
+
+        with patch.object(self.app, "send_task") as send_task:
+            c.apply_async(args=(1,))
+
+        assert send_task.call_args.args[1] == (1, 10)
+
     def test_single_expresion(self):
         x = chain(self.add.s(1, 2)).apply()
         assert x.get() == 3
@@ -1443,16 +1454,21 @@ class test_group(CanvasCase):
         # the encapsulated chains - in this case 1 for each child chord
         mock_set_chord_size.assert_has_calls((call(ANY, 1),) * child_count)
 
-    @pytest.mark.xfail(reason="Invalid canvas setup with bad exception")
     def test_apply_contains_chords_containing_empty_chain(self):
         gchild_sig = chain(())
         child_count = 24
         child_chord = chord((gchild_sig,), self.add.si(0, 0))
         group_sig = group((child_chord,) * child_count)
-        # This is an invalid setup because we can't complete a chord header if
-        # there are no actual tasks which will run in it. However, the current
-        # behaviour of an `IndexError` isn't particularly helpful to a user.
-        group_sig.apply_async()
+        with patch("celery.canvas.Signature.apply_async") as mock_apply_async:
+            group_sig.apply_async()
+        assert mock_apply_async.call_count == child_count
+
+    @pytest.mark.parametrize("members", [list, iter])
+    def test_an_empty_chain_in_a_group_is_left_out(self, members):
+        tasks = [chain(app=self.app), self.add.s(1, 2)]
+
+        assert group(members(tasks), app=self.app).apply().get() == [3]
+        assert len(group(members(tasks), app=self.app).freeze().results) == 1
 
     def test_apply_contains_chords_containing_chain_with_empty_tail(self):
         ggchild_count = 42

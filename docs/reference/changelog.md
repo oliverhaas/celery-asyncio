@@ -176,6 +176,11 @@ commit it came from.
   with an empty header, which failed with a `TypeError`. `chain()` now drops
   empty groups, and `apply()` and `aapply()` skip one unless the chain has
   nothing else to run (upstream 4debc0511)
+- A chain sent to a worker that started with an empty group or an empty nested
+  chain handed the call's arguments to that step, so its first task never got
+  them, and an empty chain in a group or a chord header raised `IndexError`.
+  The arguments now reach the first task, and a group leaves an empty chain out
+  (upstream ff6e7b972)
 
 #### App and configuration
 

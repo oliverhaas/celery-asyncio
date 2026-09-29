@@ -72,6 +72,11 @@ def _is_empty_group(task):
     return isinstance(task, group) and isinstance(task.tasks, (list, tuple)) and not task.tasks
 
 
+def _is_empty_chain(task):
+    """Return True if ``task`` is a chain without tasks."""
+    return isinstance(task, _chain) and not task.tasks
+
+
 def task_name_from(task):
     return getattr(task, "name", task)
 
@@ -1395,6 +1400,25 @@ class _chain(Signature):
             use_link = True
         steps = deque(tasks)
 
+        # The walk below hands the partial args to the step it pops last, so
+        # that step has to be a task and not an empty group or a nested chain.
+        while steps:
+            head = steps[0]
+            if not isinstance(head, abstract.CallableSignature):
+                head = steps[0] = from_dict(head, app=app)
+            if isinstance(head, _chain):
+                steps.popleft()
+                if clone:
+                    head = head.clone()
+                steps.extendleft(reversed(head.tasks))
+                continue
+            if isinstance(head, group):
+                head = steps[0] = maybe_unroll_group(head)
+                if len(steps) > 1 and _is_empty_group(head):
+                    steps.popleft()
+                    continue
+            break
+
         # optimization: now the pop func is a local variable
         steps_pop = steps.pop
         steps_extend = steps.extend
@@ -2159,6 +2183,8 @@ class group(Signature):
                     app,
                 )
                 yield from unroll
+            elif _is_empty_chain(task):
+                continue
             else:
                 if partial_args and not task.immutable:
                     task.args = tuple(partial_args) + tuple(task.args)
@@ -2343,6 +2369,7 @@ class group(Signature):
         yield from (
             task.freeze(group_id=group_id, chord=chord, root_id=root_id, parent_id=parent_id, group_index=group_index)
             for group_index, task in enumerate(tasks)
+            if not _is_empty_chain(task)
         )
 
     def _unroll_tasks(self, tasks):
@@ -2377,6 +2404,8 @@ class group(Signature):
             if isinstance(task, group):
                 # extendleft() reverses, so reverse first to keep declaration order.
                 stack.extendleft(reversed(task.tasks))
+            elif _is_empty_chain(task):
+                continue
             else:
                 new_tasks.append(task)
                 yield task.freeze(
