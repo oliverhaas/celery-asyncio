@@ -1695,6 +1695,14 @@ class test_apply_async(TasksCase):
             expected_kwargs["ignore_result"] = True
             send_task.assert_called_once_with(*expected_args, **expected_kwargs)
 
+    def test_apply_async_without_options_leaves_send_task_storing_the_result(self):
+        task = self.task_with_ignored_result
+
+        task.apply_async()
+        result = self.app.send_task(task.name)
+
+        assert result.ignored is False
+
 
 @contextmanager
 def collect_published():

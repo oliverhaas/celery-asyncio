@@ -769,8 +769,7 @@ class Task:
         else:
             shadow = shadow or self.shadow_name(args, kwargs, options)
 
-        preopts = self._get_exec_options()
-        options = dict(preopts, **options) if options else preopts
+        options = dict(self._get_exec_options(), **options)
 
         options.setdefault("ignore_result", self.ignore_result)
         if self.priority:

@@ -223,6 +223,14 @@ commit it came from.
   app raised `AttributeError`. The settings are now only replaced once the new
   source has loaded (upstream 1a3ea2eb8)
 
+#### Tasks
+
+- `apply_async` and `aapply_async` called with no options wrote the task's
+  `ignore_result` into its cached execution options, which `app.send_task` also
+  reads. After one such call on an `ignore_result=True` task, every later
+  `send_task` for that task dropped its result and `get()` returned `None`. The
+  options are now copied before they are filled in (upstream 72a968def)
+
 #### Results
 
 - `ResultSet.join()` and `ajoin()` raised `TimeoutError` without polling
