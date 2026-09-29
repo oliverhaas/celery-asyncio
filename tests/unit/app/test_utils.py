@@ -1,4 +1,6 @@
 from collections.abc import Mapping, MutableMapping
+from copy import copy
+from operator import methodcaller
 
 import pytest
 
@@ -42,6 +44,24 @@ class test_Settings:
         self.app.config_from_object(config, force=True)
 
         assert name in self.app.conf
+
+    @pytest.mark.parametrize("copy_settings", [copy, methodcaller("copy")], ids=["copy", "method"])
+    @pytest.mark.parametrize("configured", [False, True], ids=["pending", "configured"])
+    @pytest.mark.parametrize(
+        "namespace,config",
+        [("CELERY", {"CELERY_TASK_ALWAYS_EAGER": True}), (None, {"CELERY_ALWAYS_EAGER": True})],
+        ids=["namespaced", "old-name"],
+    )
+    def test_copy_reads_the_same_settings_and_takes_its_own_changes(self, copy_settings, configured, namespace, config):
+        with self.Celery(set_as_current=False) as app:
+            app.config_from_object(config, namespace=namespace, force=configured)
+
+            copied = copy_settings(app.conf)
+
+            assert dict(copied) == dict(app.conf)
+            copied.task_always_eager = False
+            assert copied.task_always_eager is False
+            assert app.conf.task_always_eager is True
 
 
 class test_filter_hidden_settings:

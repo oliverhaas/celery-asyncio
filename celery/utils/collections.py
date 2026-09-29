@@ -306,6 +306,15 @@ class ConfigurationView(ChainMap, AttributeDictMixin):
             _keys=keys,
         )
 
+    def copy(self):
+        copied = self.__class__({}, self.defaults, self._keys, self.prefix)
+        # Set after `__init__`, which may store attributes in `changes`.
+        changes = self.changes.copy()
+        copied.__dict__.update(changes=changes, maps=[changes, *copied.defaults], key_t=self.key_t)
+        return copied
+
+    __copy__ = copy
+
     def _to_keys(self, key):
         prefix = self.prefix
         if prefix:

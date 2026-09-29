@@ -184,6 +184,11 @@ commit it came from.
   not its translation between old and new setting names, so a view built
   without one raised `KeyError` for `CELERY_ALWAYS_EAGER` after the swap. The
   translation is now swapped in as well (upstream 0e737e633)
+- `copy(app.conf)` and `app.conf.copy()` raised, because the inherited
+  `ChainMap.copy` passed the defaults maps where `ConfigurationView` takes its
+  name translation and prefix. A copy now loads a pending configuration first,
+  reads the same settings under every name and keeps its changes to itself
+  (upstream 2c91273bc)
 
 #### Results
 

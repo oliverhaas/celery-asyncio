@@ -94,6 +94,12 @@ class Settings(ConfigurationView):
 
         self.deprecated_settings = deprecated_settings
 
+    def copy(self):
+        self.finalize()
+        return super().copy()
+
+    __copy__ = copy
+
     @property
     def broker_read_url(self):
         return os.environ.get("CELERY_BROKER_READ_URL") or self.get("broker_read_url") or self.broker_url
