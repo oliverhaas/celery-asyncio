@@ -11,6 +11,7 @@
 
 import re
 from collections import namedtuple
+from typing import TYPE_CHECKING
 
 # Lazy loading
 from . import local
@@ -65,12 +66,7 @@ VERSION = version_info = version_info_t(int(_temp[0]), int(_temp[1]), int(_temp[
 del _temp
 del re
 
-# This is never executed, but tricks static analyzers (PyDev, PyCharm,
-# pylint, etc.) into knowing the types of these symbols, and what
-# they contain.
-STATICA_HACK = True
-globals()["kcah_acitats"[::-1].upper()] = False
-if STATICA_HACK:  # pragma: no cover
+if TYPE_CHECKING:
     from celery._state import current_app, current_task
     from celery.app import shared_task
     from celery.app.base import Celery

@@ -156,6 +156,8 @@ commit it came from.
 - `--prefetch-multiplier 1` with `task_acks_late` and `-c` at the pool's size
   now does on Valkey and Redis what the removed `--disable-prefetch` did: the
   worker only takes a message when a slot is free
+- The static-analysis hack in `celery/__init__.py` is a `TYPE_CHECKING` guard
+  (upstream ceb5f9655)
 
 ## v6.0.0a6
 
