@@ -16,7 +16,7 @@ from kombu.utils.objects import cached_property
 
 from celery import current_app, signals, states
 from celery.app.task import Context
-from celery.app.trace import fast_trace_task, task_has_custom, trace_task, trace_task_ret, traceback_clear
+from celery.app.trace import fast_trace_task, task_has_custom, trace_task, trace_task_ret
 from celery.concurrency.base import BasePool
 from celery.exceptions import (
     ExceptionInfo,
@@ -639,13 +639,9 @@ class Request:
                         exception=safe_repr(get_pickled_exception(einfo.exception)),
                         traceback=einfo.traceback,
                     )
-                    # Drop the frame locals the synthetic traceback holds on
-                    # to, the same way trace.py does after a real failure.
-                    traceback_clear(exc)
                 finally:
-                    # Break the exc -> traceback -> frame cycle: this frame's
-                    # `exc` local points at exc and exc.__traceback__ points
-                    # back at this frame, which keeps the Request alive.
+                    # Break the exc -> traceback -> frame cycle pinning the Request;
+                    # `traceback_clear` cannot, from here (upstream 2c42237d3).
                     if einfo is not None:
                         del einfo
                     exc.__traceback__ = None

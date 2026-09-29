@@ -160,6 +160,8 @@ commit it came from.
   (upstream ceb5f9655)
 - `EventReceiver` documents its first argument under the name it actually has
   (upstream d6fa93d12)
+- `on_timeout` no longer calls `traceback_clear` on an exception whose frame is
+  still executing, which could not release anything (upstream 2c42237d3)
 
 ## v6.0.0a6
 
