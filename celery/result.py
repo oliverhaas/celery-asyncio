@@ -974,10 +974,9 @@ class ResultSet(ResultBase):
         results = []
         for result in self.results:
             remaining = None
-            if timeout:
-                remaining = timeout - (time.monotonic() - time_start)
-                if remaining <= 0.0:
-                    raise TimeoutError("join operation timed out")
+            if timeout is not None:
+                # A spent budget clamps to 0, which polls once (upstream 79f3ed8d8).
+                remaining = max(timeout - (time.monotonic() - time_start), 0.0)
             value = result.get(
                 timeout=remaining,
                 propagate=propagate,
@@ -1123,10 +1122,9 @@ class ResultSet(ResultBase):
         results = []
         for result in self.results:
             remaining = None
-            if timeout:
-                remaining = timeout - (time.monotonic() - time_start)
-                if remaining <= 0.0:
-                    raise TimeoutError("join operation timed out")
+            if timeout is not None:
+                # A spent budget clamps to 0, which polls once (upstream 79f3ed8d8).
+                remaining = max(timeout - (time.monotonic() - time_start), 0.0)
             value = await result.aget(
                 timeout=remaining,
                 propagate=propagate,

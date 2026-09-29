@@ -2,7 +2,7 @@ import copy
 import datetime
 import traceback
 from contextlib import contextmanager
-from unittest.mock import Mock, call, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
@@ -493,6 +493,30 @@ class test_ResultSet:
         rs1 = self.app.ResultSet([self.app.AsyncResult(1)])
         rs2 = self.app.ResultSet([self.app.AsyncResult(1)])
         assert rs1 == rs2
+
+    def test_join_forwards_a_timeout_of_zero(self):
+        x = self.app.ResultSet([self.app.AsyncResult("1")])
+        x.results[0].get = Mock(return_value="v")
+
+        assert x.join(timeout=0) == ["v"]
+        assert x.results[0].get.call_args.kwargs["timeout"] == 0.0
+
+    def test_join_clamps_a_spent_budget_instead_of_raising(self):
+        x = self.app.ResultSet([self.app.AsyncResult(t) for t in ["1", "2"]])
+        for result in x.results:
+            result.get = Mock(return_value="v")
+
+        with patch("celery.result.time.monotonic", side_effect=[0.0, 5.0, 5.0]):
+            assert x.join(timeout=1) == ["v", "v"]
+
+        assert x.results[1].get.call_args.kwargs["timeout"] == 0.0
+
+    async def test_ajoin_forwards_a_timeout_of_zero(self):
+        x = self.app.ResultSet([self.app.AsyncResult("1")])
+        x.results[0].aget = AsyncMock(return_value="v")
+
+        assert await x.ajoin(timeout=0) == ["v"]
+        assert x.results[0].aget.call_args.kwargs["timeout"] == 0.0
 
     def test_get(self):
         x = self.app.ResultSet([self.app.AsyncResult(t) for t in [1, 2, 3]])

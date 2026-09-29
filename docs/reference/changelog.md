@@ -102,6 +102,17 @@ commit it came from.
   does not occur in `broker_read_url`, so a split broker setup printed both
   passwords in full in a bug report (upstream 835d5bce8)
 
+#### Results
+
+- `ResultSet.join()` and `ajoin()` raised `TimeoutError` without polling
+  anything after the budget was spent, and read `timeout=0` as no timeout at all.
+  A spent or zero budget now means each result is polled once and raises on its
+  own if it is not ready (upstream 79f3ed8d8)
+- `wait_for` counted its budget in whole poll intervals and read `timeout=0` as
+  no timeout, so a wait shorter than one interval was rounded up to a full one
+  and a zero timeout polled forever. It now checks the budget against `None` and
+  trims the last sleep to what is left of it (upstream 79f3ed8d8)
+
 ### Changed
 
 - With `task_acks_late` on Valkey or Redis, a prefetch count below what the pool

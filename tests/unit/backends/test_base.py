@@ -833,6 +833,25 @@ class test_BaseBackend_dict:
         b._get_task_meta_for.return_value = {"status": states.SUCCESS}
         b.wait_for(task_id="1", timeout=None)
 
+    def test_wait_for_raises_at_once_on_a_timeout_of_zero(self):
+        sleep = self.patching("time.sleep")
+        sleep.side_effect = AssertionError("slept despite a spent budget")
+        b = BaseBackend(app=self.app)
+        b._get_task_meta_for = Mock(return_value={"status": states.PENDING})
+
+        with pytest.raises(TimeoutError):
+            b.wait_for(task_id="1", timeout=0)
+
+    def test_wait_for_does_not_sleep_past_the_deadline(self):
+        sleep = self.patching("time.sleep")
+        b = BaseBackend(app=self.app)
+        b._get_task_meta_for = Mock(return_value={"status": states.PENDING})
+
+        with pytest.raises(TimeoutError):
+            b.wait_for(task_id="1", timeout=0.1, interval=10)
+
+        assert sleep.call_args_list == [call(0.1)]
+
     def test_get_children(self):
         b = BaseBackend(app=self.app)
         b._get_task_meta_for = Mock()

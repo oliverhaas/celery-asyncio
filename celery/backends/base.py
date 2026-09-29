@@ -1225,11 +1225,14 @@ class SyncBackendMixin:
                 return meta
             if on_interval:
                 on_interval()
-            # avoid hammering the CPU checking status.
-            time.sleep(interval)
-            time_elapsed += interval
-            if timeout and time_elapsed >= timeout:
+            # Not truthiness: a timeout of 0 polls once, it does not wait forever
+            # (upstream 79f3ed8d8).
+            if timeout is not None and time_elapsed >= timeout:
                 raise TimeoutError("The operation timed out.")
+            # Sleeping a whole interval would round a sub-interval timeout up.
+            nap = interval if timeout is None else min(interval, timeout - time_elapsed)
+            time.sleep(nap)
+            time_elapsed += nap
 
     def add_pending_result(self, result, weak=False):
         return result
