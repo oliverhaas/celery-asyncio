@@ -199,6 +199,11 @@ commit it came from.
   `task_always_eager`, although a short name such as `always_eager` got the
   `Option`. Every name now finds the `Option`, whose `default` holds the value
   (upstream 07ee451b5)
+- Settings passed to the `Celery` constructor were copied into the defaults, so
+  `app.conf.clear()`, `pop()` and `del` could not remove them, and
+  `Celery(task_always_eager=True)` stayed eager after `clear()`. Removing one
+  now brings back the real default, and `clear()` drops `broker=` and
+  `backend=` as well (upstream 3e40f4332)
 
 #### Results
 

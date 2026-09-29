@@ -1,6 +1,6 @@
 from collections.abc import Mapping, MutableMapping
 from copy import copy
-from operator import methodcaller
+from operator import delitem, methodcaller
 
 import pytest
 
@@ -65,6 +65,23 @@ class test_Settings:
             copied.task_always_eager = False
             assert copied.task_always_eager is False
             assert app.conf.task_always_eager is True
+
+    @pytest.mark.parametrize(
+        "remove",
+        [
+            methodcaller("clear"),
+            methodcaller("pop", "task_always_eager"),
+            lambda conf: delitem(conf, "task_always_eager"),
+        ],
+        ids=["clear", "pop", "del"],
+    )
+    def test_removing_a_constructor_setting_brings_back_its_default(self, remove):
+        with self.Celery(task_always_eager=True, set_as_current=False) as app:
+            assert app.conf.task_always_eager is True
+
+            remove(app.conf)
+
+            assert app.conf.task_always_eager is False
 
 
 class test_filter_hidden_settings:
