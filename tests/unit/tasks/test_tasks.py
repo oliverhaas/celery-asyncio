@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import socket
 import tempfile
 import warnings
@@ -15,6 +16,7 @@ from celery.app.task import _DEPRECATED_ROUTING_ATTRS, _reprtask
 from celery.app.trace import build_async_tracer, build_tracer
 from celery.canvas import StampingVisitor, signature
 from celery.contrib.testing.mocks import ContextMock
+from celery.contrib.testing.worker import start_worker
 from celery.exceptions import CDeprecationWarning, Ignore, ImproperlyConfigured, Retry
 from celery.result import AsyncResult, EagerResult
 from celery.signals import after_task_publish
@@ -1156,6 +1158,20 @@ class test_tasks(TasksCase):
         self.mytask.request.chain = c
         with pytest.raises(Ignore):
             self.mytask.replace(c)
+
+    @pytest.mark.usefixtures("restore_logging")
+    @pytest.mark.parametrize("sequence", [list, tuple])
+    def test_replace_with_a_chain_ending_in_a_group_returns_the_group_results(self, sequence):
+        @self.app.task(shared=False)
+        def add(x, y):
+            return x + y
+
+        @self.app.task(bind=True, shared=False)
+        def replaced(self_):
+            return self_.replace(chain(sequence([add.s(1, 2), group(add.s(1), add.s(1))]), app=self.app))
+
+        with start_worker(self.app, perform_ping_check=False, loglevel=logging.getLogger().level):
+            assert replaced.delay().get(timeout=10) == [4, 4]
 
     def test_replace_run(self):
         with pytest.raises(Ignore):

@@ -230,6 +230,11 @@ commit it came from.
   reads. After one such call on an `ignore_result=True` task, every later
   `send_task` for that task dropped its result and `get()` returned `None`. The
   options are now copied before they are filled in (upstream 72a968def)
+- `Task.replace` and `areplace` with a chain that ends in a group left the
+  result `PENDING` forever, because the replaced task's id goes to that group
+  and a group stores no result under its own id. The group is now turned into a
+  chord, as a bare group already was, so `get()` returns the group's results
+  (upstream 01608ff3b, 8aed8200c)
 
 #### Results
 
