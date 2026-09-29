@@ -683,9 +683,11 @@ class Consumer:
                     # Use call_soon_threadsafe to schedule on the event loop.
                     def _ack(*args, _msg=message, **kwargs):
                         spawn_threadsafe(_msg.ack_log_error(logger, self.connection_errors), loop)
+                        self._restore_prefetch_count()
 
                     def _reject(_logger=None, _errors=None, requeue=False, _msg=message, **kwargs):
                         spawn_threadsafe(_msg.reject_log_error(logger, self.connection_errors, requeue=requeue), loop)
+                        self._restore_prefetch_count()
 
                     strategy(
                         message,
@@ -700,6 +702,31 @@ class Consumer:
                     return self.on_decode_error(message, exc)
 
         return on_task_received
+
+    def _restore_prefetch_count(self):
+        """Give back a step of the prefetch count reduced at the last reconnect.
+
+        Every task acked or rejected since then returns one multiplier's worth
+        until the count is whole again. Only the value is set here, which can
+        happen on a pool thread; the worker loop sends it to the broker, as it
+        does for an ETA task's increment. That increment is kept: the step is
+        added to the value rather than setting it.
+        """
+        qos = self.qos
+        if self._maximum_prefetch_restored or qos is None:
+            return
+        with qos._mutex:
+            if self._maximum_prefetch_restored:
+                return
+            restored = min(self.initial_prefetch_count + self.prefetch_multiplier, self.max_prefetch_count)
+            qos.value += restored - self.initial_prefetch_count
+            self.initial_prefetch_count = restored
+            self._maximum_prefetch_restored = done = restored == self.max_prefetch_count
+        if done:
+            logger.info(
+                "Resuming normal operations following a restart.\n"
+                f"Prefetch count has been restored to the maximum of {self.max_prefetch_count}"
+            )
 
     @property
     def max_prefetch_count(self):

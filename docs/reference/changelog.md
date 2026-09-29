@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A worker that reconnected while tasks were still running lowered its prefetch
+  count and never raised it again, although it logged that it would. Every task
+  acked or rejected after the reconnect now gives one multiplier back until the
+  count is whole again
+
 ## v6.0.0a6
 
 A production-readiness audit of the whole package. Every module in `celery` and

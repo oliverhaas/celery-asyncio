@@ -14,6 +14,7 @@ except ImportError:
 
 from kombu import Connection as KombuConnection
 from kombu import Queue
+from kombu.common import QoS
 
 from celery import bootsteps
 from celery.contrib.testing.mocks import ContextMock
@@ -133,6 +134,41 @@ class test_Consumer(ConsumerTestCase):
 
         with subtests.test("maximum prefetch is reached"):
             assert c._maximum_prefetch_restored is expected_maximum
+
+    @patch("celery.worker.consumer.consumer.active_requests", new_callable=set)
+    async def test_acks_after_a_reconnect_give_the_reduced_prefetch_count_back(self, active_requests_mock, caplog):
+        caplog.set_level("INFO")
+        self.app.conf.worker_enable_prefetch_count_reduction = True
+        active_requests_mock.update({Mock(), Mock()})
+        c = self.get_consumer(initial_prefetch_count=3, prefetch_multiplier=1)
+        c.pool.num_processes = 3
+
+        def bp_start(*_, **__):
+            if c.restart_count > 1:
+                c.blueprint.state = CLOSE
+            else:
+                raise ConnectionError
+
+        c.blueprint.start.side_effect = bp_start
+        await c.start()
+        c.qos = QoS(AsyncMock(), c.initial_prefetch_count)
+        c.qos.increment_eventually()
+
+        sig = self.add.s(2, 2)
+        acks = []
+        c.strategies[sig.task] = lambda message, payload, ack, reject, callbacks: acks.append(ack)
+        on_task_received = c.create_task_handler()
+        for _ in range(3):
+            on_task_received(self.task_message_from_sig(self.app, sig))
+
+        values = []
+        with patch("celery.worker.consumer.consumer.spawn_threadsafe", side_effect=lambda coro, loop: coro.close()):
+            for ack in acks:
+                ack()
+                values.append(c.qos.value)
+
+        assert values == [3, 4, 4]
+        assert caplog.text.count("Prefetch count has been restored to the maximum of 3") == 1
 
     async def test_create_task_handler(self):
         c = self.get_consumer()

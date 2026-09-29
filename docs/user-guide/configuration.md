@@ -108,9 +108,10 @@ the batch size one consume round-trip claims into a local buffer: it bounds the
 buffer, not the number of unacknowledged messages.
 
 With `worker_enable_prefetch_count_reduction` on, a worker that reconnects
-while N tasks are still running comes back with a lower count and restores the
-full one as those tasks finish, so it does not claim a second full batch on top
-of the work already in hand.
+while N tasks are still running comes back with the count lowered by one
+multiplier for each of them. Every task acked or rejected after that gives one
+multiplier back until the count is whole again, so the worker does not claim a
+second full window on top of the work already in hand.
 
 ## Connection loss
 
