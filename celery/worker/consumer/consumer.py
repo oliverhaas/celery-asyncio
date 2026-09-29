@@ -553,7 +553,9 @@ class Consumer:
         cset = self.task_consumer
         queues = self.app.amqp.queues
         if queue in queues:
-            q = queues[queue]
+            # Re-select, don't just look up: a queue left out of `consume_from`
+            # by an earlier cancel is dropped on reconnect (upstream 7f9a6e5d0).
+            q = queues.select_add(queues[queue])
         else:
             exchange = queue if exchange is None else exchange
             exchange_type = "direct" if exchange_type is None else exchange_type

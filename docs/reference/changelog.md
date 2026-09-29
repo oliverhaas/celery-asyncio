@@ -51,6 +51,9 @@ commit it came from.
   backend when the task names a backend of its own. It now leaves a running
   task to report its own result and writes to the task's backend (upstream
   a6bc479c5)
+- `add_task_queue` looked a known queue up instead of selecting it again, so a
+  queue that a `cancel_consumer` had deselected stayed deselected and was
+  dropped from `consume_from` on the next reconnect (upstream 7f9a6e5d0)
 
 ### Changed
 

@@ -1315,6 +1315,19 @@ class test_Consumer_TaskQueues(ConsumerTestCase):
 
         assert received == [{"to": "first"}, {"to": "extra"}]
 
+    async def test_add_task_queue_reselects_a_known_queue_that_was_cancelled(self):
+        async with KombuConnection("memory://") as conn:
+            c = await self.consumer_on(conn, [])
+            known = c.app.conf.task_default_queue
+            assert known in c.app.amqp.queues.consume_from
+
+            await c.cancel_task_queue(known)
+            assert known not in c.app.amqp.queues.consume_from
+
+            await c.add_task_queue(known)
+
+            assert known in c.app.amqp.queues.consume_from
+
     async def test_cancel_task_queue_stops_consuming_from_it(self):
         async with KombuConnection("memory://") as conn:
             c = await self.consumer_on(conn, [])
