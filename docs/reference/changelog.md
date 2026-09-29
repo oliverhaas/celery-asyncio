@@ -168,6 +168,11 @@ commit it came from.
   `ValueError`. Each URL is now masked on its own, a server list no longer
   raises, and a URL that can't be parsed shows as `<unparsable url>`
   (upstream d977c27e7)
+- `ConfigurationView.__contains__` ignored the old and new names of a setting,
+  which a lookup honours. With `task_always_eager` configured,
+  `"CELERY_ALWAYS_EAGER" in app.conf` was false, and a `setdefault` under that
+  name stored a second value that the other name did not see. Membership now
+  tries every name a lookup tries (upstream 560d97298)
 
 #### Results
 

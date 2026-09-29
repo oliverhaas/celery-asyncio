@@ -347,8 +347,9 @@ class ConfigurationView(ChainMap, AttributeDictMixin):
         self.changes.clear()
 
     def __contains__(self, key):
-        keys = self._to_keys(key)
-        return any(any(k in m for k in keys) for m in self.maps)
+        contains = super().__contains__
+        keys = self._to_keys(key) + (tuple(f(key) for f in self._keys) if self._keys else ())
+        return any(contains(k) for k in keys)
 
     def swap_with(self, other):
         changes = other.__dict__["changes"]

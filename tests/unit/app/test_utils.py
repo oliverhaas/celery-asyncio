@@ -30,6 +30,19 @@ class test_Settings:
         assert self.app.conf.table(censored=False)
         assert self.app.conf.table(censored=True)
 
+    @pytest.mark.parametrize(
+        "config,name",
+        [
+            ({"task_always_eager": True}, "CELERY_ALWAYS_EAGER"),
+            ({"CELERY_ALWAYS_EAGER": True}, "task_always_eager"),
+        ],
+        ids=["old-name", "new-name"],
+    )
+    def test_contains_a_setting_under_its_other_name(self, config, name):
+        self.app.config_from_object(config, force=True)
+
+        assert name in self.app.conf
+
 
 class test_filter_hidden_settings:
     def test_handles_non_string_keys(self):
