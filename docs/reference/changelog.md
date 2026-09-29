@@ -117,6 +117,13 @@ commit it came from.
   return once nothing is outstanding, the way `wait_for` returns a ready result
   before it looks at the deadline (upstream 1ea3d4f64)
 
+#### Events
+
+- `State._tasks_to_resolve` was an unbounded dict. An entry is only dropped when
+  an event for the parent arrives, and a parent that was already processed or
+  evicted never sends one, so a monitor left running grew without limit. It is
+  now bounded like every other mapping there (upstream e522ec899)
+
 ### Changed
 
 - With `task_acks_late` on Valkey or Redis, a prefetch count below what the pool

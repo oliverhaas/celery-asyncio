@@ -709,6 +709,31 @@ class test_State:
         s._taskheap.append(s._taskheap[0])
         assert list(s.tasks_by_time())
 
+    def test_children_waiting_on_a_parent_that_never_arrives_are_bounded(self):
+        s = State(max_tasks_in_memory=10)
+
+        for _ in range(100):
+            parent_id = uuid()
+            s.event(
+                {
+                    "type": "task-received",
+                    "uuid": uuid(),
+                    "parent_id": parent_id,
+                    "root_id": parent_id,
+                    "name": "task1",
+                    "args": "()",
+                    "kwargs": "{}",
+                    "retries": 0,
+                    "eta": None,
+                    "hostname": "utest1",
+                    "clock": 0,
+                    "timestamp": time(),
+                    "local_received": time(),
+                }
+            )
+
+        assert len(s._tasks_to_resolve) <= 10
+
     def test_callback(self):
         scratch = {}
 
