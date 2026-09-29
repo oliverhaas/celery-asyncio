@@ -146,6 +146,11 @@ commit it came from.
   `task_publish_retry_policy` says. Both now get a copy of the merged policy the
   task is published with, which a receiver can change for that publish without
   changing the configured one (upstream e1dba84f8)
+- A queue assigned with `app.amqp.queues[name] = queue` did not get
+  `task_queue_max_priority`, which only `Queues.add` applied, so on RabbitMQ it
+  was declared without `x-max-priority` and message priorities had no effect on
+  it. Assigning a queue now applies the setting too, and a queue that sets its
+  own `x-max-priority` keeps it (upstream a3908d4a1)
 
 #### Results
 

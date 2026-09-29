@@ -120,6 +120,10 @@ class Queues(dict):
     def __setitem__(self, name, queue):
         if self.default_exchange and not queue.exchange:
             queue.exchange = self.default_exchange
+        if self.max_priority is not None:
+            if queue.queue_arguments is None:
+                queue.queue_arguments = {}
+            self._set_max_priority(queue.queue_arguments)
         super().__setitem__(name, queue)
         if queue.alias:
             self.aliases[queue.alias] = queue
@@ -162,10 +166,6 @@ class Queues(dict):
             queue.exchange = self.default_exchange
         if not queue.routing_key:
             queue.routing_key = self.default_routing_key
-        if self.max_priority is not None:
-            if queue.queue_arguments is None:
-                queue.queue_arguments = {}
-            self._set_max_priority(queue.queue_arguments)
         self[queue.name] = queue
         return queue
 

@@ -37,6 +37,11 @@ class test_Queues:
         q["foo"] = queue
         assert q["foo"].exchange == q.default_exchange
 
+    def test_setitem_adds_default_max_priority(self):
+        q = Queues(max_priority=10)
+        q["foo"] = Queue("foo")
+        assert q["foo"].queue_arguments == {"x-max-priority": 10}
+
     def test_select_add(self):
         q = Queues()
         q.select(["foo", "bar"])
