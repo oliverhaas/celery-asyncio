@@ -88,6 +88,13 @@ commit it came from.
   carries the exchange but not its type, so the type travels with the task and
   the retry puts it back (upstream e997039a2)
 
+#### App and configuration
+
+- Every subclass of `Celery` looked as though it brought its own task class,
+  because the `hasattr` check saw the `task_cls` that `Celery` itself defines.
+  The Django fixup therefore skipped installing `DjangoTask` on any subclassed
+  app, and `delay_on_commit` was missing from its tasks (upstream 8ea291fb4)
+
 ### Changed
 
 - With `task_acks_late` on Valkey or Redis, a prefetch count below what the pool

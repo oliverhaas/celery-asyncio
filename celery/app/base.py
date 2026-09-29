@@ -439,8 +439,8 @@ class Celery:
         self._custom_task_cls_used = (
             # Custom task class provided as argument
             bool(task_cls)
-            # subclass of Celery with a task_cls attribute
-            or (self.__class__ is not Celery and hasattr(self.__class__, "task_cls"))
+            # Not `hasattr`: it sees the one Celery defines (upstream 8ea291fb4).
+            or bool(app_has_custom(self, "task_cls"))
         )
         self.task_cls = task_cls or self.task_cls
         self.set_as_current = set_as_current

@@ -141,6 +141,24 @@ class test_DjangoFixup(FixupCase):
             # The one from the user's class is
             assert app.task_cls == "myapp.celery.tasks:Task"
 
+    @pytest.mark.patched_module("django", "django.db", "django.db.transaction")
+    def test_install_on_a_celery_subclass_that_sets_no_task_class(self, patching, module):
+        patching("celery.fixups.django.signals")
+
+        from celery.app import Celery
+
+        class MyCeleryApp(Celery):
+            pass
+
+        app = MyCeleryApp("mytestapp")
+
+        with self.fixup_context(app) as (f, _, _):
+            f.install()
+            assert app.task_cls == "celery.contrib.django.task:DjangoTask"
+            from celery.contrib.django.task import DjangoTask
+
+            assert issubclass(app.Task, DjangoTask)
+
     def test_now(self):
         with self.fixup_context(self.app) as (f, _, _):
             assert f.now(utc=True)
