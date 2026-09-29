@@ -85,8 +85,12 @@ class FallbackContext:
     def __enter__(self):
         if self.provided is not None:
             return self.provided
-        context = self._context = self.fallback(*self.fb_args, **self.fb_kwargs).__enter__()
-        return context
+        context = self.fallback(*self.fb_args, **self.fb_kwargs)
+        value = context.__enter__()
+        # The manager, not what it entered as: `__exit__` is the manager's,
+        # and a dropped generator manager runs its cleanup (upstream d1f8d8f9f).
+        self._context = context
+        return value
 
     def __exit__(self, *exc_info):
         if self._context is not None:

@@ -266,6 +266,11 @@ commit it came from.
   `logs/%%n-%n.log` became `logs/%worker-worker.log`, and `%%x` raised a
   `ValueError` that recommended `%%`. `%%` now gives a literal `%` (upstream
   31b6167d9)
+- `FallbackContext` kept what the fallback's `__enter__` returned instead of the
+  fallback itself, and called `__exit__` on that value. A `@contextmanager`
+  fallback that yielded a value raised `AttributeError` at the end of the block,
+  and one that yielded `None` ran its cleanup before the block. The fallback is
+  now exited after the block (upstream d1f8d8f9f)
 
 #### Testing
 
