@@ -260,6 +260,12 @@ commit it came from.
   `disable_sync_subtasks`. `get(propagate=False)` raised a nested member's
   failure instead of returning it, and a join allowed inside a task raised
   `RuntimeError` on a nested group. Both are now passed on (upstream eb3dfa384)
+- A failure whose exception derives from `BaseException` but not `Exception`,
+  such as `asyncio.CancelledError`, could not be stored with any result
+  serializer but pickle. `mark_as_failure` raised `EncodeError` and left the
+  task `PENDING`, and a task that reported one through `update_state` failed
+  with `EncodeError` instead. It is now stored like any other exception
+  (upstream 05e0ea423)
 
 #### Events
 

@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import re
 from contextlib import contextmanager
@@ -1231,6 +1232,18 @@ class test_KeyValueStoreBackend:
         assert self.b.get_state(tid) == states.SUCCESS
         self.b.forget(tid)
         assert self.b.get_state(tid) == states.PENDING
+
+    @pytest.mark.parametrize("exc", [BaseException("boom"), asyncio.CancelledError("stopped")])
+    def test_a_base_exception_failure_is_stored_with_json(self, exc):
+        b = KVBackend(app=self.app, serializer="json")
+        tid = uuid()
+
+        b.mark_as_failure(tid, exc)
+
+        result = self.app.AsyncResult(tid, backend=b)
+        assert result.state == states.FAILURE
+        assert type(result.result) is type(exc)
+        assert result.result.args == exc.args
 
     @pytest.mark.parametrize("serializer", ["json", "pickle", "yaml"])
     def test_store_result_parent_id(self, serializer):

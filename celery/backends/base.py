@@ -677,7 +677,7 @@ class Backend:
         return value
 
     def encode_result(self, result, state):
-        if state in self.EXCEPTION_STATES and isinstance(result, Exception):
+        if state in self.EXCEPTION_STATES and isinstance(result, BaseException):
             return self.prepare_exception(result)
         return self.prepare_value(result)
 
