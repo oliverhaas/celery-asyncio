@@ -338,6 +338,11 @@ class Scheduler:
         adjust = self.adjust
         max_interval = self.max_interval
 
+        def _delay_until(event):
+            # The heap holds absolute timestamps and the entry keeps its own clock,
+            # which `is_due()` can move. Re-read it, don't reuse `now`.
+            return min(event[0] - self._when(event[2], 0), max_interval)
+
         if self._heap is None or not self.schedules_equal(self.old_schedulers, self.schedule):
             self.old_schedulers = copy.copy(self.schedule)
             self.populate_heap()
@@ -365,7 +370,7 @@ class Scheduler:
                 return 0
             else:
                 heappush(H, verify)
-                return min(verify[0], max_interval)
+                return _delay_until(verify)
 
         # The heap said ready, the entry says not yet. Move it to the time it
         # asked for, or it stays on top and everything behind it starves
@@ -376,7 +381,7 @@ class Scheduler:
             # `is_due()` runs arbitrary code and a database-backed scheduler may
             # have added an entry while it did. Put back what was popped.
             heappush(H, verify)
-            return min(verify[0], max_interval)
+            return _delay_until(verify)
         heappush(H, event_t(self._when(entry, reschedule_delay), event[1], entry))
         # Something else is on top now, so go round again without sleeping.
         return 0 if H and H[0][2] is not entry else min(adjust(reschedule_delay), max_interval)

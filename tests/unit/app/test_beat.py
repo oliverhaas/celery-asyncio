@@ -472,6 +472,47 @@ class test_Scheduler:
         assert scheduler.tick() == 0
         assert scheduler.sent[0]["name"] == "c.ready"
 
+    def test_tick_returns_a_relative_delay_when_a_due_entry_is_no_longer_on_top(self):
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        scheduler = mScheduler(app=self.app)
+        first = scheduler.add(name="first", task="c.first", schedule=mocked_schedule(True, 1, lambda: now))
+        second = scheduler.add(name="second", task="c.second", schedule=mocked_schedule(True, 1, lambda: now))
+        scheduler.old_schedulers = scheduler.schedule
+        scheduler._heap = [event_t(now.timestamp() - 1, 5, first)]
+
+        def intruding_is_due(_last_run_at):
+            scheduler._heap.insert(0, event_t(now.timestamp() - 2, 5, second))
+            return True, 1
+
+        first.schedule.is_due = intruding_is_due
+
+        assert scheduler.tick() == -2
+        assert not scheduler.sent
+
+    @pytest.mark.parametrize("is_due", [True, False])
+    def test_tick_measures_the_delay_from_the_entry_that_ends_up_on_top(self, is_due):
+        clock = [datetime(2026, 1, 1, tzinfo=UTC)]
+
+        def nowfun():
+            return clock[0]
+
+        scheduler = mScheduler(app=self.app)
+        first = scheduler.add(name="first", task="c.first", schedule=schedule(1, nowfun=nowfun))
+        second = scheduler.add(name="second", task="c.second", schedule=schedule(1, nowfun=nowfun))
+        scheduler.old_schedulers = scheduler.schedule
+        scheduler._heap = [event_t(clock[0].timestamp() - 1, 5, first)]
+        beyond_max_interval = timedelta(seconds=scheduler.max_interval + 1)
+
+        def replace_heap_top(_last_run_at):
+            clock[0] += beyond_max_interval
+            scheduler._heap[0] = event_t(clock[0].timestamp() + 1, 5, second)
+            return is_due, 1
+
+        first.schedule.is_due = replace_heap_top
+
+        assert scheduler.tick() == 1
+        assert scheduler._heap[0].entry is second
+
     def test_reheap_skipped_when_is_due_mutates_the_heap(self):
         # `is_due()` can run arbitrary code, and a database-backed scheduler
         # may add an entry while it does. Reheaping then has the wrong event
@@ -490,8 +531,8 @@ class test_Scheduler:
 
         # A fresh mocked_schedule, since the module-level ones are shared.
         stuck.schedule.is_due = mutating_stuck_entry_is_due
-        scheduler.tick()
 
+        assert scheduler.tick() < 0
         assert not scheduler.sent
         assert scheduler._heap[0] is intruder_event
         assert scheduler._heap[1] is stuck_event

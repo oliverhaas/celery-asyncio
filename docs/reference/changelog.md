@@ -61,6 +61,13 @@ commit it came from.
   worker could log anything. They now raise `ImproperlyConfigured` naming both
   (upstream 4623c4c84)
 
+#### Beat and schedules
+
+- `Scheduler.tick()` returned an absolute timestamp instead of a delay when the
+  entry on top of the heap changed while `is_due()` ran, so the caller slept
+  until an instant that had already passed, or for the wrong entry's interval
+  (upstream 777edfcb0, 574f31091)
+
 ### Changed
 
 - With `task_acks_late` on Valkey or Redis, a prefetch count below what the pool
