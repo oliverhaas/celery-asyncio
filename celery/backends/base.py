@@ -1107,12 +1107,34 @@ class Backend:
             queue = self.app.amqp.router.route(kwargs, body.name)["queue"].name
 
         priority = body.options.get("priority", getattr(body_type, "priority", 0))
+
+        # The unlock task publishes the body, so a topic-routed chord needs the
+        # body's own routing, minus anything stamped (upstream e997039a2).
+        stamps = body.options.get("stamped_headers") or ()
+        routing_options = {
+            option: body.options[option]
+            for option in ("exchange", "exchange_type", "routing_key", "headers")
+            if option not in stamps and body.options.get(option) is not None
+        }
+
+        if "exchange_type" not in routing_options:
+            try:
+                queue_obj = self.app.amqp.queues[queue] if isinstance(queue, str) else queue
+                routing_options["exchange_type"] = queue_obj.exchange.type
+            except AttributeError, KeyError:
+                pass
+        if "exchange_type" in routing_options:
+            # `delivery_info` carries no exchange type, so a retry cannot
+            # recover it from the message it was delivered with.
+            kwargs["_chord_unlock_exchange_type"] = routing_options["exchange_type"]
+
         self.app.tasks["celery.chord_unlock"].apply_async(
             (header_result.id, body),
             kwargs,
             countdown=countdown,
             queue=queue,
             priority=priority,
+            **routing_options,
         )
 
     def ensure_chords_allowed(self):

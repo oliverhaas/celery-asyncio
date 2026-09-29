@@ -84,6 +84,11 @@ def add_unlock_chord_task(app):
         )
         j = deps.join_native if deps.supports_native_join else deps.join
 
+        # A retry is routed from `delivery_info`, which carries the exchange but
+        # not its type, so a topic-routed chord would come back as a direct one.
+        exchange_type = kwargs.pop("_chord_unlock_exchange_type", None)
+        retry_options = {} if exchange_type is None else {"exchange_type": exchange_type}
+
         try:
             ready = deps.ready()
         except Exception as exc:
@@ -91,10 +96,11 @@ def add_unlock_chord_task(app):
                 exc=exc,
                 countdown=interval,
                 max_retries=max_retries,
+                **retry_options,
             ) from exc
         else:
             if not ready:
-                raise self.retry(countdown=interval, max_retries=max_retries)
+                raise self.retry(countdown=interval, max_retries=max_retries, **retry_options)
 
         callback = maybe_signature(callback, app=app)
         try:

@@ -181,6 +181,33 @@ class test_unlock_chord_task(ChordCase):
             # did retry
             retry.assert_called_with(countdown=10, max_retries=30)
 
+    def test_retry_carries_the_exchange_type_when_the_header_is_not_ready(self):
+        class NeverReady(TSR):
+            is_ready = False
+
+        with self._chord_context(
+            NeverReady,
+            interval=10,
+            max_retries=30,
+            _chord_unlock_exchange_type="topic",
+        ) as (cb, retry, _):
+            cb.type.apply_async.assert_not_called()
+            retry.assert_called_with(countdown=10, max_retries=30, exchange_type="topic")
+
+    def test_retry_carries_the_exchange_type_when_the_header_check_fails(self):
+        class Exploding(TSR):
+            def ready(self):
+                raise KeyError("boom")
+
+        with self._chord_context(
+            Exploding,
+            interval=10,
+            max_retries=30,
+            _chord_unlock_exchange_type="topic",
+        ) as (cb, retry, _):
+            cb.type.apply_async.assert_not_called()
+            assert retry.call_args.kwargs["exchange_type"] == "topic"
+
     def test_when_not_ready_with_configured_chord_retry_interval(self):
         class NeverReady(TSR):
             is_ready = False

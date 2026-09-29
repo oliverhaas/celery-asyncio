@@ -77,6 +77,17 @@ commit it came from.
   reported one as too stale to catch up on. It now asks the schedule once
   whether anything was due since the deadline (upstream 93431e7b4)
 
+#### Chords
+
+- `chord_unlock` publishes the chord body, but was applied without the routing
+  the body asked for, so a body bound to a topic or fanout exchange went out on
+  the default exchange and never arrived. The unlock task now carries the body's
+  `exchange`, `exchange_type`, `routing_key` and `headers`, falling back to the
+  exchange type of the queue it routes to, and leaves a stamped option alone
+  because a stamp is not routing. A retry is routed from `delivery_info`, which
+  carries the exchange but not its type, so the type travels with the task and
+  the retry puts it back (upstream e997039a2)
+
 ### Changed
 
 - With `task_acks_late` on Valkey or Redis, a prefetch count below what the pool

@@ -5,6 +5,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, Mock, call, patch, sentinel
 from uuid import UUID
 
 import pytest
+from kombu import Exchange, Queue
 from kombu.serialization import dumps, prepare_accept_content
 from kombu.utils.encoding import bytes_to_str, ensure_bytes
 
@@ -239,6 +240,52 @@ class test_BaseBackend_interface:
         )
         self.b.apply_chord(header_result_args, self.callback.s())
         assert self.app.tasks[unlock].apply_async.call_count
+
+    def test_chord_unlock_forwards_the_body_routing(self, unlock="celery.chord_unlock"):
+        self.app.tasks[unlock] = Mock()
+        header_result_args = (uuid(), [self.app.AsyncResult(x) for x in range(3)])
+        body = self.callback.s().set(
+            exchange="bodyexchange",
+            exchange_type="topic",
+            routing_key="body.key",
+            headers={"k": "v"},
+        )
+
+        self.b.apply_chord(header_result_args, body)
+
+        called_kwargs = self.app.tasks[unlock].apply_async.call_args[1]
+        assert called_kwargs["exchange"] == "bodyexchange"
+        assert called_kwargs["exchange_type"] == "topic"
+        assert called_kwargs["routing_key"] == "body.key"
+        assert called_kwargs["headers"] == {"k": "v"}
+
+    def test_chord_unlock_leaves_stamped_headers_out_of_the_routing(self, unlock="celery.chord_unlock"):
+        self.app.tasks[unlock] = Mock()
+        header_result_args = (uuid(), [self.app.AsyncResult(x) for x in range(3)])
+        body = self.callback.s().set(headers={"k": "v"}, stamped_headers=["headers"])
+
+        self.b.apply_chord(header_result_args, body)
+
+        assert "headers" not in self.app.tasks[unlock].apply_async.call_args[1]
+
+    def test_chord_unlock_carries_the_exchange_type_for_retries(self, unlock="celery.chord_unlock"):
+        self.app.tasks[unlock] = Mock()
+        header_result_args = (uuid(), [self.app.AsyncResult(x) for x in range(3)])
+        body = self.callback.s().set(exchange_type="topic")
+
+        self.b.apply_chord(header_result_args, body)
+
+        task_kwargs = self.app.tasks[unlock].apply_async.call_args[0][1]
+        assert task_kwargs["_chord_unlock_exchange_type"] == "topic"
+
+    def test_chord_unlock_takes_the_exchange_type_from_the_queue(self, unlock="celery.chord_unlock"):
+        self.app.tasks[unlock] = Mock()
+        header_result_args = (uuid(), [self.app.AsyncResult(x) for x in range(3)])
+        self.app.amqp.queues.add(Queue("topicq", Exchange("topicx", type="topic"), routing_key="rk"))
+
+        self.b.apply_chord(header_result_args, self.callback.s().set(queue="topicq"))
+
+        assert self.app.tasks[unlock].apply_async.call_args[1]["exchange_type"] == "topic"
 
     def test_chord_unlock_queue(self, unlock="celery.chord_unlock"):
         self.app.tasks[unlock] = Mock()
