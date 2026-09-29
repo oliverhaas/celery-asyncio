@@ -2077,11 +2077,18 @@ functions are called whenever a signal is called.</p>
 
 <a href="#celery.signals.task_success" class="headerlink" title="Permanent link">&para;</a></h2>
 <div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">task_success</span> <span class="o">=</span> <span class="n">Signal</span><span class="p">(</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">"task_success"</span><span class="p">,</span> <span class="n">providing_args</span><span class="o">=</span><span class="p">{</span><span class="s2">"result"</span><span class="p">}</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">name</span><span class="o">=</span><span class="s2">"task_success"</span><span class="p">,</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">providing_args</span><span class="o">=</span><span class="p">{</span><span class="s2">"result"</span><span class="p">,</span> <span class="s2">"runtime"</span><span class="p">},</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="p">)</span>
 </span></code></pre></div>
 
     <div class="doc doc-contents ">
+
+        <p>Sent when a task succeeds.</p>
+<p>Sender is the task object.  <code>result</code> is the return value of the task, and
+<code>runtime</code> the time in seconds it took, from the start of tracing until its
+callbacks are sent and its result is stored: the time the worker logs in
+"Task ... succeeded in ...s".</p>
 
     </div>
 

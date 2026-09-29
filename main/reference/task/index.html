@@ -781,6 +781,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#task-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task names
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#task_1" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1411,6 +1422,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#task-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task names
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#task_1" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1681,6 +1703,19 @@
 <h1 id="task">Task<a class="headerlink" href="#task" title="Permanent link">&para;</a></h1>
 <p>The <code>Task</code> class is the base for all celery tasks. Use the <code>@app.task</code> decorator
 to create tasks.</p>
+<h2 id="task-names">Task names<a class="headerlink" href="#task-names" title="Permanent link">&para;</a></h2>
+<p>A task is registered under its name, which defaults to the module and name of
+the decorated function, such as <code>tasks.add</code>. <code>@app.task(name="...")</code> sets it
+explicitly.</p>
+<p>Two different callables in one app can end up with the same name, such as two
+closures made by one factory, or two functions of the same name in one module.
+The second registration issues a <code>DuplicateTaskNameWarning</code>, once per name, that
+names both callables and points at the line that registered the second. The
+decorator keeps the first callable and returns its task, so calls meant for the
+second run the first, while <code>app.register_task</code> replaces the task with the new
+one. Registering the same function again does not warn, and neither does a name
+held by a task of another app, as in a registry shared through
+<code>Celery(tasks=...)</code>.</p>
 <h2 id="task_1">Task<a class="headerlink" href="#task_1" title="Permanent link">&para;</a></h2>
 
 

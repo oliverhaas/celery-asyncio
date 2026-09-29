@@ -1654,7 +1654,7 @@ AMQP libraries are gone, so <code>pyamqp://</code> and <code>librabbitmq://</cod
   <code>broker_failover_strategy</code>, <code>broker_pool_limit</code> (there is no producer pool;
   a connection belongs to the loop that opened it) and
   <code>broker_native_delayed_delivery_queue_type</code></li>
-<li><code>result_compression</code>, <code>result_exchange</code> and <code>result_exchange_type</code></li>
+<li><code>result_exchange</code> and <code>result_exchange_type</code></li>
 </ul>
 <p><code>broker_use_ssl</code> and <code>broker_transport</code> are still accepted, and still ignored.
 TLS and the transport come from the broker URL: <code>amqps://</code> or <code>rediss://</code>, with
@@ -1733,6 +1733,9 @@ so install the two together:</p>
 <h2 id="whats-new">What's new<a class="headerlink" href="#whats-new" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Native async tasks: <code>async def</code> tasks run on the event loop</li>
+<li><code>result_compression</code> compresses the stored result. Celery registered and
+  documented the setting from 4.0 on without anything ever reading it, so
+  results were always stored uncompressed</li>
 <li>Valkey support: first-class <code>valkey://</code> URL scheme</li>
 <li>AMQP via aio-pika: native asyncio RabbitMQ support</li>
 <li>Python 3.14 only, uses latest language features</li>
