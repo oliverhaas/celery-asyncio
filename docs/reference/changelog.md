@@ -124,6 +124,13 @@ commit it came from.
   evicted never sends one, so a monitor left running grew without limit. It is
   now bounded like every other mapping there (upstream e522ec899)
 
+#### Utilities
+
+- `load_extension_class_names` read the metadata of every installed package on
+  each call, and the result backend is resolved per thread, so each new thread
+  paid for the scan again. Cached, since entry points cannot change while the
+  process runs (upstream 937b06654)
+
 ### Changed
 
 - With `task_acks_late` on Valkey or Redis, a prefetch count below what the pool

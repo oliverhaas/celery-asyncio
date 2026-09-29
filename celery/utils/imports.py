@@ -5,6 +5,7 @@
 import os
 import sys
 from contextlib import contextmanager
+from functools import cache
 from importlib import import_module, reload
 from importlib.metadata import entry_points
 
@@ -138,7 +139,11 @@ def gen_task_name(app, name, module_name):
     return ".".join(p for p in (module_name, name) if p)
 
 
+@cache
 def load_extension_class_names(namespace):
-    _entry_points = entry_points(group=namespace)
-    for ep in _entry_points:
-        yield ep.name, ep.value
+    """Return the ``(name, class_name)`` pairs registered under `namespace`.
+
+    Cached, since entry points are fixed for the life of the process, and a
+    tuple, so no caller can change the shared copy (upstream 937b06654).
+    """
+    return tuple((ep.name, ep.value) for ep in entry_points(group=namespace))

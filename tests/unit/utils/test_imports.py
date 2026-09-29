@@ -10,6 +10,7 @@ from celery.utils.imports import (
     cwd_in_path,
     find_module,
     gen_task_name,
+    load_extension_class_names,
     module_file,
     qualname,
     reload_from_cwd,
@@ -141,3 +142,22 @@ class test_gen_task_name:
         app = Mock()
         app.main = "xuzzy"
         assert gen_task_name(app, "foo", "tests.unit.utils.test_imports") == "tests.unit.utils.test_imports.foo"
+
+
+class test_load_extension_class_names:
+    def setup_method(self):
+        load_extension_class_names.cache_clear()
+
+    def teardown_method(self):
+        load_extension_class_names.cache_clear()
+
+    def test_scans_the_installed_packages_once_per_namespace(self):
+        entry_point = Mock(value="myproj.backend:Backend")
+        entry_point.name = "mybackend"
+
+        with patch("celery.utils.imports.entry_points", return_value=[entry_point]) as entry_points:
+            first = load_extension_class_names("celery.result_backends")
+            second = load_extension_class_names("celery.result_backends")
+
+        assert entry_points.call_count == 1
+        assert first == second == (("mybackend", "myproj.backend:Backend"),)
