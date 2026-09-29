@@ -326,7 +326,8 @@ class ConfigurationView(ChainMap, AttributeDictMixin):
             return self.__missing__(key)
         except KeyError:
             if len(keys) > 1:
-                raise KeyError("Key not found: {0!r} (with prefix: {0!r})".format(*keys)) from None
+                # `keys` is (prefixed, original) (upstream 53b3245eb).
+                raise KeyError("Key not found: {1!r} (with prefix: {0!r})".format(*keys)) from None
             raise
 
     def __setitem__(self, key, value):

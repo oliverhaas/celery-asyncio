@@ -130,6 +130,14 @@ class test_ConfigurationView:
         self.view.clear()
         assert len(self.view) == 2
 
+    def test_a_missing_key_names_both_forms_that_were_looked_for(self):
+        view = ConfigurationView({}, [{}], prefix="celery")
+
+        with pytest.raises(KeyError) as exc_info:
+            view["broker_url"]
+
+        assert "Key not found: 'broker_url' (with prefix: 'celery_broker_url')" in str(exc_info.value)
+
     def test_isa_mapping(self):
         from collections.abc import Mapping
 

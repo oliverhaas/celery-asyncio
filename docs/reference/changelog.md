@@ -135,6 +135,9 @@ commit it came from.
 - `ChainMap.pop` did not translate the key, so a key could not be popped by the
   name it was set with, while `setdefault` translated it a second time on top of
   the translation `__setitem__` already does (upstream a277d3d67)
+- `ConfigurationView` printed the prefixed key in both halves of its `KeyError`,
+  so the message read as if the prefix had never been applied (upstream
+  53b3245eb)
 
 ### Changed
 
