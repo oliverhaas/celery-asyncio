@@ -189,6 +189,11 @@ commit it came from.
   name translation and prefix. A copy now loads a pending configuration first,
   reads the same settings under every name and keeps its changes to itself
   (upstream 2c91273bc)
+- `app.conf.update()` rebuilt the task router only when `task_routes` came as a
+  keyword. Routes passed in a dict, as pairs or from a generator, or under
+  `CELERY_ROUTES` or a namespaced name such as `CELERY_TASK_ROUTES`, were
+  stored, but tasks kept going to their old queues. The router is now rebuilt
+  for every form and name (upstream 6ed1ec1ad)
 
 #### Results
 

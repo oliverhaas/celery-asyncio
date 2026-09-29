@@ -451,6 +451,26 @@ class test_AMQP(test_AMQP_Base):
         r2 = self.app.amqp.routes
         assert r1 is r2
 
+    @pytest.mark.parametrize(
+        "namespace,update",
+        [
+            (None, lambda conf, routes: conf.update(task_routes=routes)),
+            (None, lambda conf, routes: conf.update({"task_routes": routes})),
+            (None, lambda conf, routes: conf.update([("task_routes", routes)])),
+            (None, lambda conf, routes: conf.update(pair for pair in [("task_routes", routes)])),
+            (None, lambda conf, routes: conf.update(CELERY_ROUTES=routes)),
+            ("CELERY", lambda conf, routes: conf.update({"CELERY_TASK_ROUTES": routes})),
+        ],
+        ids=["keyword", "mapping", "pairs", "generator", "old-name", "namespaced"],
+    )
+    def test_updating_task_routes_reroutes_a_task_routed_before(self, namespace, update):
+        with self.Celery(namespace=namespace, set_as_current=False) as app:
+            app.amqp.router.route({}, "t.x")
+
+            update(app.conf, {"t.x": {"queue": "q2"}})
+
+            assert app.amqp.router.route({}, "t.x")["queue"].name == "q2"
+
     def update_conf_runtime_for_tasks_queues(self):
         self.app.conf.update(task_routes={"task.create_pr": "queue.qwerty"})
         self.app.send_task("task.create_pr")
