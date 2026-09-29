@@ -1127,6 +1127,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unreleased
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Unreleased">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v600a6" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1139,7 +1178,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed" class="md-nav__link">
+  <a href="#fixed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1266,7 +1305,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1316,7 +1355,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed_1" class="md-nav__link">
+  <a href="#fixed_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1327,7 +1366,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_1" class="md-nav__link">
+  <a href="#changed_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1366,7 +1405,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed_2" class="md-nav__link">
+  <a href="#fixed_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1488,6 +1527,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#unreleased" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unreleased
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Unreleased">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v600a6" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1500,7 +1578,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed" class="md-nav__link">
+  <a href="#fixed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1627,7 +1705,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed" class="md-nav__link">
+  <a href="#changed_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1677,7 +1755,7 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed_1" class="md-nav__link">
+  <a href="#fixed_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1688,7 +1766,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#changed_1" class="md-nav__link">
+  <a href="#changed_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Changed
@@ -1727,7 +1805,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#fixed_2" class="md-nav__link">
+  <a href="#fixed_3" class="md-nav__link">
     <span class="md-ellipsis">
       
         Fixed
@@ -1835,11 +1913,37 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
+<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>On Valkey and Redis the prefetch count only sized the batch a consume
+  round-trip claimed, and every poll of the worker loop claimed another one. A
+  worker kept taking messages off the queue however many it already held, so
+  one worker could take a whole queue while the others had nothing to do. The
+  count now caps the unacknowledged messages there as it does on AMQP: a worker
+  at the cap claims nothing more, and an ack or a reject lets the waiting
+  consume claim the next message at once</li>
+<li>A worker that reconnected while tasks were still running lowered its prefetch
+  count and never raised it again, although it logged that it would. Every task
+  acked or rejected after the reconnect now gives one multiplier back until the
+  count is whole again</li>
+</ul>
+<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<ul>
+<li>With <code>task_acks_late</code> on Valkey or Redis, a prefetch count below what the pool
+  runs at once now leaves the rest of the pool idle, as it already did on AMQP.
+  The count is <code>-c</code> times <code>worker_prefetch_multiplier</code>, and <code>-c</code> defaults to the
+  CPU count rather than the pool's size, so set it to at least
+  <code>worker_loop_workers × worker_loop_concurrency + worker_sync_workers</code></li>
+<li><code>--prefetch-multiplier 1</code> with <code>task_acks_late</code> and <code>-c</code> at the pool's size
+  now does on Valkey and Redis what the removed <code>--disable-prefetch</code> did: the
+  worker only takes a message when a slot is free</li>
+</ul>
 <h2 id="v600a6">v6.0.0a6<a class="headerlink" href="#v600a6" title="Permanent link">&para;</a></h2>
 <p>A production-readiness audit of the whole package. Every module in <code>celery</code> and
 <code>kombu</code> was read through; this release is what that turned up, plus the removal
 of the code and settings nothing calls any more.</p>
-<h3 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
 <h4 id="worker-and-pool">Worker and pool<a class="headerlink" href="#worker-and-pool" title="Permanent link">&para;</a></h4>
 <ul>
 <li>A broken broker socket ended the consumer loop quietly, and the worker then
@@ -2454,7 +2558,7 @@ of the code and settings nothing calls any more.</p>
   arguments, so a misspelled field such as <code>minutes=</code> produced a delta that
   moved nothing. Unknown fields are rejected</li>
 </ul>
-<h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
+<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Moved the shared loop runner to <code>kombu.utils.eventloop</code>, so kombu and celery
   drive a connection from the same loop; <code>celery.utils.eventloop</code> re-exports it</li>
@@ -2651,11 +2755,11 @@ of the code and settings nothing calls any more.</p>
   document</li>
 </ul>
 <h2 id="v600a5">v6.0.0a5<a class="headerlink" href="#v600a5" title="Permanent link">&para;</a></h2>
-<h3 id="fixed_1">Fixed<a class="headerlink" href="#fixed_1" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Receiving an AMQP message with a TTL raised <code>AttributeError</code> (kombu-asyncio 6.0.0a5)</li>
 </ul>
-<h3 id="changed_1">Changed<a class="headerlink" href="#changed_1" title="Permanent link">&para;</a></h3>
+<h3 id="changed_2">Changed<a class="headerlink" href="#changed_2" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Every re-raise now names its cause, so a traceback points at the original error
   instead of stopping at the exception celery raised in its place</li>
@@ -2671,7 +2775,7 @@ fixed the fork-only defects the sweep turned up along the way.</p>
 <li><code>additional_connection_errors</code> transport option for the Valkey/Redis backend</li>
 <li>Warning when routing is declared as a task attribute</li>
 </ul>
-<h3 id="fixed_2">Fixed<a class="headerlink" href="#fixed_2" title="Permanent link">&para;</a></h3>
+<h3 id="fixed_3">Fixed<a class="headerlink" href="#fixed_3" title="Permanent link">&para;</a></h3>
 <ul>
 <li>Publishing opened a broker connection per task</li>
 <li>Chord counter double-counted on redelivery</li>
