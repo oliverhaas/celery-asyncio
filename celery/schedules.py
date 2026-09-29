@@ -599,6 +599,8 @@ class crontab(BaseSchedule):
         # Calling super's init because the kwargs aren't necessarily passed in
         # the same form as they are stored by the superclass
         super().__init__(**state)
+        # Unpickling ran __init__ without these, and __reduce__ pickles them again.
+        self._orig_kwargs = dict(state)
 
     def remaining_delta(
         self, last_run_at: datetime, tz: str | tzinfo | None = None, ffwd: type = ffwd

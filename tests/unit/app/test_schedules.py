@@ -132,6 +132,14 @@ class test_crontab_parser:
         c = self.crontab(minute="1", hour="2", day_of_week="3", day_of_month="4", month_of_year="5", nowfun=utcnow)
         assert c == loads(dumps(c))
 
+    def test_crontab_keeps_nowfun_across_repeated_round_trips(self):
+        c = self.crontab(minute="*/5", nowfun=utcnow)
+
+        for _ in range(3):
+            c = loads(dumps(c))
+
+        assert c.nowfun is utcnow
+
     def test_range_steps_not_enough(self):
         with pytest.raises(crontab_parser.ParseException):
             crontab_parser(24)._range_steps([1])

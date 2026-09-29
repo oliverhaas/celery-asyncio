@@ -118,6 +118,11 @@ commit it came from.
   all equal, so on a non-uniform schedule it stepped over feasible runs and
   reported one as too stale to catch up on. It now asks the schedule once
   whether anything was due since the deadline (upstream 93431e7b4)
+- A crontab lost its `nowfun` on its second pickle round trip, because
+  unpickling left empty the arguments that pickling reads. Beat's
+  `PersistentScheduler` round-trips the schedule on every sync, so from the
+  first sync after startup the crontab read the time from `app.now` instead.
+  Unpickling now keeps those arguments (upstream 1c7a47132)
 
 #### Chords
 
