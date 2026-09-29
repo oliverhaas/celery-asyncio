@@ -88,18 +88,23 @@ class test_current_process:
         assert platforms.current_process() is platforms.current_process()
 
 
-def test_close_open_fds(patching):
+@pytest.mark.parametrize(
+    "fd_dir",
+    [{"return_value": ["0", "1", "2", "3", "4", "5"]}, {"side_effect": FileNotFoundError()}],
+    ids=["listed", "missing"],
+)
+def test_close_open_fds(patching, fd_dir):
     _close = patching("os.close")
+    patching("os.listdir", **fd_dir)
     fdmax = patching("celery.platforms.get_fdmax")
     fdmax.return_value = 6
     close_open_fds()
-    _close.assert_has_calls([call(3), call(4), call(5)])
+    assert _close.call_args_list == [call(3), call(4), call(5)]
 
 
 def test_close_open_fds_ignores_already_closed_fds(patching):
     _close = patching("os.close")
-    fdmax = patching("celery.platforms.get_fdmax")
-    fdmax.return_value = 6
+    patching("os.listdir").return_value = ["0", "1", "2", "3", "4", "5"]
     _close.side_effect = OSError(errno.EBADF, "Bad file descriptor")
     close_open_fds()
     assert _close.call_count == 3
@@ -107,8 +112,7 @@ def test_close_open_fds_ignores_already_closed_fds(patching):
 
 def test_close_open_fds_reraises_other_errors(patching):
     _close = patching("os.close")
-    fdmax = patching("celery.platforms.get_fdmax")
-    fdmax.return_value = 6
+    patching("os.listdir").return_value = ["0", "1", "2", "3", "4", "5"]
     _close.side_effect = OSError(errno.EIO, "Input/output error")
     with pytest.raises(OSError):
         close_open_fds()
@@ -116,8 +120,7 @@ def test_close_open_fds_reraises_other_errors(patching):
 
 def test_close_open_fds_keeps_a_list_of_fds_and_file_objects(patching):
     _close = patching("os.close")
-    fdmax = patching("celery.platforms.get_fdmax")
-    fdmax.return_value = 9
+    patching("os.listdir").return_value = [str(fd) for fd in range(9)]
     filelike = Mock(name="filelike")
     filelike.fileno.return_value = 7
     unopened = Mock(name="unopened")
@@ -464,6 +467,51 @@ class test_DaemonContext:
         )
         assert result.returncode == 0, result.stderr
         assert marker.read_text() == "True True"
+
+    def test_open_does_not_walk_a_container_sized_fdmax(self, tmp_path):
+        script = tmp_path / "daemonize.py"
+        script.write_text(
+            textwrap.dedent(
+                """
+                import os
+                import sys
+
+                from celery import platforms
+
+                def is_open(fd):
+                    try:
+                        os.fstat(fd)
+                    except OSError:
+                        return False
+                    return True
+
+                platforms.get_fdmax = lambda default=None: 1073741816
+                marker, workdir = sys.argv[1], sys.argv[2]
+                urandom_fd = os.open("/dev/urandom", os.O_RDONLY)
+                keeper = open(os.path.join(workdir, "keeper"), "w")
+                keeper_fd = keeper.fileno()
+
+                context = platforms.DaemonContext(workdir=workdir)
+                context._detach = lambda: context
+                context.open()
+
+                still_open = f"{is_open(urandom_fd)} {is_open(keeper_fd)}"
+                with open(marker, "w") as fh:
+                    fh.write(still_open)
+                """
+            )
+        )
+        marker = tmp_path / "marker"
+        result = subprocess.run(
+            [sys.executable, str(script), str(marker), str(tmp_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+            env={**os.environ, "PYTHONPATH": os.path.dirname(os.path.dirname(platforms.__file__))},
+        )
+        assert result.returncode == 0, result.stderr
+        assert marker.read_text() == "True False"
 
 
 @tests.skip.if_win32

@@ -94,6 +94,14 @@ SYSTEM = _platform.system()
 IS_macOS = SYSTEM == "Darwin"
 IS_WINDOWS = SYSTEM == "Windows"
 
+# The directory listing the descriptors open in the calling process, as
+# CPython's FD_DIR (Modules/_posixsubprocess.c) has it: /dev/fd on macOS, and
+# on FreeBSD and DragonFly when fdescfs is mounted, /proc/self/fd elsewhere.
+if IS_macOS or SYSTEM in {"DragonFly", "FreeBSD"}:
+    _FD_DIR = "/dev/fd"
+else:
+    _FD_DIR = "/proc/self/fd"
+
 PIDFILE_FLAGS = os.O_CREAT | os.O_EXCL | os.O_WRONLY
 PIDFILE_MODE = ((os.R_OK | os.W_OK) << 6) | ((os.R_OK) << 3) | (os.R_OK)
 
@@ -283,6 +291,32 @@ def get_fdmax(default=1024):
     return fdmax
 
 
+def _dev_fd_is_fdescfs():
+    # devfs alone has only /dev/fd/0-2, fdescfs lists every open descriptor.
+    # The same check as CPython's _is_fdescfs_mounted_on_dev_fd().
+    try:
+        return os.stat("/dev").st_dev != os.stat(_FD_DIR).st_dev
+    except OSError:
+        return False
+
+
+def _open_fds():
+    """Return the descriptors open in this process, or :const:`None`.
+
+    They are read from the fd directory, so the cost does not grow with
+    :func:`get_fdmax`, which can be about 2**30 in a container.  :const:`None`
+    means there is no such directory here, and the caller has to try every
+    number up to :func:`get_fdmax` instead.
+    """
+    if SYSTEM in {"DragonFly", "FreeBSD"} and not _dev_fd_is_fdescfs():
+        return None
+    try:
+        names = os.listdir(_FD_DIR)
+    except OSError:
+        return None
+    return sorted(int(name) for name in names if name.isdigit())
+
+
 def close_open_fds(keep=None):
     """Close all open file descriptors except those in ``keep``.
 
@@ -294,7 +328,10 @@ def close_open_fds(keep=None):
         fd = maybe_fileno(f)
         if fd is not None:
             keepfds.add(fd)
-    for fd in range(3, get_fdmax()):
+    fds = _open_fds()
+    if fds is None:
+        fds = range(3, get_fdmax())
+    for fd in fds:
         if fd not in keepfds:
             try:
                 os.close(fd)
@@ -322,7 +359,10 @@ def fd_by_path(paths):
         except OSError:
             return False
 
-    return [_fd for _fd in range(get_fdmax(2048)) if fd_in_stats(_fd)]
+    fds = _open_fds()
+    if fds is None:
+        fds = range(get_fdmax(2048))
+    return [_fd for _fd in fds if fd_in_stats(_fd)]
 
 
 class DaemonContext:

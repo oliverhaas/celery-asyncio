@@ -89,6 +89,12 @@ commit it came from.
   consumer does: `broker_connection_retry_on_startup` decides, falling back to
   `broker_connection_retry`, up to `broker_connection_max_retries` (upstream
   4c6619c50)
+- `celery worker --detach`, `celery beat --detach` and a worker restart on
+  `SIGHUP` tried every descriptor number up to the open files limit to find the
+  open ones. With the limit of about a billion that containers often have, that
+  stalled them for up to half an hour. Only the descriptors listed in
+  `/proc/self/fd`, or `/dev/fd` on macOS and FreeBSD, are tried now, with the
+  old scan left for systems that list neither (upstream b171416e0)
 
 #### Beat and schedules
 
