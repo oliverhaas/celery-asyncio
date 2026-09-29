@@ -47,7 +47,8 @@ def by_name(backend=None, loader=None, extension_namespace="celery.result_backen
 def by_url(backend=None, loader=None):
     """Get backend class by URL."""
     url = None
-    if backend and "://" in backend:
+    # `backend` may also be a Backend class, which has no URL (upstream c1fd34ebc).
+    if isinstance(backend, str) and "://" in backend:
         url = backend
         scheme, _, _ = url.partition("://")
         if "+" in scheme:

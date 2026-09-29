@@ -204,6 +204,10 @@ commit it came from.
   `Celery(task_always_eager=True)` stayed eager after `clear()`. Removing one
   now brings back the real default, and `clear()` drops `broker=` and
   `backend=` as well (upstream 3e40f4332)
+- A backend class passed as `Celery(backend=...)`, or set as `backend_cls` on a
+  subclass, raised `TypeError` the first time `app.backend` was read, because it
+  was searched for `://` like a URL. The class is now used as given (upstream
+  c1fd34ebc)
 
 #### Results
 

@@ -8,6 +8,7 @@ import typing
 import uuid
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pickle import dumps, loads
 from unittest.mock import DEFAULT, Mock, call, patch
 from zoneinfo import ZoneInfo
@@ -61,6 +62,10 @@ class CustomReduceApp(Celery):
 
     def __reduce_args__(self):
         return super().__reduce_args__()
+
+
+class BackendClassApp(Celery):
+    backend_cls = Backend
 
 
 class test_module:
@@ -1329,6 +1334,16 @@ class test_App:
         assert isinstance(backend1, Backend)
         assert isinstance(backend2, Backend)
         assert backend1 is backend2
+
+    @pytest.mark.parametrize(
+        "make_app",
+        [partial(Celery, backend=Backend), BackendClassApp],
+        ids=["backend_argument", "backend_cls"],
+    )
+    def test_backend_given_as_a_class(self, make_app):
+        with make_app("backend-class", set_as_current=False) as app:
+            assert type(app.backend) is Backend
+            assert app.backend.app is app
 
     def test_thread_backend(self):
         # Test that app.backend returns the new backend for each thread
