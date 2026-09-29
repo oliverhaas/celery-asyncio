@@ -157,6 +157,10 @@ commit it came from.
   options with the original. Stamping or freezing a clone's callback therefore
   changed the original's. A deep copy of a signature now copies its options too
   (upstream cdd516f71)
+- `stamp(..., append_stamps=False)` still collected the values that two stamps
+  gave one key of a dict stamp into a list, because the merge dropped the flag
+  on its way into the nested dict. A dict stamp now follows `append_stamps` like
+  any other (upstream 0c950f6af)
 
 #### App and configuration
 

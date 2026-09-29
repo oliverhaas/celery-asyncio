@@ -1309,3 +1309,20 @@ class test_stamping_mechanism(CanvasCase):
             canvas = chain(tasks())
             canvas.link_error(s("chain_link_error"))
             canvas.stamp(CustomStampingVisitor())
+
+    @pytest.mark.parametrize(
+        ("append_stamps", "expected"),
+        [
+            (False, {"shared": 1, "only_sig": 1}),
+            (True, {"shared": [1, 2], "only_sig": 1}),
+        ],
+    )
+    def test_a_nested_stamp_follows_append_stamps(self, append_stamps, expected):
+        class NestedStampVisitor(StampingVisitor):
+            def on_signature(self, sig, **headers):
+                return {"nested_stamp": {"shared": 2}}
+
+        sig = self.add.s(1, 1)
+        sig.stamp(NestedStampVisitor(), append_stamps=append_stamps, nested_stamp={"shared": 1, "only_sig": 1})
+
+        assert sig.options["nested_stamp"] == expected
