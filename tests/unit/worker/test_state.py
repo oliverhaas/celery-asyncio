@@ -2,7 +2,8 @@ import importlib.util
 import os
 import pickle
 import sys
-from time import time
+import zlib
+from time import monotonic, time
 from unittest.mock import Mock, patch
 
 import pytest
@@ -145,6 +146,20 @@ class test_Persistent:
             assert d["clock"] == 627
             assert "revoked" not in d
             assert d["zrevoked"] is revoked
+
+    def test_merge_of_ids_saved_before_a_reboot_keeps_local_revokes(self):
+        ahead = monotonic() + 10**6
+        saved = LimitedSet()
+        saved.add("saved-1", now=ahead)
+        saved.add("saved-2", now=ahead + 1)
+        db = MockShelve(zrevoked=zlib.compress(pickle.dumps(saved)))
+        ours = LimitedSet(maxlen=2, expires=state.REVOKE_EXPIRES)
+        with patch.object(MyPersistent, "storage", db), patch.object(state, "revoked", ours):
+            MyPersistent(state, filename="celery-state")
+            ours.add("ours")
+            assert "ours" in ours
+            ours.purge(now=monotonic() + state.REVOKE_EXPIRES + 1)
+            assert not ours
 
     def test_sync(self, p, data1=None, data2=None):
         if data2 is None:

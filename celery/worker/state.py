@@ -43,6 +43,7 @@ __all__ = (
     "maybe_shutdown",
     "task_accepted",
     "task_ready",
+    "merge_revoked",
     "Persistent",
 )
 
@@ -112,6 +113,25 @@ revoked = LimitedSet(maxlen=REVOKES_MAX, expires=REVOKE_EXPIRES)
 
 #: Mapping of stamped headers flagged for revoking.
 revoked_stamps: dict[str, Any] = {}
+
+
+def merge_revoked(task_ids):
+    """Add task ids revoked on another worker, or before a restart.
+
+    Only the ids are taken, and they are stamped with the local clock.
+    :data:`revoked` stamps with :func:`time.monotonic`, which counts from the
+    boot of the host, so a stamp from another host or from before a reboot
+    can be ahead of ours. Such a stamp never expires here, and once they fill
+    the set, an id revoked here is the oldest and is dropped as it is added.
+
+    Arguments:
+        task_ids (Iterable): The ids, oldest first, or the dict or
+            :class:`~celery.utils.collections.LimitedSet` an older worker
+            sends, whose stamps are ignored.
+    """
+    if task_ids:
+        revoked.update(list(task_ids))
+
 
 should_stop: int | bool | None = None
 should_terminate: int | bool | None = None
@@ -310,18 +330,15 @@ class Persistent:
 
     def _merge_revoked_v3(self, zrevoked):
         if zrevoked:
-            self._revoked_tasks.update(pickle.loads(self.decompress(zrevoked)))
+            self._merge_revoked_v1(pickle.loads(self.decompress(zrevoked)))
 
     def _merge_revoked_v2(self, saved):
-        if not isinstance(saved, LimitedSet):
-            # (pre 3.0.18) used to be stored as a dict
-            return self._merge_revoked_v1(saved)
-        self._revoked_tasks.update(saved)
+        # A LimitedSet, or (pre 3.0.18) a dict.
+        self._merge_revoked_v1(saved)
 
     def _merge_revoked_v1(self, saved):
-        add = self._revoked_tasks.add
-        for item in saved:
-            add(item)
+        # The saved stamps may be from before a reboot, see merge_revoked().
+        self.state.merge_revoked(saved)
 
     def _dumps(self, obj):
         return pickle.dumps(obj, protocol=self.protocol)

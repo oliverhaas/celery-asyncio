@@ -52,11 +52,13 @@ class Mingle(bootsteps.StartStopStep):
     async def send_hello(self, c):
         try:
             inspect = c.app.control.inspect(timeout=1.0, connection=c.connection)
-            our_revoked = c.controller.state.revoked
+            # The ids only, oldest first: the stamps are dropped on arrival,
+            # see merge_revoked().
+            our_revoked = list(c.controller.state.revoked)
             replies = await inspect._arequest(
                 "hello",
                 from_node=c.hostname,
-                revoked=our_revoked._data,
+                revoked=our_revoked,
             )
             replies = replies or {}
             replies.pop(c.hostname, None)  # delete my own response
@@ -83,4 +85,4 @@ class Mingle(bootsteps.StartStopStep):
 
     def on_revoked_received(self, c, revoked):
         if revoked:
-            c.controller.state.revoked.update(revoked)
+            c.controller.state.merge_revoked(revoked)

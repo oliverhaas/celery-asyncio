@@ -76,6 +76,13 @@ commit it came from.
 - `inspect().query_task()` found nothing for a task that was waiting for its
   ETA or countdown, although `inspect().scheduled()` listed it. It now reports
   such a task as `scheduled` (upstream 4d386839b)
+- Revoked ids that a worker received from another worker through mingle or the
+  `hello` command, or read from its state db after a reboot, kept the stamps of
+  the other host's monotonic clock. A stamp ahead of the local clock never
+  expired, and once such stamps filled the set, a task revoked on the worker was
+  dropped from the set as it was added and ran anyway. The worker now stamps
+  such ids with its own clock, and workers exchange only the ids (upstream
+  263584bab)
 
 #### Beat and schedules
 

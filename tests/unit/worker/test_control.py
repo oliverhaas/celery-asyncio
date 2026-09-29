@@ -11,7 +11,7 @@ import pytest
 from kombu import pidbox
 from kombu.utils.uuid import uuid
 
-from celery.utils.collections import AttributeDict
+from celery.utils.collections import AttributeDict, LimitedSet
 from celery.utils.functional import maybe_list
 from celery.utils.scheduling import Timer
 from celery.worker import WorkController as _WC
@@ -240,6 +240,18 @@ class test_ControlPanel:
         worker_state.revoked.add("expired_in_past", now=time.monotonic() - REVOKE_EXPIRES - 1)
         x = panel.handle("hello", {"from_node": "george@vandelay.com", "revoked": {"1234", "4567", "891"}})
         assert "expired_in_past" not in x["revoked"]
+
+    def test_hello_trades_revoked_ids_but_not_their_stamps(self):
+        panel = self.create_panel(consumer=Consumer(self.app))
+        ahead = time.monotonic() + 10**6
+        theirs = {"theirs-1": [ahead, "theirs-1"], "theirs-2": [ahead + 1, "theirs-2"]}
+        with patch.object(worker_state, "revoked", LimitedSet(maxlen=2, expires=REVOKE_EXPIRES)) as ours:
+            reply = panel.handle("hello", {"from_node": "george@vandelay.com", "revoked": theirs})
+            panel.handle("revoke", {"task_id": "ours"})
+            assert reply["revoked"] == ["theirs-1", "theirs-2"]
+            assert "ours" in ours
+            ours.purge(now=time.monotonic() + REVOKE_EXPIRES + 1)
+            assert not ours
 
     def test_conf(self):
         consumer = Consumer(self.app)

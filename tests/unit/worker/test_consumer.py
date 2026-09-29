@@ -3,6 +3,7 @@ import errno
 import socket
 from uuid import uuid4
 from collections import deque
+from time import monotonic
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
@@ -21,6 +22,7 @@ from celery.contrib.testing.mocks import ContextMock
 from celery.exceptions import RestartFreqExceeded, WorkerShutdown, WorkerTerminate
 from celery.utils.collections import LimitedSet
 from celery.worker import background
+from celery.worker import state as worker_state
 from celery.worker.consumer.connection import Connection
 from celery.worker.consumer.consumer import CANCEL_TASKS_BY_DEFAULT, CLOSE, TERMINATE, Consumer
 from celery.worker.consumer.events import Events
@@ -28,7 +30,7 @@ from celery.worker.consumer.gossip import Gossip
 from celery.worker.consumer.heart import Heart
 from celery.worker.consumer.mingle import Mingle
 from celery.worker.consumer.tasks import Tasks
-from celery.worker.state import active_requests, successful_requests
+from celery.worker.state import REVOKE_EXPIRES, active_requests, successful_requests
 
 
 class ConsumerTestCase:
@@ -871,6 +873,7 @@ class test_Mingle:
         c = Mock()
         c.app.connection_for_read = _amqp_connection()
         mingle = Mingle(c)
+        c.controller.state.revoked = LimitedSet()
         I = c.app.control.inspect.return_value = Mock()
         I._arequest = AsyncMock(return_value={})
         await mingle.start(c)
@@ -904,13 +907,16 @@ class test_Mingle:
             },
         )
 
-        our_revoked = c.controller.state.revoked = LimitedSet()
+        our_revoked = LimitedSet()
+        our_revoked.add("ours")
+        c.controller.state = worker_state
 
-        await mingle.start(c)
+        with patch.object(worker_state, "revoked", our_revoked):
+            await mingle.start(c)
         I._arequest.assert_called_with(
             "hello",
             from_node=c.hostname,
-            revoked=our_revoked._data,
+            revoked=["ours"],
         )
         c.app.clock.adjust.assert_has_calls(
             [
@@ -922,6 +928,23 @@ class test_Mingle:
         assert "Aig-1" in our_revoked
         assert "Aig-2" in our_revoked
         assert "Big-1" in our_revoked
+
+    async def test_start_with_a_neighbour_whose_clock_is_ahead_keeps_local_revokes(self):
+        c = Mock()
+        c.app.connection_for_read = _amqp_connection()
+        mingle = Mingle(c)
+        ahead = monotonic() + 10**6
+        theirs = {"theirs-1": [ahead, "theirs-1"], "theirs-2": [ahead + 1, "theirs-2"]}
+        I = c.app.control.inspect.return_value = Mock()
+        I._arequest = AsyncMock(return_value={"A@example.com": {"clock": 312, "revoked": theirs}})
+        c.controller.state = worker_state
+
+        with patch.object(worker_state, "revoked", LimitedSet(maxlen=2, expires=REVOKE_EXPIRES)) as ours:
+            await mingle.start(c)
+            ours.add("ours")
+            assert "ours" in ours
+            ours.purge(now=monotonic() + REVOKE_EXPIRES + 1)
+            assert not ours
 
 
 def _amqp_connection():
