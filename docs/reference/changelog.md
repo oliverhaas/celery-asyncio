@@ -68,6 +68,11 @@ commit it came from.
   worker ran without the logging the receiver was meant to set up, and a second
   setup did nothing because the first one counted as done. The exception now
   propagates, and the setup can be run again (upstream 2c1439757)
+- A `task_failure` receiver saw an empty `sender.request`, with no id and no
+  headers, when the worker rather than the task reported the failure: a
+  `WorkerLostError`, a `Reject` without requeue, or a hard time limit. The
+  failed task's request is now current while the signal is sent (upstream
+  beef13ac9)
 
 #### Beat and schedules
 

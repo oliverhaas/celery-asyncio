@@ -465,6 +465,32 @@ class test_Request(RequestCase):
             req.id, einfo.exception, request=req._context, store_result=True
         )
 
+    @pytest.mark.parametrize(
+        "fail",
+        [
+            lambda req: req.on_failure(ExceptionInfo((WorkerLostError, WorkerLostError(), None))),
+            lambda req: req.on_failure(ExceptionInfo((Reject, Reject("no", requeue=False), None))),
+            lambda req: req.on_timeout(soft=False, timeout=1),
+        ],
+        ids=["worker_lost", "reject_without_requeue", "hard_time_limit"],
+    )
+    def test_task_failure_receivers_see_the_failed_request(self, patching, fail):
+        patching("celery.worker.request.error")
+        req = self.xRequest(tenant="acme")
+        seen = []
+
+        def on_task_failure(sender, **kwargs):
+            seen.append((sender.request.id, sender.request.headers))
+
+        task_failure.connect(on_task_failure)
+        try:
+            fail(req)
+        finally:
+            task_failure.disconnect(on_task_failure)
+
+        assert seen == [(req.id, {"tenant": "acme"})]
+        assert req.task.request_stack.top is None
+
     def test_on_failure_TimeLimitExceeded_acks(self):
         try:
             raise TimeLimitExceeded()

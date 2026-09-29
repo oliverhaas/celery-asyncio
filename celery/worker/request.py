@@ -624,15 +624,7 @@ class Request:
                     if task_has_custom(self.task, "after_return"):
                         self.task.after_return(states.FAILURE, exc, self.id, self.args, self.kwargs, None)
 
-                    signals.task_failure.send(
-                        sender=self.task,
-                        task_id=self.id,
-                        exception=exc,
-                        args=self.args,
-                        kwargs=self.kwargs,
-                        traceback=exc.__traceback__,
-                        einfo=einfo,
-                    )
+                    self._send_task_failure(exc, exc.__traceback__, einfo)
 
                     self.send_event(
                         "task-failed",
@@ -715,15 +707,7 @@ class Request:
                     request=self._context,
                     store_result=self.store_errors,
                 )
-                signals.task_failure.send(
-                    sender=self.task,
-                    task_id=self.id,
-                    exception=exc,
-                    args=self.args,
-                    kwargs=self.kwargs,
-                    traceback=exc_info.traceback,
-                    einfo=exc_info,
-                )
+                self._send_task_failure(exc, exc_info.traceback, exc_info)
                 if send_failed_event:
                     self.send_event(
                         "task-failed",
@@ -772,15 +756,7 @@ class Request:
                 store_result=self.store_errors,
             )
 
-            signals.task_failure.send(
-                sender=self.task,
-                task_id=self.id,
-                exception=exc,
-                args=self.args,
-                kwargs=self.kwargs,
-                traceback=exc_info.traceback,
-                einfo=exc_info,
-            )
+            self._send_task_failure(exc, exc_info.traceback, exc_info)
 
         if send_failed_event:
             self.send_event(
@@ -791,6 +767,23 @@ class Request:
 
         if not return_ok:
             error("Task handler raised error: %r", exc, exc_info=exc_info.exc_info)
+
+    def _send_task_failure(self, exc, traceback, einfo):
+        # Receivers read the request off sender.request, and outside the
+        # tracer nothing has it on the task's request stack.
+        self.task.request_stack.push(self._context)
+        try:
+            signals.task_failure.send(
+                sender=self.task,
+                task_id=self.id,
+                exception=exc,
+                args=self.args,
+                kwargs=self.kwargs,
+                traceback=traceback,
+                einfo=einfo,
+            )
+        finally:
+            self.task.request_stack.pop()
 
     def acknowledge(self):
         """Acknowledge task."""
