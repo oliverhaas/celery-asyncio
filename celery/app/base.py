@@ -43,7 +43,7 @@ from celery._state import (
     get_current_worker_task,
     set_default_app,
 )
-from celery.exceptions import AlwaysEagerIgnored, ImproperlyConfigured
+from celery.exceptions import AlwaysEagerIgnored, DuplicateTaskNameWarning, ImproperlyConfigured
 from celery.loaders import get_loader_cls
 from celery.local import PromiseProxy, maybe_evaluate
 from celery.utils import abstract
@@ -51,7 +51,7 @@ from celery.utils.collections import AttributeDictMixin
 from celery.utils.dispatch import Signal
 from celery.utils.eventloop import current_loop, default_loop_runner
 from celery.utils.functional import first, head_from_fun, maybe_list
-from celery.utils.imports import gen_task_name, instantiate, symbol_by_name
+from celery.utils.imports import gen_task_name, instantiate, qualname, symbol_by_name
 from celery.utils.log import get_logger
 from celery.utils.objects import mro_lookup
 from celery.utils.promises import starpromise
@@ -159,6 +159,27 @@ a valid configuration module.
 Example:
     {0}="proj.celeryconfig"
 """
+
+W_DUPLICATE_TASK_NAME = """\
+Task name {0!r} is already registered to a different callable.
+
+Existing: {1}
+New:      {2}
+
+{3}
+
+Every task must have a unique name. Pass an explicit name= to the task \
+decorator, or rename one of the callables.\
+"""
+
+#: The decorator registers a task at one depth and a proxy at another, so the
+#: warning skips Celery's own files to reach the caller (upstream ea1db4a55).
+_CELERY_SOURCE_PREFIXES = (os.path.join(os.path.dirname(os.path.dirname(__file__)), ""),)
+
+
+def _task_callable(task):
+    """Return the function a task was decorated from, or else its class."""
+    return getattr(task, "_decorated_fun", None) or type(task)
 
 
 def app_has_custom(app, attr):
@@ -463,6 +484,7 @@ class Celery:
         self.finalized = False
         self._finalize_mutex = threading.RLock()
         self._pending = deque()
+        self._duplicate_task_names_warned = set()
         self._tasks = tasks
         if not isinstance(self._tasks, TaskRegistry):
             self._tasks = self.registry_cls(self._tasks or {})
@@ -695,6 +717,9 @@ class Celery:
         base = base or self.Task
 
         if name not in self._tasks:
+            # Kept as passed for the duplicate check: `__wrapped__` reads back
+            # as a bound method under `bind` and as the pydantic wrapper.
+            decorated_fun = fun
             if pydantic is True:
                 fun = pydantic_wrapper(self, fun, name, pydantic_strict, pydantic_context, pydantic_dump_kwargs)
 
@@ -713,6 +738,7 @@ class Celery:
                         "__annotations__": _get_annotations(fun),
                         "__header__": self.type_checker(fun, bound=bind),
                         "__wrapped__": run,
+                        "_decorated_fun": staticmethod(decorated_fun),
                     },
                     **options,
                 ),
@@ -728,6 +754,15 @@ class Celery:
             add_autoretry_behaviour(task, **options)
         else:
             task = self._tasks[name]
+            # A task registered by class has no function to compare against.
+            existing_fun = getattr(task, "_decorated_fun", None)
+            if existing_fun is not None and existing_fun is not fun:
+                self._warn_duplicate_task_name(
+                    name,
+                    task,
+                    fun,
+                    "The new callable was not registered; calls under this name reach the callable registered first.",
+                )
         return task
 
     def register_task(self, task, **options):
@@ -742,11 +777,37 @@ class Celery:
         if not task.name:
             task_cls = type(task)
             task.name = self.gen_task_name(task_cls.__name__, task_cls.__module__)
+        existing = self.tasks.get(task.name)
+        # Registering the same class again makes a new instance, not a clash.
+        if existing is not None and _task_callable(existing) is not _task_callable(task):
+            self._warn_duplicate_task_name(
+                task.name,
+                existing,
+                _task_callable(task),
+                "The new callable replaced the existing one; calls under this name now reach the new callable.",
+            )
         add_autoretry_behaviour(task, **options)
         self.tasks[task.name] = task
         task._app = self
         task.bind(self)
         return task
+
+    def _warn_duplicate_task_name(self, name, existing, new, consequence):
+        # Apps sharing a registry through `Celery(tasks=...)` each make the
+        # built-in tasks afresh, so only this app's own tasks count (unlike upstream).
+        if existing._app is not self:
+            return
+        # One warning per name, however often the clash recurs; two threads
+        # racing on the check can at worst both warn.
+        if name in self._duplicate_task_names_warned:
+            return
+        self._duplicate_task_names_warned.add(name)
+        warnings.warn(
+            DuplicateTaskNameWarning(
+                W_DUPLICATE_TASK_NAME.format(name, qualname(_task_callable(existing)), qualname(new), consequence)
+            ),
+            skip_file_prefixes=_CELERY_SOURCE_PREFIXES,
+        )
 
     def gen_task_name(self, name, module):
         return gen_task_name(self, name, module)

@@ -621,7 +621,7 @@ class test_trace(TraceCase):
         worker that has never seen the message, so only the backend knows.
         """
 
-        @self.app.task(shared=False)
+        @self.app.task(shared=False, name="t.redelivered")
         def add(x, y):
             return x + y
 
@@ -788,7 +788,7 @@ class test_trace(TraceCase):
     def test_chain_dispatch_does_not_mutate_the_request_chain(self):
         # pop() emptied the caller's list, so a retry or a redelivery traced
         # the same request with a chain one step short.
-        @self.app.task(shared=False)
+        @self.app.task(shared=False, name="t.first_step")
         def add(x, y):
             return x + y
 
@@ -874,7 +874,7 @@ class test_trace(TraceCase):
 
     @pytest.mark.asyncio
     async def test_async_chain_dispatch_does_not_mutate_the_request_chain(self):
-        @self.app.task(shared=False)
+        @self.app.task(shared=False, name="t.first_step")
         def add(x, y):
             return x + y
 

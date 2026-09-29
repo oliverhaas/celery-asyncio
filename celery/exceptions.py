@@ -21,6 +21,7 @@ __all__ = (
     "CeleryWarning",
     "AlwaysEagerIgnored",
     "DuplicateNodenameWarning",
+    "DuplicateTaskNameWarning",
     "FixupWarning",
     "NotConfigured",
     "SecurityWarning",
@@ -91,6 +92,10 @@ class AlwaysEagerIgnored(CeleryWarning):
 
 class DuplicateNodenameWarning(CeleryWarning):
     """Multiple workers are using the same nodename."""
+
+
+class DuplicateTaskNameWarning(CeleryWarning):
+    """Multiple callables are registered under the same task name."""
 
 
 class FixupWarning(CeleryWarning):

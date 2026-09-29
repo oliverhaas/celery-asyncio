@@ -24,6 +24,15 @@ commit it came from.
 - The `task_success` signal passes `runtime` to its receivers: the time in
   seconds the task took, as the worker logs it in "Task ... succeeded in ...s"
   (upstream 261c33faa)
+- A `DuplicateTaskNameWarning` is issued when an app registers a second,
+  different callable under a task name that one of its own tasks already has,
+  such as a closure made twice by one factory. The task decorator kept the
+  first callable without a word, so calls meant for the second ran the first,
+  and `register_task` replaced the task just as silently. The warning names
+  both callables and points at the line that registered the second one;
+  registering the same function again stays quiet, and so does a name held by
+  a task of another app in a registry shared through `Celery(tasks=...)`
+  (upstream ea1db4a55)
 
 ### Fixed
 

@@ -6,6 +6,7 @@ import os
 import ssl
 import typing
 import uuid
+import warnings
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -24,7 +25,7 @@ from celery import app as _app
 from celery.app import defaults
 from celery.app.amqp import AMQP
 from celery.backends.base import Backend
-from celery.exceptions import ImproperlyConfigured
+from celery.exceptions import DuplicateTaskNameWarning, ImproperlyConfigured
 from celery.loaders.base import unconfigured
 from celery.platforms import pyimplementation
 from celery.utils.collections import DictAttribute
@@ -1398,6 +1399,83 @@ class test_App:
             self.app.send_task("foo", (1, 2), expires="2023-03-16T17:21:20.663973")
         except TypeError as e:
             pytest.fail(f"raise unexcepted error {e}")
+
+
+class test_duplicate_task_names:
+    """Two callables under one task name collapsed into one task unnoticed."""
+
+    def scaler(self, factor, **options):
+        @self.app.task(shared=False, **options)
+        def scale(x):
+            return x * factor
+
+        return scale
+
+    @pytest.mark.parametrize("lazy", [True, False], ids=["on_first_use", "at_decoration"])
+    def test_a_second_function_under_a_taken_name_warns_once_at_the_caller(self, lazy):
+        with pytest.warns(DuplicateTaskNameWarning) as record:
+            tasks = [self.scaler(factor, lazy=lazy) for factor in (2, 3, 4)]
+            assert len({task.name for task in tasks}) == 1
+
+        duplicates = [w for w in record if w.category is DuplicateTaskNameWarning]
+        assert len(duplicates) == 1
+        assert tasks[0].name in str(duplicates[0].message)
+        assert duplicates[0].filename == __file__
+
+    @pytest.mark.parametrize("options", [{}, {"bind": True}, {"pydantic": True}], ids=["plain", "bind", "pydantic"])
+    def test_registering_the_same_function_again_stays_quiet(self, options):
+        def double(x):
+            return x * 2
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DuplicateTaskNameWarning)
+            first = self.app.task(double, shared=False, lazy=False, **options)
+            second = self.app.task(double, shared=False, lazy=False, **options)
+
+        assert second is first
+
+    def test_an_app_on_another_apps_registry_stays_quiet(self):
+        registry = self.app.tasks
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DuplicateTaskNameWarning)
+            with self.Celery(tasks=registry) as other:
+                other.finalize()
+
+    def test_register_task_warns_when_a_different_class_replaces_the_task(self):
+        class First(Task):
+            name = "t.duplicate"
+
+            def run(self):
+                return "first"
+
+        class Second(Task):
+            name = "t.duplicate"
+
+            def run(self):
+                return "second"
+
+        self.app.register_task(First)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DuplicateTaskNameWarning)
+            self.app.register_task(First)
+
+        with pytest.warns(DuplicateTaskNameWarning, match="t.duplicate"):
+            self.app.register_task(Second)
+
+    def test_register_task_on_another_apps_registry_stays_quiet(self):
+        class First(Task):
+            name = "t.duplicate"
+
+        class Second(Task):
+            name = "t.duplicate"
+
+        self.app.register_task(First)
+        with self.Celery(tasks=self.app.tasks) as other:
+            other.finalize()
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", DuplicateTaskNameWarning)
+                other.register_task(Second)
 
 
 class test_countdown_on_a_quorum_queue:
