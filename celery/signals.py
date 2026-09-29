@@ -72,8 +72,15 @@ task_postrun = Signal(
 )
 task_success = Signal(
     name="task_success",
-    providing_args={"result"},
+    providing_args={"result", "runtime"},
 )
+"""Sent when a task succeeds.
+
+Sender is the task object.  ``result`` is the return value of the task, and
+``runtime`` the time in seconds it took, from the start of tracing until its
+callbacks are sent and its result is stored: the time the worker logs in
+"Task ... succeeded in ...s".
+"""
 task_retry = Signal(
     name="task_retry",
     providing_args={"request", "reason", "einfo"},

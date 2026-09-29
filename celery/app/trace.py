@@ -788,7 +788,7 @@ def build_tracer(
                         if task_on_success:
                             task_on_success(retval, uuid, args, kwargs)
                         if success_receivers:
-                            send_success(sender=task, result=retval)
+                            send_success(sender=task, result=retval, runtime=T)
                         if _does_info:
                             info(
                                 LOG_SUCCESS,
@@ -1138,7 +1138,7 @@ def build_async_tracer(
                         if task_on_success:
                             task_on_success(retval, uuid, args, kwargs)
                         if success_receivers:
-                            send_success(sender=task, result=retval)
+                            send_success(sender=task, result=retval, runtime=T)
                         if _does_info:
                             info(
                                 LOG_SUCCESS,

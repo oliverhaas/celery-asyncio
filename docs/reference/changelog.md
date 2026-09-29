@@ -21,6 +21,9 @@ commit it came from.
   setting, which every backend that stores a result here does; one that cannot
   warns once and stores uncompressed. An unrecognised method raises
   `ImproperlyConfigured` when the backend is built (upstream 7c846b63b)
+- The `task_success` signal passes `runtime` to its receivers: the time in
+  seconds the task took, as the worker logs it in "Task ... succeeded in ...s"
+  (upstream 261c33faa)
 
 ### Fixed
 

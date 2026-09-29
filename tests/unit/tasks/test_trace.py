@@ -171,14 +171,18 @@ class test_trace(TraceCase):
         finally:
             signals.task_postrun.receivers[:] = []
 
-    def test_with_success_receivers(self):
-        on_success = Mock()
+    def test_success_receivers_get_the_runtime(self):
+        received = []
+
+        def on_success(sender, **kwargs):
+            received.append(kwargs.get("runtime"))
+
         signals.task_success.connect(on_success)
         try:
-            self.trace(self.add, (2, 2), {})
-            on_success.assert_called()
+            ret = build_tracer(self.add.name, self.add, eager=True, app=self.app)("id-1", (2, 2), {}, None)
         finally:
-            signals.task_success.receivers[:] = []
+            signals.task_success.disconnect(on_success)
+        assert received == [ret.runtime]
 
     def test_when_chord_part(self):
         @self.app.task(shared=False)
@@ -961,14 +965,18 @@ class test_async_trace(TraceCase):
         finally:
             signals.task_postrun.receivers[:] = []
 
-    async def test_with_success_receivers(self):
-        on_success = Mock()
+    async def test_success_receivers_get_the_runtime(self):
+        received = []
+
+        def on_success(sender, **kwargs):
+            received.append(kwargs.get("runtime"))
+
         signals.task_success.connect(on_success)
         try:
-            await self.atrace(self.add, (2, 2), {})
-            on_success.assert_called()
+            ret = await build_async_tracer(self.add.name, self.add, eager=True, app=self.app)("id-1", (2, 2), {}, None)
         finally:
-            signals.task_success.receivers[:] = []
+            signals.task_success.disconnect(on_success)
+        assert received == [ret.runtime]
 
     async def test_track_started_stores_the_started_state(self):
         self.add.track_started = True
