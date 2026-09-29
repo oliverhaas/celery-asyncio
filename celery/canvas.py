@@ -67,6 +67,11 @@ def maybe_unroll_group(group):
         return group.tasks[0] if size == 1 else group
 
 
+def _is_empty_group(task):
+    """Return True if ``task`` is a group without members."""
+    return isinstance(task, group) and isinstance(task.tasks, (list, tuple)) and not task.tasks
+
+
 def task_name_from(task):
     return getattr(task, "name", task)
 
@@ -1027,6 +1032,10 @@ class _chain(Signature):
             return self.apply_async(args, kwargs)
 
     def __or__(self, other):
+        if _is_empty_group(other):
+            # chain | empty group -> chain: the group has nothing to run, and
+            # a task after it would otherwise make it a chord's empty header.
+            return self
         if isinstance(other, group):
             # unroll group with one member
             other = maybe_unroll_group(other)
@@ -1415,15 +1424,9 @@ class _chain(Signature):
                 # and no result to pass on, so it would otherwise be upgraded
                 # to a chord whose header never completes and stall everything
                 # behind it. Skipped only when it is not the sole step:
-                # `chain(group())` still has to produce a result. A generator-
-                # backed group is left alone, since asking whether it is empty
-                # would consume it (upstream bf1cf69e2).
-                if (
-                    isinstance(task, group)
-                    and isinstance(task.tasks, (list, tuple))
-                    and not task.tasks
-                    and (steps or prev_task)
-                ):
+                # `chain(group())` still has to produce a result
+                # (upstream bf1cf69e2).
+                if _is_empty_group(task) and (steps or prev_task):
                     continue
 
             # first task gets partial args from chain
@@ -1532,7 +1535,11 @@ class _chain(Signature):
         args = args or ()
         kwargs = kwargs or {}
         last, (fargs, fkwargs) = None, (args, kwargs)
-        for task in self.tasks:
+        tasks = list(self.tasks)
+        for index, task in enumerate(tasks):
+            # An empty group is a no-op, unless nothing else in the chain runs.
+            if _is_empty_group(task) and (index < len(tasks) - 1 or last is not None):
+                continue
             # apply() takes the args because clone() folds them into the
             # kwargs, where a nested chain or chord keeps only its tasks.
             res = task.clone().apply((last.get(),) if last else fargs, fkwargs, **dict(self.options, **options))
@@ -1554,7 +1561,10 @@ class _chain(Signature):
         args = args or ()
         kwargs = kwargs or {}
         last, (fargs, fkwargs) = None, (args, kwargs)
-        for task in self.tasks:
+        tasks = list(self.tasks)
+        for index, task in enumerate(tasks):
+            if _is_empty_group(task) and (index < len(tasks) - 1 or last is not None):
+                continue
             res = await task.clone().aapply(
                 (await last.aget(),) if last else fargs, fkwargs, **dict(self.options, **options)
             )

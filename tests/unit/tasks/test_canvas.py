@@ -908,6 +908,21 @@ class test_chain(CanvasCase):
         assert await (await nested_chain.aapply(args=args, kwargs=kwargs)).aget() == 50
         assert await (await leading_chord.aapply(args=args, kwargs=kwargs)).aget() == 50
 
+    @pytest.mark.parametrize("index", [0, 1, 2])
+    def test_apply_ignores_an_empty_group(self, index):
+        tasks = [self.add.s(2, 2), self.add.s(2)]
+        tasks.insert(index, group(app=self.app))
+
+        assert chain(*tasks).apply().get() == 6
+        assert chain(*tasks, app=self.app).apply().get() == 6
+
+    @pytest.mark.parametrize("index", [0, 1, 2])
+    async def test_aapply_ignores_an_empty_group(self, index):
+        tasks = [self.add.s(2, 2), self.add.s(2)]
+        tasks.insert(index, group(app=self.app))
+
+        assert await (await chain(*tasks, app=self.app).aapply()).aget() == 6
+
     def test_single_expresion(self):
         x = chain(self.add.s(1, 2)).apply()
         assert x.get() == 3

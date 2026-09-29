@@ -170,6 +170,12 @@ commit it came from.
   step was a nested chain or a chord, so its first task failed with a missing
   argument `TypeError`, and a `tasks` keyword replaced the nested chain's tasks.
   The arguments now reach that step's first tasks (upstream d98d4114e)
+- An eager chain did not skip an empty group the way a worker does:
+  `chain(add.s(2, 2), group()).apply()` returned `[]`, where a worker gave 4.
+  Built with `chain()`, an empty group followed by a task also became a chord
+  with an empty header, which failed with a `TypeError`. `chain()` now drops
+  empty groups, and `apply()` and `aapply()` skip one unless the chain has
+  nothing else to run (upstream 4debc0511)
 
 #### App and configuration
 
