@@ -240,6 +240,12 @@ commit it came from.
   an event for the parent arrives, and a parent that was already processed or
   evicted never sends one, so a monitor left running grew without limit. It is
   now bounded like every other mapping there (upstream e522ec899)
+- `utcoffset` floor-divided the local offset into whole hours, so a node in a
+  half- or quarter-hour zone such as India, Nepal or Newfoundland put an offset
+  30 or 15 minutes off into every event, and a monitor in another zone shifted
+  that node's event timestamps by as much. The offset is now exact. Until the
+  monitor and the workers all run this version, a monitor in such a zone shifts
+  the events of a worker in the same zone by that amount (upstream 208a80365)
 
 #### Utilities
 

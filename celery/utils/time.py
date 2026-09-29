@@ -461,12 +461,13 @@ class ffwd:
 
 def utcoffset(time: ModuleType = _time, localtime: Callable[..., _time.struct_time] = _time.localtime) -> float:
     """Return the current offset to UTC in hours."""
+    # Not floor division: India is 5.5 hours east and Nepal 5.75 (upstream 208a80365).
     if localtime().tm_isdst:
-        return time.altzone // 3600
-    return time.timezone // 3600
+        return time.altzone / 3600
+    return time.timezone / 3600
 
 
-def adjust_timestamp(ts: float, offset: int, here: Callable[..., float] = utcoffset) -> float:
+def adjust_timestamp(ts: float, offset: float, here: Callable[..., float] = utcoffset) -> float:
     """Adjust timestamp based on provided utcoffset."""
     return ts - (offset - here()) * 3600
 

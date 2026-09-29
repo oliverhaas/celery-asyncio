@@ -404,6 +404,16 @@ class test_utcoffset:
         _time.daylight = False
         assert utcoffset(time=_time) is not None
 
+    @pytest.mark.parametrize(
+        "std_offset,dst_offset,isdst,expected",
+        [(-19800, -19800, 0, -5.5), (-20700, -20700, 0, -5.75), (12600, 9000, 1, 2.5)],
+        ids=["india", "nepal", "newfoundland_in_summer"],
+    )
+    def test_keeps_the_fraction_of_a_fractional_hour_zone(self, std_offset, dst_offset, isdst, expected):
+        clock = Mock(timezone=std_offset, altzone=dst_offset)
+
+        assert utcoffset(time=clock, localtime=lambda: Mock(tm_isdst=isdst)) == expected
+
 
 class test_get_exponential_backoff_interval:
     @patch("random.randrange", lambda n: n - 2)
