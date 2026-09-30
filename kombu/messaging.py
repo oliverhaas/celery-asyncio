@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from .common import maybe_declare
 from .compression import compress
 from .entity import Exchange, Queue
 from .log import get_logger
@@ -222,7 +223,7 @@ class Producer:
         # which the caller has to hear about; the channel is dead afterwards anyway.
         if declare:
             for entity in declare:
-                await entity.declare(channel)
+                await maybe_declare(entity, channel)
 
         # Resolve defaults
         routing_key = routing_key if routing_key is not None else self.routing_key

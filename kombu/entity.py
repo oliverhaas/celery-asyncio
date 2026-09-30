@@ -88,6 +88,15 @@ class Exchange:
     def __str__(self) -> str:
         return f"Exchange {self.name!r}({self.type})"
 
+    @property
+    def can_cache_declaration(self) -> bool:
+        """Whether one declaration holds for as long as the channel does.
+
+        The broker drops an auto-delete exchange once its last queue lets go
+        of it, so that one has to be declared every time, as upstream does.
+        """
+        return not self.auto_delete
+
     async def declare(self, channel: Channel | None = None) -> None:
         """Declare the exchange.
 
@@ -249,6 +258,19 @@ class Queue:
 
     def __str__(self) -> str:
         return f"Queue {self.name!r}"
+
+    @property
+    def can_cache_declaration(self) -> bool:
+        """Whether one declaration holds for as long as the channel does.
+
+        The broker deletes an auto-delete queue when its last consumer goes and
+        an expiring one once it sits unused, taking the binding with it, so
+        those are declared every time, as upstream does. So is a queue bound to
+        an exchange that can go away on its own.
+        """
+        if self.auto_delete or "x-expires" in self.queue_arguments:
+            return False
+        return self.exchange is None or self.exchange.can_cache_declaration
 
     async def declare(self, channel: Channel | None = None) -> str:
         """Declare the exchange, the queue, and the binding between the two.

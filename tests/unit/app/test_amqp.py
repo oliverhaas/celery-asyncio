@@ -311,6 +311,21 @@ class test_AMQP(test_AMQP_Base):
         )
         assert channel.declare_queue.await_args.args[0].name == "foo"
 
+    async def test_send_task_message__declares_the_queue_once_per_channel(self):
+        # Declaring before every send cost two broker round trips per task on
+        # Redis, and a queue.declare plus a queue.bind on AMQP.
+        prod = self.producer()
+        channel = prod._ensure_channel.return_value
+        for _ in range(3):
+            await self.app.amqp.asend_task_message(
+                prod,
+                "foo",
+                self.simple_message_no_sent_event,
+                queue="foo",
+            )
+        assert channel.declare_queue.await_count == 1
+        assert prod.publish.await_count == 3
+
     async def test_send_task_message__broadcast_without_exchange(self):
         from kombu.common import Broadcast
 

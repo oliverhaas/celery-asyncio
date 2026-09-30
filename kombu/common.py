@@ -5,6 +5,7 @@
 import asyncio
 import os
 import threading
+import weakref
 from itertools import count
 from typing import TYPE_CHECKING, Any
 from uuid import NAMESPACE_OID, uuid3, uuid4, uuid5
@@ -100,23 +101,77 @@ class Broadcast(Queue):
         )
 
 
+#: What each channel has declared, for maybe_declare. Weak, so a channel that
+#: is closed and dropped takes its record with it.
+_declared_by_channel: weakref.WeakKeyDictionary[Any, set[tuple]] = weakref.WeakKeyDictionary()
+
+
+def _declaration_key(entity: Exchange | Queue) -> tuple:
+    """What a declaration of ``entity`` asks the broker for, as a hashable key.
+
+    More than the name: a second queue of the same name bound under another
+    routing key still has its binding to make.
+    """
+    if isinstance(entity, Queue):
+        exchange = entity.exchange
+        return (
+            "queue",
+            entity.name,
+            entity.routing_key,
+            entity.durable,
+            entity.exclusive,
+            repr(entity.queue_arguments),
+            repr(entity.binding_arguments),
+            None if exchange is None else _declaration_key(exchange),
+        )
+    return ("exchange", entity.name, entity.type, entity.durable, repr(entity.arguments))
+
+
+def _declared_on(channel: Any) -> set[tuple] | None:
+    """The declarations remembered for ``channel``, None if it cannot hold any."""
+    try:
+        declared = _declared_by_channel.get(channel)
+        if declared is None:
+            declared = _declared_by_channel[channel] = set()
+    except TypeError:
+        # Neither hashable nor weakly referenceable: nothing to remember it by.
+        return None
+    return declared
+
+
 async def maybe_declare(
     entity: Exchange | Queue,
     channel: Channel | None = None,
 ) -> bool:
-    """Declare an exchange or a queue on a channel.
+    """Declare an exchange or a queue on a channel, unless the channel already has.
+
+    The declaration is remembered per channel, as upstream remembers it per
+    connection. A publisher declares its target queue before every send, and
+    declaring again is a broker round trip that learns nothing: two on Redis,
+    a queue.declare and a queue.bind on AMQP. A reconnect opens a new channel,
+    which declares afresh. An entity the broker can drop on its own, see
+    ``can_cache_declaration``, is declared every time.
 
     Args:
         entity: Exchange or Queue to declare.
         channel: Channel to use for declaration.
 
     Returns:
-        True.
+        True if the entity was declared, False if the channel already had.
     """
     if channel is None:
         raise ValueError("Channel is required for declaration")
 
+    declared = None
+    if isinstance(entity, (Exchange, Queue)) and entity.can_cache_declaration:
+        declared = _declared_on(channel)
+    if declared is not None and _declaration_key(entity) in declared:
+        return False
+
     await entity.declare(channel)
+    if declared is not None:
+        # After the declare: a queue declared without a name has one now.
+        declared.add(_declaration_key(entity))
     return True
 
 

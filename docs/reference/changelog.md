@@ -273,6 +273,16 @@ commit it came from.
   and a group stores no result under its own id. The group is now turned into a
   chord, as a bare group already was, so `get()` returns the group's results
   (upstream 01608ff3b, 8aed8200c)
+- Sending a task declared its queue again before every publish: two extra
+  round trips per task on Valkey and Redis, a `queue.declare` and a `queue.bind`
+  on AMQP. Upstream's `maybe_declare` remembered what a connection had declared,
+  and the asyncio rewrite had lost that. It now remembers what each channel has
+  declared, so the queue is declared on the first send and again after a
+  reconnect. An auto-delete queue, a queue with `x-expires` and a queue bound to
+  an auto-delete exchange can be dropped by the broker, so those are still
+  declared every time, as upstream does. On Redis a send is back to a single
+  round trip, and `delay()` and `adelay()` take about a quarter and a third
+  less time
 
 #### Results
 

@@ -4,6 +4,7 @@ import pytest
 
 from kombu import Connection, Exchange, Queue
 from kombu.common import Broadcast, QoS, eventloop, maybe_declare
+from tests.kombu.mocks import MockChannel
 
 
 class test_Broadcast:
@@ -61,6 +62,55 @@ class test_maybe_declare:
         ex = Exchange("test")
         with pytest.raises(ValueError, match="Channel is required"):
             await maybe_declare(ex, None)
+
+    async def test_declares_once_per_channel(self, mock_channel):
+        # A publisher declares its target queue before every send, and every
+        # declare after the first cost broker round trips to learn nothing.
+        q = Queue("test_q", exchange=Exchange("test"), routing_key="rk")
+        assert await maybe_declare(q, mock_channel) is True
+        assert await maybe_declare(q, mock_channel) is False
+        assert [c[0] for c in mock_channel.calls].count("declare_queue") == 1
+        assert [c[0] for c in mock_channel.calls].count("queue_bind") == 1
+
+    async def test_a_new_channel_declares_again(self, mock_channel, mock_transport):
+        # A reconnect opens a new channel, and what the old one declared may
+        # have gone with the broker it was declared on.
+        q = Queue("test_q")
+        await maybe_declare(q, mock_channel)
+        other = MockChannel(transport=mock_transport)
+        assert await maybe_declare(q, other) is True
+        assert any(c[0] == "declare_queue" for c in other.calls)
+
+    @pytest.mark.parametrize(
+        "make_queue",
+        [
+            pytest.param(lambda: Queue("test_q", auto_delete=True), id="auto_delete"),
+            pytest.param(lambda: Queue("test_q", expires=60), id="x-expires"),
+            pytest.param(lambda: Queue("test_q", exchange=Exchange("ex", auto_delete=True)), id="auto_delete_exchange"),
+        ],
+    )
+    async def test_what_the_broker_can_drop_is_declared_every_time(self, mock_channel, make_queue):
+        q = make_queue()
+        assert await maybe_declare(q, mock_channel) is True
+        assert await maybe_declare(q, mock_channel) is True
+        assert [c[0] for c in mock_channel.calls].count("declare_queue") == 2
+
+    async def test_an_auto_delete_exchange_is_declared_every_time(self, mock_channel):
+        ex = Exchange("test", auto_delete=True)
+        await maybe_declare(ex, mock_channel)
+        assert await maybe_declare(ex, mock_channel) is True
+        assert [c[0] for c in mock_channel.calls].count("declare_exchange") == 2
+
+    async def test_the_same_name_bound_another_way_is_declared(self, mock_channel):
+        ex = Exchange("test")
+        await maybe_declare(Queue("test_q", exchange=ex, routing_key="a"), mock_channel)
+        assert await maybe_declare(Queue("test_q", exchange=ex, routing_key="b"), mock_channel) is True
+        bound = [c[1][2] for c in mock_channel.calls if c[0] == "queue_bind"]
+        assert bound == ["a", "b"]
+
+    async def test_an_equal_queue_object_is_not_declared_again(self, mock_channel):
+        await maybe_declare(Queue("test_q", exchange=Exchange("test")), mock_channel)
+        assert await maybe_declare(Queue("test_q", exchange=Exchange("test")), mock_channel) is False
 
 
 class test_eventloop:

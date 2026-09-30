@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from kombu import Connection, Consumer, Exchange, Producer, Queue
-from kombu.common import Broadcast
+from kombu.common import Broadcast, maybe_declare
 from kombu.utils.eventloop import current_loop, default_loop_runner
 from kombu.utils.functional import maybe_list
 from kombu.utils.objects import cached_property
@@ -651,14 +651,15 @@ class AMQP:
 
             if declare is None and queue is not None and not isinstance(queue, Broadcast):
                 # Declare the target queue, or the broker drops a task sent
-                # before the worker has ever run.
+                # before the worker has ever run. Once per channel is enough,
+                # and every declare after the first cost broker round trips.
                 declare = [queue]
 
             if declare:
                 channel = await producer._ensure_channel()
                 for entity in declare:
                     if hasattr(entity, "declare"):
-                        await entity.declare(channel)
+                        await maybe_declare(entity, channel)
 
             if before_receivers:
                 send_before_publish(
