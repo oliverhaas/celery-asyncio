@@ -126,6 +126,31 @@ E_LOST = "Connection to Valkey/Redis lost: Retry (%s/%s) %s."
 
 logger = get_logger(__name__)
 
+#: Ceilings on the result writes sent in one script run: how many, so a burst
+#: of finished tasks cannot make a single run hold the Redis event loop for
+#: long, and how much payload, so large results are not bundled into one
+#: command that Redis has to buffer whole. A result larger than that goes out
+#: on its own, as every result did before they were batched.
+MAX_STORE_BATCH = 100
+MAX_STORE_BATCH_SIZE = 1 << 20
+
+
+def _consume_outcome(future):
+    """Mark a future's exception as retrieved, whoever else reads it."""
+    if not future.cancelled():
+        future.exception()
+
+
+class _StoreBatch:
+    """Result writes on their way to Redis in one script call."""
+
+    __slots__ = ("done", "size", "writes")
+
+    def __init__(self, done):
+        self.done = done
+        self.writes = []
+        self.size = 0
+
 
 class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     """Valkey/Redis task result store.
@@ -153,27 +178,41 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     #: 512 MB - https://redis.io/topics/data-types
     _MAX_STR_VALUE_SIZE = 536870912
 
-    #: Check-then-SET in one round trip: returns the stored state when it is one
-    #: of the states ARGV[3:] must not overwrite, else SETs. JSON only (cjson).
-    _ASTORE_RESULT_LUA = """\
-local existing = redis.call('GET', KEYS[1])
-if existing then
-    local ok, decoded = pcall(cjson.decode, existing)
-    if ok and type(decoded) == 'table' then
-        for i = 3, #ARGV do
-            if decoded.status == ARGV[i] then
-                return decoded.status
+    #: Check-then-SET for any number of results in one round trip. For each key,
+    #: ARGV holds the payload, the TTL in seconds (0 for none), the number of
+    #: states the write must not overwrite and those states. Returns, for each
+    #: key, the stored state when it is one of them, else SETs and returns nil.
+    #: JSON only (cjson).
+    _STORE_RESULTS_LUA = """\
+local won = {}
+local a = 1
+for i = 1, #KEYS do
+    local n = tonumber(ARGV[a + 2])
+    local status = false
+    local existing = redis.call('GET', KEYS[i])
+    if existing then
+        local ok, decoded = pcall(cjson.decode, existing)
+        if ok and type(decoded) == 'table' then
+            for j = a + 3, a + 2 + n do
+                if decoded.status == ARGV[j] then
+                    status = decoded.status
+                    break
+                end
             end
         end
     end
+    if not status then
+        local expires = tonumber(ARGV[a + 1])
+        if expires and expires > 0 then
+            redis.call('SETEX', KEYS[i], expires, ARGV[a])
+        else
+            redis.call('SET', KEYS[i], ARGV[a])
+        end
+    end
+    won[i] = status
+    a = a + 3 + n
 end
-local expires = tonumber(ARGV[2])
-if expires and expires > 0 then
-    redis.call('SETEX', KEYS[1], expires, ARGV[1])
-else
-    redis.call('SET', KEYS[1], ARGV[1])
-end
-return false
+return won
 """
 
     def __init__(
@@ -189,6 +228,11 @@ return false
     ):
         super().__init__(expires_type=int, **kwargs)
         _get = self.app.conf.get
+        # Result writes waiting to go to Redis together, a batch per event
+        # loop since every loop worker shares this backend, and the tasks
+        # sending the batches that are on their way.
+        self._store_batches = {}
+        self._store_flushes = set()
 
         # Resolve client library from URL scheme (unless subclass pre-set it)
         _resolve_url = url or ""
@@ -503,7 +547,7 @@ return false
     @cached_property
     def _store_result_script(self):
         """Registered Lua script for atomic _store_result (JSON path)."""
-        return self.client.register_script(self._ASTORE_RESULT_LUA)
+        return self.client.register_script(self._STORE_RESULTS_LUA)
 
     def _store_result(self, task_id, result, state, traceback=None, request=None, **kwargs):
         """Atomic check-then-SET via Lua, the sync twin of :meth:`_astore_result`.
@@ -532,8 +576,14 @@ return false
         return result
 
     def _run_store_result_script(self, key, encoded, protected_states):
-        expires = int(self.expires) if self.expires else 0
-        return self._store_result_script(keys=[key], args=[encoded, expires, *protected_states])
+        (existing,) = self._store_result_script(
+            keys=[key], args=[encoded, self._expires_seconds(), len(protected_states), *protected_states]
+        )
+        return existing
+
+    def _expires_seconds(self):
+        """The TTL the store script takes, 0 for none."""
+        return int(self.expires) if self.expires else 0
 
     @staticmethod
     def _log_dropped_write(task_id, existing, state):
@@ -837,16 +887,17 @@ return false
     @cached_property
     def _astore_result_script(self):
         """Registered Lua script for atomic _astore_result (JSON path)."""
-        return self.async_client.register_script(self._ASTORE_RESULT_LUA)
+        return self.async_client.register_script(self._STORE_RESULTS_LUA)
 
     async def _astore_result(self, task_id, result, state, traceback=None, request=None, **kwargs):
         """Atomic check-then-SET via Lua when serializer is JSON.
 
-        One Redis round-trip instead of the two used by the
+        One script call instead of the two round trips used by the
         :class:`BaseKeyValueStoreBackend` default (GET + decode + SET), under
         the same rule, :meth:`states_not_to_overwrite`. A revoked task that
         goes on to fail, or a retry that finally succeeds, has to be able to
-        record its outcome.
+        record its outcome. The results stored in one pass of the event loop
+        share the call, see :meth:`_astore_batched`.
 
         For non-JSON serializers, and for a compressed payload that cjson
         cannot read either, we can't peek at the status field inside Lua, so
@@ -858,14 +909,73 @@ return false
         meta = self._get_result_meta(result=result, state=state, traceback=traceback, request=request)
         meta["task_id"] = bytes_to_str(task_id)
         encoded = self.encode(meta)
-        expires = int(self.expires) if self.expires else 0
-        existing = await self._astore_result_script(
-            keys=[self.get_key_for_task(task_id)],
-            args=[encoded, expires, *sorted(self.states_not_to_overwrite(state))],
+        existing = await self._astore_batched(
+            self.get_key_for_task(task_id), encoded, sorted(self.states_not_to_overwrite(state))
         )
         if existing is not None:
             self._log_dropped_write(task_id, existing, state)
         return result
+
+    async def _astore_batched(self, key, encoded, protected_states):
+        """Run the store script for one result, together with the others stored alongside it.
+
+        A script call per result was a round trip per task, the largest
+        single cost of a loop worker. The first result stored in a pass of
+        the event loop opens a batch and starts the task that sends it; every
+        result stored before that task runs joins the batch, and the batch
+        goes out as one script call. The script handles the writes in the
+        order they were made, so two writes to one key behave as they would
+        one after the other. Each caller returns once its own write has
+        landed, with the stored state that won over it if one did, and sees
+        the error if the call failed.
+
+        Every loop worker shares this backend and runs its own event loop, so
+        each loop keeps its own batch.
+        """
+        loop = asyncio.get_running_loop()
+        batch = self._store_batches.get(loop)
+        if batch is None or len(batch.writes) >= MAX_STORE_BATCH or batch.size + len(encoded) > MAX_STORE_BATCH_SIZE:
+            done = loop.create_future()
+            # Every waiter reads the outcome through a shield, and one that
+            # was cancelled never does, which asyncio would log as never
+            # retrieved.
+            done.add_done_callback(_consume_outcome)
+            batch = self._store_batches[loop] = _StoreBatch(done)
+            flush = loop.create_task(self._aflush_stores(loop, batch))
+            self._store_flushes.add(flush)
+            flush.add_done_callback(partial(self._stores_flushed, loop, batch))
+        index = len(batch.writes)
+        batch.writes.append((key, encoded, protected_states))
+        batch.size += len(encoded)
+        # Shielded: a task that is cancelled while waiting must not cancel
+        # the writes of everyone else in the batch.
+        return (await asyncio.shield(batch.done))[index]
+
+    def _stores_flushed(self, loop, batch, flush):
+        """Release a batch however its task ended, cancelled before it ran included."""
+        self._store_flushes.discard(flush)
+        if self._store_batches.get(loop) is batch:
+            del self._store_batches[loop]
+        if not batch.done.done():
+            batch.done.cancel()
+
+    async def _aflush_stores(self, loop, batch):
+        # Results stored from here on open the next batch.
+        if self._store_batches.get(loop) is batch:
+            del self._store_batches[loop]
+        expires = self._expires_seconds()
+        args = []
+        for _, encoded, protected_states in batch.writes:
+            args += (encoded, expires, len(protected_states), *protected_states)
+        try:
+            won = await self._astore_result_script(keys=[key for key, _, _ in batch.writes], args=args)
+        except asyncio.CancelledError:
+            batch.done.cancel()
+            raise
+        except Exception as exc:
+            batch.done.set_exception(exc)
+        else:
+            batch.done.set_result(won)
 
     async def adelete(self, key):
         """Async version of delete."""

@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 import itertools
 import json
@@ -112,28 +113,35 @@ class Redis(conftest.MockCallbacks):
         return bool(self.keyspace.pop(key, None))
 
     def register_script(self, script):
-        # The one script the backend registers on this client stores a
-        # result: SET, unless the status stored under the key is one of the
-        # states after the payload and the TTL, which it returns instead.
-        def store_result(keys, args):
-            payload, expires, *protected = args
-            # Off the keyspace, not self.get(): the script runs on the server,
-            # and a test counting the client's GETs must not see this read.
-            stored = self.keyspace.get(keys[0])
-            if stored is not None:
-                try:
-                    status = json.loads(stored)["status"]
-                except (ValueError, TypeError, KeyError):  # fmt: skip
-                    status = None
+        # The one script the backend registers on this client stores results:
+        # for each key, SET unless the status stored there is one of the
+        # states that write protects, which it returns instead.
+        def store_results(keys, args):
+            won = []
+            args = list(args)
+            for key in keys:
+                payload, expires, count, *args = args
+                protected, args = args[:count], args[count:]
+                # Off the keyspace, not self.get(): the script runs on the
+                # server, and a test counting the client's GETs must not see it.
+                stored = self.keyspace.get(key)
+                status = None
+                if stored is not None:
+                    try:
+                        status = json.loads(stored)["status"]
+                    except (ValueError, TypeError, KeyError):  # fmt: skip
+                        status = None
                 if status in protected:
-                    return status.encode()
-            if expires:
-                self.setex(keys[0], expires, payload)
-            else:
-                self.set(keys[0], payload)
-            return None
+                    won.append(status.encode())
+                    continue
+                if expires:
+                    self.setex(key, expires, payload)
+                else:
+                    self.set(key, payload)
+                won.append(None)
+            return won
 
-        return store_result
+        return store_results
 
     def pipeline(self):
         return self.Pipeline(self)
@@ -1335,6 +1343,14 @@ class _AsyncRedis:
     async def hvals(self, key):
         return list(self.keyspace.setdefault(key, {}).values())
 
+    def register_script(self, script):
+        run = self.sync_client.register_script(script)
+
+        async def run_async(keys, args):
+            return run(keys, args)
+
+        return run_async
+
     def pipeline(self):
         return _AsyncPipeline(self)
 
@@ -1465,7 +1481,7 @@ class test_RedisBackend_astore_result:
         self.b = _RedisBackend(app=self.app)
 
     def _stub_script(self, return_value):
-        script = AsyncMock(return_value=return_value)
+        script = AsyncMock(return_value=[return_value])
         self.b.__dict__["_astore_result_script"] = script
         return script
 
@@ -1474,7 +1490,7 @@ class test_RedisBackend_astore_result:
 
         await self.b._astore_result(uuid(), 1, states.FAILURE)
 
-        assert script.await_args.kwargs["args"][2] == states.SUCCESS
+        assert script.await_args.kwargs["args"][2:] == [1, states.SUCCESS]
 
     async def test_write_dropped_by_the_lua_is_logged(self, caplog):
         self._stub_script(b"SUCCESS")
@@ -1519,7 +1535,7 @@ class test_RedisBackend_astore_result:
 
         await self.b._astore_result(uuid(), "revoked", states.REVOKED)
 
-        assert script.await_args.kwargs["args"][2:] == sorted(states.READY_STATES)
+        assert script.await_args.kwargs["args"][2:] == [len(states.READY_STATES), *sorted(states.READY_STATES)]
 
     async def test_a_stored_success_survives_a_later_state_when_compressed(self):
         self.app.conf.result_compression = "gzip"
@@ -1539,6 +1555,133 @@ class test_RedisBackend_astore_result:
         await b.astore_result(task_id, TaskRevokedError("gone"), states.REVOKED)
 
         assert (await b.aget_task_meta(task_id, cache=False))["status"] == states.FAILURE
+
+
+class test_RedisBackend_astore_batched:
+    """The results stored in one pass of the event loop share one script call."""
+
+    def setup_method(self):
+        from celery.backends.valkey_redis import RedisBackend
+
+        class _RedisBackend(RedisBackend):
+            redis = redis
+
+            def _create_async_client(self_inner, **params):
+                return _AsyncRedis(self_inner.client)
+
+        self.b = _RedisBackend(app=self.app)
+
+    def _spy_script(self, **kwargs):
+        script = AsyncMock(wraps=self.b._astore_result_script, **kwargs)
+        self.b.__dict__["_astore_result_script"] = script
+        return script
+
+    async def _result(self, task_id):
+        return (await self.b.aget_task_meta(task_id, cache=False))["result"]
+
+    async def test_results_stored_together_share_one_script_call(self):
+        # A script call per result was a round trip per task, the largest
+        # single cost of a loop worker.
+        script = self._spy_script()
+        task_ids = [uuid() for _ in range(3)]
+
+        await asyncio.gather(*(self.b.astore_result(t, i, states.SUCCESS) for i, t in enumerate(task_ids)))
+
+        assert script.await_count == 1
+        assert [await self._result(t) for t in task_ids] == [0, 1, 2]
+
+    async def test_a_result_stored_after_a_batch_went_out_opens_the_next(self):
+        script = self._spy_script()
+
+        await self.b.astore_result(uuid(), 1, states.SUCCESS)
+        await self.b.astore_result(uuid(), 2, states.SUCCESS)
+
+        assert script.await_count == 2
+        assert self.b._store_batches == {}
+        assert not self.b._store_flushes
+
+    async def test_each_write_is_judged_on_its_own(self, caplog):
+        done, other = uuid(), uuid()
+        await self.b.astore_result(done, "done", states.SUCCESS)
+
+        with caplog.at_level(logging.ERROR, logger="celery.backends.valkey_redis"):
+            await asyncio.gather(
+                self.b.astore_result(done, KeyError("boom"), states.FAILURE),
+                self.b.astore_result(other, "fine", states.SUCCESS),
+            )
+
+        assert await self._result(done) == "done"
+        assert await self._result(other) == "fine"
+        assert f"Dropped duplicate result write for task {done}" in caplog.text
+        assert other not in caplog.text
+
+    @pytest.mark.parametrize(
+        ("first", "second", "stored"),
+        [
+            ((states.SUCCESS, "done"), (states.STARTED, "late"), "done"),
+            ((states.STARTED, "early"), (states.SUCCESS, "done"), "done"),
+        ],
+    )
+    async def test_writes_to_one_key_in_a_batch_keep_their_order(self, first, second, stored):
+        task_id = uuid()
+
+        await asyncio.gather(
+            self.b.astore_result(task_id, first[1], first[0]),
+            self.b.astore_result(task_id, second[1], second[0]),
+        )
+
+        assert await self._result(task_id) == stored
+
+    async def test_every_write_in_a_failed_batch_sees_the_error(self):
+        self._spy_script(side_effect=ConnectionError("gone"))
+
+        results = await asyncio.gather(
+            self.b._astore_result(uuid(), 1, states.SUCCESS),
+            self.b._astore_result(uuid(), 2, states.SUCCESS),
+            return_exceptions=True,
+        )
+
+        assert [type(r) for r in results] == [ConnectionError, ConnectionError]
+        assert self.b._store_batches == {}
+
+    async def test_a_batch_holds_at_most_max_store_batch_writes(self):
+        from celery.backends.valkey_redis import MAX_STORE_BATCH
+
+        script = self._spy_script()
+
+        await asyncio.gather(*(self.b.astore_result(uuid(), i, states.SUCCESS) for i in range(MAX_STORE_BATCH + 1)))
+
+        assert [len(c.kwargs["keys"]) for c in script.await_args_list] == [MAX_STORE_BATCH, 1]
+
+    async def test_a_large_result_is_not_bundled_with_others(self):
+        # One command carrying many large results is one Redis has to buffer
+        # whole, so a write that would take the batch past the size ceiling
+        # opens a batch of its own.
+        from celery.backends import valkey_redis
+
+        script = self._spy_script()
+        with patch.object(valkey_redis, "MAX_STORE_BATCH_SIZE", 1000):
+            await asyncio.gather(
+                self.b.astore_result(uuid(), 1, states.SUCCESS),
+                self.b.astore_result(uuid(), 2, states.SUCCESS),
+                self.b.astore_result(uuid(), "x" * 2000, states.SUCCESS),
+            )
+
+        assert [len(c.kwargs["keys"]) for c in script.await_args_list] == [2, 1]
+
+    async def test_a_cancelled_write_leaves_the_rest_of_its_batch_alone(self):
+        first_id, second_id = uuid(), uuid()
+        first = asyncio.create_task(self.b.astore_result(first_id, 1, states.SUCCESS))
+        second = asyncio.create_task(self.b.astore_result(second_id, 2, states.SUCCESS))
+        await asyncio.sleep(0)  # both have joined the batch
+        first.cancel()
+        await second
+
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        # The write was on its way with the batch, so it lands all the same.
+        assert await self._result(first_id) == 1
+        assert await self._result(second_id) == 2
 
 
 class test_RedisBackend_await_for:

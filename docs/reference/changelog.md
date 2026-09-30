@@ -330,6 +330,15 @@ commit it came from.
   result too large for Redis still raises `BackendStoreError` naming the task.
   Trivial sync tasks on four pool threads ran half as fast again, at a third
   less CPU each
+- An async task's result store on Valkey and Redis was a script call of its
+  own, one round trip per task and the largest single cost of a loop worker.
+  The results a loop worker stores in one pass of its event loop now go out in
+  one script call, up to a hundred of them and a megabyte of payload, so a
+  large result still goes out on its own. The script applies the writes in
+  order under the same rule as before, each task waits for its own write and
+  sees the error if the call failed, and a write dropped because a stored state
+  won is still logged. On a local Redis, trivial async tasks on one loop
+  worker ran 44% faster on the GIL build and 51% faster free-threaded
 
 #### Events
 
