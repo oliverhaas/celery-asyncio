@@ -558,6 +558,31 @@ class TestDeliveryTracking:
 
         await channel.queue_purge(queue_name)
 
+    async def test_acks_sent_together_remove_every_message(self, channel):
+        """Acks made at once share one script call and each still does its whole job."""
+        queue_name = "test_acks_sent_together"
+        await channel.queue_purge(queue_name)
+        for _ in range(5):
+            await channel.publish(JSON_MESSAGE, exchange="", routing_key=queue_name)
+        messages = [await channel.get(queue_name, no_ack=False) for _ in range(5)]
+        # Two of them outlive their deadline, so the sweep restores a copy of each.
+        for msg in messages[:2]:
+            await expire_visibility(channel, queue_name, msg.delivery_tag)
+        await run_sweep(channel, queue_name)
+        assert await channel.client.zcard(channel._queue_key(queue_name)) == 2
+
+        script = await channel._get_ack_script()
+        with patch.object(channel, "_ack_script", wraps=script) as sent:
+            await asyncio.gather(*(msg.ack() for msg in messages))
+
+        assert sent.call_count == 1
+        assert await channel.client.zcard(channel._queue_key(queue_name)) == 0
+        assert await channel.client.zcard(channel._messages_index_key(queue_name)) == 0
+        for msg in messages:
+            assert not await channel.client.exists(channel._message_key(msg.delivery_tag))
+
+        await channel.queue_purge(queue_name)
+
     async def test_rejecting_without_requeue_cancels_the_restored_copy(self, channel):
         """PORT-PLAN fix 1, the other caller of the ack script."""
         queue_name = "test_reject_cancels_restore"

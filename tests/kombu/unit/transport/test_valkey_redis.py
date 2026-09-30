@@ -24,6 +24,7 @@ from kombu.transport.valkey_redis import (
     DEFAULT_REQUEUE_CHECK_INTERVAL,
     DEFAULT_VISIBILITY_TIMEOUT,
     DROPPED_REPORT_LIMIT,
+    MAX_ACK_BATCH,
     MAX_CONSUME_BATCH,
     MESSAGE_KEY_PREFIX,
     MESSAGES_INDEX_PREFIX,
@@ -757,6 +758,96 @@ class TestAckReject:
         ack_script.assert_not_called()
         assert "ftag1" not in ch._fanout_tags
 
+    async def test_acks_made_in_one_loop_pass_share_one_script_call(self):
+        # A script call per ack was a round trip per task, the largest single
+        # cost of a worker's consumer loop.
+        ch = _make_channel()
+        ack_script = AsyncMock()
+        ch._ack_script = ack_script
+        for tag in ("t1", "t2", "t3"):
+            ch._delivered[tag] = ("q1", MagicMock())
+
+        await asyncio.gather(ch.basic_ack("t1"), ch.basic_ack("t2"), ch.basic_ack("t3"))
+
+        ack_script.assert_called_once()
+        assert ack_script.call_args[1]["args"] == ["t1", "t2", "t3"]
+        assert ack_script.call_args[1]["keys"] == [
+            key for tag in ("t1", "t2", "t3") for key in ("messages_index:q1", f"message:{tag}", "queue:q1")
+        ]
+
+    async def test_an_ack_after_a_batch_went_out_opens_the_next(self):
+        ch = _make_channel()
+        ack_script = AsyncMock()
+        ch._ack_script = ack_script
+        ch._delivered["t1"] = ("q1", MagicMock())
+        ch._delivered["t2"] = ("q1", MagicMock())
+
+        await ch.basic_ack("t1")
+        await ch.basic_ack("t2")
+
+        assert [c[1]["args"] for c in ack_script.call_args_list] == [["t1"], ["t2"]]
+
+    async def test_a_batch_holds_at_most_max_ack_batch_acks(self):
+        ch = _make_channel()
+        ack_script = AsyncMock()
+        ch._ack_script = ack_script
+        tags = [f"t{i}" for i in range(MAX_ACK_BATCH + 1)]
+        for tag in tags:
+            ch._delivered[tag] = ("q1", MagicMock())
+
+        await asyncio.gather(*(ch.basic_ack(tag) for tag in tags))
+
+        assert [len(c[1]["args"]) for c in ack_script.call_args_list] == [MAX_ACK_BATCH, 1]
+
+    async def test_every_ack_in_a_failed_batch_sees_the_error(self):
+        ch = _make_channel()
+        ch._ack_script = AsyncMock(side_effect=RedisConnectionError("gone"))
+        ch._delivered["t1"] = ("q1", MagicMock())
+        ch._delivered["t2"] = ("q1", MagicMock())
+
+        results = await asyncio.gather(ch.basic_ack("t1"), ch.basic_ack("t2"), return_exceptions=True)
+
+        assert [type(r) for r in results] == [RedisConnectionError, RedisConnectionError]
+        assert ch._ack_batch is None
+
+    async def test_a_cancelled_ack_leaves_the_rest_of_its_batch_alone(self):
+        ch = _make_channel()
+        release = asyncio.Event()
+
+        async def script(**kwargs):
+            await release.wait()
+
+        ch._ack_script = AsyncMock(side_effect=script)
+        ch._delivered["t1"] = ("q1", MagicMock())
+        ch._delivered["t2"] = ("q1", MagicMock())
+
+        first = asyncio.create_task(ch.basic_ack("t1"))
+        second = asyncio.create_task(ch.basic_ack("t2"))
+        await asyncio.sleep(0)  # both have joined the batch
+        first.cancel()
+        release.set()
+        await second
+
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        # The message was off _delivered already, so its ack still went out.
+        assert ch._ack_script.call_args[1]["args"] == ["t1", "t2"]
+
+    async def test_a_batch_whose_task_never_ran_is_released(self):
+        ch = _make_channel()
+        ch._ack_script = AsyncMock()
+        ch._delivered["t1"] = ("q1", MagicMock())
+
+        ack = asyncio.create_task(ch.basic_ack("t1"))
+        await asyncio.sleep(0)  # the ack opened a batch and is waiting on it
+        (flush,) = ch._ack_flushes
+        flush.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await ack
+        assert ch._ack_batch is None
+        assert not ch._ack_flushes
+
     async def test_basic_reject_requeue(self):
         ch = _make_channel()
         ch._requeue_by_tag = AsyncMock(return_value=True)
@@ -1039,6 +1130,34 @@ class TestClose:
 
         await ch.close()
         ch.queue_delete.assert_called_once_with("auto_q")
+
+    async def test_close_waits_for_the_acks_on_their_way(self):
+        # An acked message is off _delivered before its batch reaches Redis,
+        # so close cannot requeue it, and returning before the batch lands
+        # would leave a finished task for the visibility sweep to run again.
+        ch = _make_channel()
+        ch._requeue_by_tag = AsyncMock()
+        release = asyncio.Event()
+        sent = []
+
+        async def script(**kwargs):
+            await release.wait()
+            sent.append(kwargs["args"])
+
+        ch._ack_script = AsyncMock(side_effect=script)
+        ch._delivered["t1"] = ("q1", MagicMock())
+
+        ack = asyncio.create_task(ch.basic_ack("t1"))
+        await asyncio.sleep(0)  # the ack opened a batch
+        closing = asyncio.create_task(ch.close())
+        await asyncio.sleep(0)
+        assert not closing.done()
+
+        release.set()
+        await closing
+        await ack
+        assert sent == [["t1"]]
+        ch._requeue_by_tag.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

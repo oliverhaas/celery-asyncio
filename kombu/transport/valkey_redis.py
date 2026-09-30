@@ -67,6 +67,7 @@ import re
 import urllib.parse
 import uuid
 from collections import deque
+from functools import partial
 from pathlib import Path
 from time import time
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -135,6 +136,8 @@ DEFAULT_REQUEUE_BATCH_LIMIT = 1000
 # Ceiling on one consume batch, so a large prefetch_count cannot make a single
 # script run hold the Redis event loop for long.
 MAX_CONSUME_BATCH = 100
+# The same ceiling for the acks sent together in one script run.
+MAX_ACK_BATCH = 100
 DEFAULT_MESSAGE_TTL = -1
 MIN_QUEUE_EXPIRES = 10_000
 # Fallback x-expires in seconds for queues declared without one. None keeps
@@ -205,6 +208,12 @@ _redis_channel_errors = get_all_channel_errors()
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _consume_outcome(future: asyncio.Future) -> None:
+    """Mark a future's exception as retrieved, whoever else reads it."""
+    if not future.cancelled():
+        future.exception()
 
 
 def _is_wrongtype(exc: Exception) -> bool:
@@ -343,6 +352,10 @@ class Channel:
         # iteration facing a full window waits on it.
         self._slot_freed = asyncio.Event()
         self._delivery_tag_counter = 0
+        # Acks waiting to be sent to Redis together, and the tasks sending the
+        # batches that are on their way.
+        self._ack_batch: tuple[list[tuple[str, str]], asyncio.Future] | None = None
+        self._ack_flushes: set[asyncio.Task] = set()
 
         # Per-queue TTL state
         self._expires: dict[str, int] = {}  # queue → TTL ms
@@ -1784,16 +1797,61 @@ class Channel:
         entry = self._forget_delivery(delivery_tag)
         if entry:
             queue, _ = entry
-            # Atomic ack via Lua script (ZREM + ZREM + DEL in one round-trip)
+            await self._remove_acked(queue, delivery_tag)
+
+    async def _remove_acked(self, queue: str, delivery_tag: str) -> None:
+        """Delete an acked message from Redis, with the others acked alongside it.
+
+        One ack script call per message was a round trip per task, the largest
+        single cost of a worker's consumer loop. The first ack of a pass of the
+        event loop opens a batch and starts the task that sends it; every ack
+        made before that task runs joins the batch, and the batch goes out as
+        one script call. Each caller still returns only once its own message
+        is gone from Redis, and sees the error if the batch failed.
+        """
+        batch = self._ack_batch
+        if batch is None or len(batch[0]) >= MAX_ACK_BATCH:
+            loop = asyncio.get_running_loop()
+            done = loop.create_future()
+            # Every waiter reads the outcome through a shield, and one that
+            # was cancelled never does, which asyncio would log as never
+            # retrieved.
+            done.add_done_callback(_consume_outcome)
+            batch = self._ack_batch = ([], done)
+            flush = loop.create_task(self._flush_acked(batch))
+            self._ack_flushes.add(flush)
+            flush.add_done_callback(partial(self._acked_flushed, batch))
+        batch[0].append((queue, delivery_tag))
+        # Shielded: a caller that is cancelled while waiting must not cancel
+        # the batch for everyone else in it.
+        await asyncio.shield(batch[1])
+
+    def _acked_flushed(self, batch: tuple[list[tuple[str, str]], asyncio.Future], flush: asyncio.Task) -> None:
+        """Release a batch however its task ended, cancelled before it ran included."""
+        self._ack_flushes.discard(flush)
+        if self._ack_batch is batch:
+            self._ack_batch = None
+        if not batch[1].done():
+            batch[1].cancel()
+
+    async def _flush_acked(self, batch: tuple[list[tuple[str, str]], asyncio.Future]) -> None:
+        acked, done = batch
+        # Acks made from here on open the next batch.
+        if self._ack_batch is batch:
+            self._ack_batch = None
+        keys: list[str] = []
+        for queue, delivery_tag in acked:
+            keys += (self._messages_index_key(queue), self._message_key(delivery_tag), self._queue_key(queue))
+        try:
             script = await self._get_ack_script()
-            await script(
-                keys=[
-                    self._messages_index_key(queue),
-                    self._message_key(delivery_tag),
-                    self._queue_key(queue),
-                ],
-                args=[delivery_tag],
-            )
+            await script(keys=keys, args=[delivery_tag for _, delivery_tag in acked])
+        except asyncio.CancelledError:
+            done.cancel()
+            raise
+        except Exception as exc:
+            done.set_exception(exc)
+        else:
+            done.set_result(None)
 
     async def basic_reject(
         self,
@@ -2187,6 +2245,13 @@ class Channel:
         await asyncio.gather(*periodic_tasks, return_exceptions=True)
 
         await self._restore_prefetch_buffer()
+
+        # An ack takes its message off _delivered before the batch carrying it
+        # reaches Redis, so the requeue below cannot see it. Let the batches
+        # land rather than leave finished tasks for the visibility sweep to run
+        # again.
+        if self._ack_flushes:
+            await asyncio.gather(*self._ack_flushes, return_exceptions=True)
 
         # Requeue unacked messages. The snapshot is iterated across awaits and
         # basic_ack runs on the same loop, so a tag can be acked mid-drain;

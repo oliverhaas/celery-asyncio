@@ -111,6 +111,13 @@ commit it came from.
   `cancel_consumer` control command, did nothing, because `Queues.deselect` and
   the task consumer only matched the real name, so the worker went on consuming
   from the queue. Both now resolve an alias to its queue (upstream 95c1bf2d4)
+- On Valkey and Redis every ack was a script call of its own, one round trip
+  per task and the largest single cost of the worker's consumer loop. The acks
+  made in one pass of the event loop now go out in one script call, up to a
+  hundred at a time. Each ack still returns once its message is gone from
+  Redis and still sees the error if that failed, and closing the channel waits
+  for the acks on their way before it requeues what is left. On a local Redis,
+  trivial async tasks ran a quarter faster at a fifth less CPU each
 
 #### Beat and schedules
 
