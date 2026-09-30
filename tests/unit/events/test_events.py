@@ -199,6 +199,19 @@ class test_EventDispatcher:
         eventer = self.app.events.Dispatcher(Mock())
         eventer.flush(errors=False, groups=False)
 
+    def test_extend_buffer_takes_over_the_events_buffered_by_group(self):
+        # A reconnect replaces the worker's dispatcher, and the task events
+        # waiting for the next flush went down with the old one.
+        old = self.app.events.Dispatcher(Mock(), enabled=False, buffer_group={"task"})
+        received, started = Event("task-received", uuid=1), Event("task-started", uuid=1)
+        old._group_buffer["task"].extend([received, started])
+        new = self.app.events.Dispatcher(Mock(), enabled=False, buffer_group={"task"})
+
+        new.extend_buffer(old)
+
+        assert new._group_buffer["task"] == [received, started]
+        assert old._group_buffer["task"] == []
+
     def test_group_flush_keeps_events_appended_during_the_publish(self):
         # Appends that land while a publish is in flight belong to the next
         # flush. Clearing the whole list destroyed them silently.

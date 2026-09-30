@@ -33,6 +33,12 @@ class Events(bootsteps.StartStopStep):
             hostname=c.hostname,
             enabled=self.send_events,
             groups=self.groups,
+            # Task events go out together, as one `task.multi` message per
+            # pass of the worker loop. Upstream buffers them whenever it runs
+            # its hub; this worker has no hub, and dropping the condition along
+            # with it had every task event go out as a publish of its own.
+            buffer_group=["task"],
+            on_send_buffered=c.on_send_event_buffered,
         )
         if prev:
             dis.extend_buffer(prev)

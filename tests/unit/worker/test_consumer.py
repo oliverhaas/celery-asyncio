@@ -197,6 +197,56 @@ class test_Consumer(ConsumerTestCase):
         c._flush_events()
         c.event_dispatcher.flush.assert_called_with()
 
+    async def test_buffered_events_are_flushed_once_per_loop_pass(self):
+        c = self.get_consumer()
+        c.event_dispatcher = Mock(name="evd", _event_loop=asyncio.get_running_loop())
+
+        c.on_send_event_buffered()
+        c.on_send_event_buffered()
+        await asyncio.sleep(0)
+        c.event_dispatcher.flush.assert_called_once_with()
+
+        # The next pass flushes again.
+        c.on_send_event_buffered()
+        await asyncio.sleep(0)
+        assert c.event_dispatcher.flush.call_count == 2
+
+    async def test_an_event_buffered_by_a_pool_thread_is_flushed_on_the_loop(self):
+        # task-started and task-succeeded are sent from the pool's threads.
+        c = self.get_consumer()
+        loop = asyncio.get_running_loop()
+        c.event_dispatcher = Mock(name="evd", _event_loop=loop)
+        flushed_on = []
+        c.event_dispatcher.flush.side_effect = lambda: flushed_on.append(asyncio.get_running_loop())
+
+        await asyncio.to_thread(c.on_send_event_buffered)
+        await asyncio.sleep(0)
+
+        assert flushed_on == [loop]
+
+    async def test_an_event_buffered_while_the_flush_runs_gets_a_flush_of_its_own(self):
+        c = self.get_consumer()
+        c.event_dispatcher = Mock(name="evd", _event_loop=asyncio.get_running_loop())
+
+        def flush_and_buffer_one_more():
+            c.event_dispatcher.flush.side_effect = None
+            c.on_send_event_buffered()
+
+        c.event_dispatcher.flush.side_effect = flush_and_buffer_one_more
+        c.on_send_event_buffered()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        assert c.event_dispatcher.flush.call_count == 2
+
+    def test_without_a_dispatcher_loop_nothing_is_scheduled(self):
+        c = self.get_consumer()
+        c.event_dispatcher = None
+        c.on_send_event_buffered()
+        c.event_dispatcher = Mock(name="evd", _event_loop=None)
+        c.on_send_event_buffered()
+        c.event_dispatcher.flush.assert_not_called()
+
     def test_schedule_bucket_request(self):
         c = self.get_consumer()
         c.timer = Mock()
@@ -828,6 +878,19 @@ class test_Events:
         dispatcher = self.c.event_dispatcher = Mock(name="event_dispatcher")
         dispatcher.connection.close = AsyncMock(side_effect=close)
         return dispatcher
+
+    async def test_start_sends_task_events_in_batches(self):
+        # Upstream buffers task events whenever it runs its hub. This worker
+        # has none, and dropping the condition with it sent every task event
+        # as a publish of its own.
+        step = Events(self.c)
+        self.c.event_dispatcher = None
+
+        await step.start(self.c)
+
+        kwargs = self.c.app.events.Dispatcher.call_args.kwargs
+        assert kwargs["buffer_group"] == ["task"]
+        assert kwargs["on_send_buffered"] == self.c.on_send_event_buffered
 
     async def test_start_closes_the_dispatcher_the_last_connection_left(self):
         step = Events(self.c)

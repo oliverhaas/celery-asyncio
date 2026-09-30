@@ -29,6 +29,7 @@ from celery.exceptions import (
     WorkerShutdown,
     WorkerTerminate,
 )
+from celery.utils.eventloop import current_loop
 from celery.utils.functional import noop
 from celery.utils.log import get_logger
 from celery.utils.nodenames import gethostname
@@ -198,6 +199,9 @@ class Consumer:
     #: Counter to track number of conn retry attempts
     #: to broker. Will be reset to 0 once successful
     broker_connection_retry_attempt = 0
+
+    #: Whether a flush of the buffered task events is already scheduled.
+    _events_flush_pending = False
 
     class Blueprint(bootsteps.Blueprint):
         """Consumer blueprint."""
@@ -554,6 +558,34 @@ class Consumer:
     def _flush_events(self):
         if self.event_dispatcher:
             self.event_dispatcher.flush()
+
+    def on_send_event_buffered(self):
+        """Send the buffered task events on the next pass of the worker loop.
+
+        Upstream added the flush to its hub's ready set. The events arrive
+        from whichever thread sent them, the consumer's for task-received and
+        a pool thread's for task-started and task-succeeded, so the flush is
+        scheduled on the loop the dispatcher publishes on, once per pass.
+        """
+        dispatcher = self.event_dispatcher
+        loop = dispatcher._event_loop if dispatcher is not None else None
+        if loop is None or self._events_flush_pending:
+            return
+        self._events_flush_pending = True
+        try:
+            if loop is current_loop():
+                loop.call_soon(self._flush_buffered_events)
+            else:
+                loop.call_soon_threadsafe(self._flush_buffered_events)
+        except RuntimeError:
+            # The loop closed under us, and the dispatcher with it.
+            self._events_flush_pending = False
+
+    def _flush_buffered_events(self):
+        # Cleared before the flush reads the buffer: an event buffered while
+        # the flush runs schedules the next one instead of being left behind.
+        self._events_flush_pending = False
+        self._flush_events()
 
     async def add_task_queue(self, queue, exchange=None, exchange_type=None, routing_key=None, **options):
         cset = self.task_consumer

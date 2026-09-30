@@ -352,6 +352,19 @@ commit it came from.
   that node's event timestamps by as much. The offset is now exact. Until the
   monitor and the workers all run this version, a monitor in such a zone shifts
   the events of a worker in the same zone by that amount (upstream 208a80365)
+- A worker running with `-E` sent every task event as a publish of its own, and
+  under load lost many of them. Upstream buffers task events whenever it runs
+  its event-loop hub and sends them as one `task.multi` message per loop
+  iteration; the worker here has no hub, and the condition went with it. So each
+  task-received, task-started and task-succeeded started a publish of its own,
+  a burst of them ran the connection pool out with `MaxConnectionsError`, and
+  the failed events went into the offline buffer, which nothing flushed until
+  the next reconnect. A monitor then showed those tasks stuck as received or
+  started. Task events are buffered again and flushed once per pass of the
+  worker loop, a flush retries whatever the offline buffer holds, and a
+  reconnect carries the buffered events over to the new dispatcher. On a local
+  Redis, trivial async tasks with events on ran twice as fast, and 3000 tasks
+  delivered all of their events where 400 had lost two thirds of them
 
 #### Utilities
 

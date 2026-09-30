@@ -306,8 +306,17 @@ class EventDispatcher:
                     del events[: len(batch)]
 
     def extend_buffer(self, other):
-        """Copy the outbound buffer of another instance."""
+        """Copy the outbound buffer of another instance.
+
+        The events it holds by group come along too: a reconnect replaces the
+        worker's dispatcher, and the task events buffered for the next pass
+        of the loop would otherwise go down with the old one.
+        """
         self._outbound_buffer.extend(other._outbound_buffer)
+        with other.mutex:
+            for group, events in other._group_buffer.items():
+                self._group_buffer[group].extend(events)
+                events.clear()
 
     def close(self):
         """Close the event dispatcher."""
