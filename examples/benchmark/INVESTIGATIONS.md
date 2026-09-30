@@ -274,6 +274,88 @@ Worth revisiting if profile evidence on the bench machine (where the
 threads actually run busy) shows acks as a bottleneck. On the dev box
 they aren't.
 
+Round 5 did revisit it, as batching rather than skipping: see below.
+
+## Round 5: the framework's own cost, with trivial tasks
+
+Rounds 1 to 4 ran real task bodies, where the body dominates and the
+threads sit idle between tasks, so framework savings vanish into the idle
+time. [`quick_bench.py`](quick_bench.py) instead runs task bodies that do
+nothing, so whatever it measures is the framework: worker CPU per task (per
+thread, from `/proc`), Redis commands per task, and the publish path on its
+own. It needs one Redis and one venv. On a loopback Redis the kernel runs
+the server's receive path inside the client's `sendmsg`, which inflates the
+cost of a round trip, but not the number of them.
+
+Measured on a 4-core cloud VM, CPython 3.14.7 and 3.14.7t, Redis 7.0 on
+loopback, one loop worker unless noted, before (`257abe73a`) and after:
+
+| | before | after |
+| --- | ---: | ---: |
+| `adelay()`, per publish | 492 us, 5 commands | 317 us, 3 in one round trip |
+| `delay()`, per publish | 553 us | 402 us |
+| async tasks, GIL | 2412 tasks/s, 441 us CPU | 4265 tasks/s, 239 us |
+| async tasks, free-threaded | 4800 tasks/s, 385 us | 6997 tasks/s, 270 us |
+| sync tasks, 4 threads, GIL | 1049 tasks/s, 1028 us | 1677 tasks/s, 645 us |
+| async tasks with `-E`, GIL | 1207 tasks/s, 863 us | 3294 tasks/s, 312 us |
+| async tasks with `-E -l info`, GIL | 978 tasks/s, 1086 us | 2657 tasks/s, 395 us |
+
+What moved it, in the order it landed:
+
+1. **The publisher declared its queue on every send.** `asend_task_message`
+   awaited `Queue.declare`, which on Redis binds twice (two `ZADD`s) and on
+   AMQP is a `queue.declare` plus a `queue.bind` RPC. Upstream's
+   `maybe_declare` cached declarations per connection; the rewrite dropped
+   the cache when it made the declare unconditional. Restored per channel,
+   with upstream's `can_cache_declaration` for what the broker can drop.
+2. **`saferepr` walked the whole value to close its brackets.** A
+   truncated repr cost as much as a full one: 95 ms for the `argsrepr` of
+   a million-item argument. Inherited from upstream; now O(maxlen).
+3. **A sync task stored its result in two round trips** (GET, decode,
+   SETEX: upstream's `_store_result`), where the async path already used
+   one Lua call. Same script now, which also skips a full decode per task.
+4. **One ack script call per message**, the largest main-thread cost
+   (about 45% of it). Acks made in one loop pass now share one call.
+5. **One result-store script call per task**, the largest loop-thread
+   cost (about 57% of it). Same batching, per event loop, capped at 100
+   writes and 1 MiB of payload.
+6. **Task events: batching lost, and events lost with it.** Upstream sends
+   task events as one `task.multi` message per hub iteration; the Hub went
+   in the async rewrite and the `buffer_group` that depended on it went
+   along. Each event became its own concurrent publish, a burst of them ran
+   the connection pool out (`MaxConnectionsError`), and the failed events
+   sat in an offline buffer nothing flushed: 21 306 failed publishes in one
+   30 000-task run. Restored, with the flush scheduled per loop pass.
+
+Why acks showed up here and not in Round 2: making `_ack` a no-op could
+only help if the main thread gated throughput, and with real task bodies it
+did not. On a GIL build running trivial tasks the process is one saturated
+core, so every microsecond of main-thread CPU is throughput.
+
+Measured and left alone, because they are about 1% of a task's cost
+between them, below what an end-to-end run can resolve:
+
+* `app.now()` runs dateutil's DST checks on a time that is already UTC
+  (about 1.7 us; the upstream test that freezes time patches `to_utc`).
+* `find_value_for_key("extended", "result")` per stored result, where
+  `conf.result_extended` is the same value at half the cost (1.5 us).
+* `Context._get_custom_headers` rebuilds a 55-key set per request (1.5 us).
+* The asyncio pool wraps every async task in a second `asyncio.Task` even
+  without a soft time limit (3 us; the cancellation logic around it is
+  delicate).
+* The tracer computes `saferepr` of every return value even when nothing
+  reads it (1 us for an int, 18 us for a small dict). Only the
+  `task-succeeded` event and INFO logging read it, but a custom `Request`
+  subclass may too, so skipping it would change a public contract.
+* The Redis transport parses and re-encodes the message envelope in
+  `_put_message` to add the delivery tag (about 12 us per publish).
+
+Still on the table: with four loop workers on the GIL build, throughput is
+lower than with one (2936 against 4352 tasks/s) because the threads share
+one core, so on a GIL build one loop worker is the better shape. And every
+loop worker shares the backend's single `redis.asyncio` client, which
+Round 4 already flagged.
+
 ## Suggested measurement protocol
 
 For perf work specifically:
