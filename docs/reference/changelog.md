@@ -314,6 +314,15 @@ commit it came from.
   task `PENDING`, and a task that reported one through `update_state` failed
   with `EncodeError` instead. It is now stored like any other exception
   (upstream 05e0ea423)
+- A sync task stored its result on Valkey and Redis in two round trips: the
+  backend read the stored result back and decoded it before it wrote, as
+  upstream does, while an async task's store was already one atomic script
+  call. Sync tasks now go through the same script, under the same rule about
+  which stored states a write leaves alone. A write the script drops is logged
+  as it is for an async task, a lost connection is retried as before, and a
+  result too large for Redis still raises `BackendStoreError` naming the task.
+  Trivial sync tasks on four pool threads ran half as fast again, at a third
+  less CPU each
 
 #### Events
 

@@ -500,6 +500,51 @@ return false
         else:
             self.client.set(key, value)
 
+    @cached_property
+    def _store_result_script(self):
+        """Registered Lua script for atomic _store_result (JSON path)."""
+        return self.client.register_script(self._ASTORE_RESULT_LUA)
+
+    def _store_result(self, task_id, result, state, traceback=None, request=None, **kwargs):
+        """Atomic check-then-SET via Lua, the sync twin of :meth:`_astore_result`.
+
+        A sync task stores its result through here from its pool thread, and
+        the :class:`BaseKeyValueStoreBackend` default read the stored meta
+        back, decoded it and only then wrote: two round trips per task where
+        an async task takes one, under the same rule. The write is retried on a
+        lost connection as ``set`` retries it, and the same fallback applies to
+        what the script cannot read.
+        """
+        if self.serializer != "json" or self.compression:
+            return super()._store_result(task_id, result, state, traceback, request=request, **kwargs)
+
+        meta = self._get_result_meta(result=result, state=state, traceback=traceback, request=request)
+        meta["task_id"] = bytes_to_str(task_id)
+        encoded = self.encode(meta)
+        if isinstance(encoded, str) and len(encoded) > self._MAX_STR_VALUE_SIZE:
+            raise BackendStoreError("value too large for Redis backend", state=state, task_id=task_id)
+        existing = self.ensure(
+            self._run_store_result_script,
+            (self.get_key_for_task(task_id), encoded, sorted(self.states_not_to_overwrite(state))),
+        )
+        if existing is not None:
+            self._log_dropped_write(task_id, existing, state)
+        return result
+
+    def _run_store_result_script(self, key, encoded, protected_states):
+        expires = int(self.expires) if self.expires else 0
+        return self._store_result_script(keys=[key], args=[encoded, expires, *protected_states])
+
+    @staticmethod
+    def _log_dropped_write(task_id, existing, state):
+        # The stored state won: usually a redelivered task re-executing.
+        logger.error(
+            "Dropped duplicate result write for task %s: stored state %s, attempted state %s",
+            bytes_to_str(task_id),
+            bytes_to_str(existing),
+            state,
+        )
+
     def forget(self, task_id):
         super().forget(task_id)
 
@@ -819,13 +864,7 @@ return false
             args=[encoded, expires, *sorted(self.states_not_to_overwrite(state))],
         )
         if existing is not None:
-            # The stored state won: usually a redelivered task re-executing.
-            logger.error(
-                "Dropped duplicate result write for task %s: stored state %s, attempted state %s",
-                bytes_to_str(task_id),
-                bytes_to_str(existing),
-                state,
-            )
+            self._log_dropped_write(task_id, existing, state)
         return result
 
     async def adelete(self, key):

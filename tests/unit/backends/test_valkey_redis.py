@@ -1,5 +1,6 @@
 import inspect
 import itertools
+import json
 import logging
 import random
 import ssl
@@ -109,6 +110,30 @@ class Redis(conftest.MockCallbacks):
 
     def delete(self, key):
         return bool(self.keyspace.pop(key, None))
+
+    def register_script(self, script):
+        # The one script the backend registers on this client stores a
+        # result: SET, unless the status stored under the key is one of the
+        # states after the payload and the TTL, which it returns instead.
+        def store_result(keys, args):
+            payload, expires, *protected = args
+            # Off the keyspace, not self.get(): the script runs on the server,
+            # and a test counting the client's GETs must not see this read.
+            stored = self.keyspace.get(keys[0])
+            if stored is not None:
+                try:
+                    status = json.loads(stored)["status"]
+                except (ValueError, TypeError, KeyError):  # fmt: skip
+                    status = None
+                if status in protected:
+                    return status.encode()
+            if expires:
+                self.setex(keys[0], expires, payload)
+            else:
+                self.set(keys[0], payload)
+            return None
+
+        return store_result
 
     def pipeline(self):
         return self.Pipeline(self)
@@ -1359,6 +1384,69 @@ class test_RedisBackend_async_client:
 
         assert isinstance(pool, b._aiolib.SentinelConnectionPool)
         assert pool.service_name == "mymaster"
+
+
+class test_RedisBackend_store_result(basetest_RedisBackend):
+    """A sync task's result store: one round trip, and the rule the async one keeps."""
+
+    def setup_method(self):
+        self.Backend = self.get_backend()
+        self.b = self.Backend(app=self.app)
+
+    def test_stores_without_reading_the_stored_result_first(self):
+        # Reading the stored meta back before writing cost a sync task a
+        # second round trip that the async path never paid.
+        task_id = uuid()
+        self.b.store_result(task_id, 42, states.SUCCESS)
+        self.b.client.get.assert_not_called()
+        assert self.b.get_result(task_id) == 42
+
+    def test_the_write_is_retried_as_set_retries_it(self):
+        with patch.object(self.b, "ensure", wraps=self.b.ensure) as ensure:
+            self.b.store_result(uuid(), 42, states.SUCCESS)
+        assert ensure.call_args.args[0] == self.b._run_store_result_script
+
+    def test_stored_success_survives_a_later_state(self):
+        task_id = uuid()
+        self.b.store_result(task_id, "done", states.SUCCESS)
+        self.b.store_result(task_id, "late", states.STARTED)
+        assert self.b.get_task_meta(task_id, cache=False)["result"] == "done"
+
+    def test_stored_failure_is_replaced_by_a_later_state(self):
+        task_id = uuid()
+        self.b.store_result(task_id, KeyError("boom"), states.FAILURE)
+        self.b.store_result(task_id, "done", states.SUCCESS)
+        meta = self.b.get_task_meta(task_id, cache=False)
+        assert meta["status"] == states.SUCCESS
+        assert meta["result"] == "done"
+
+    def test_a_late_revoke_leaves_a_stored_failure_alone(self):
+        task_id = uuid()
+        self.b.store_result(task_id, KeyError("boom"), states.FAILURE)
+        self.b.store_result(task_id, TaskRevokedError("gone"), states.REVOKED)
+        assert self.b.get_task_meta(task_id, cache=False)["status"] == states.FAILURE
+
+    def test_write_dropped_by_the_script_is_logged(self, caplog):
+        task_id = uuid()
+        self.b.store_result(task_id, "done", states.SUCCESS)
+        with caplog.at_level(logging.ERROR, logger="celery.backends.valkey_redis"):
+            self.b.store_result(task_id, KeyError("boom"), states.FAILURE)
+        assert f"Dropped duplicate result write for task {task_id}" in caplog.text
+
+    def test_a_value_too_large_is_refused_with_the_task_named(self):
+        task_id = uuid()
+        with patch.object(self.Backend, "_MAX_STR_VALUE_SIZE", 10), pytest.raises(BackendStoreError) as exc_info:
+            self.b.store_result(task_id, "x" * 100, states.SUCCESS)
+        assert exc_info.value.task_id == task_id
+        assert exc_info.value.state == states.SUCCESS
+
+    def test_a_serializer_the_script_cannot_read_reads_first(self):
+        b = self.Backend(app=self.app, serializer="pickle")
+        task_id = uuid()
+        b.store_result(task_id, "done", states.SUCCESS)
+        b.store_result(task_id, "late", states.STARTED)
+        b.client.register_script.assert_not_called()
+        assert b.get_task_meta(task_id, cache=False)["result"] == "done"
 
 
 class test_RedisBackend_astore_result:
