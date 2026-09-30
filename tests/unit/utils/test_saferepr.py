@@ -134,6 +134,25 @@ class test_saferepr:
     def test_text_maxlen(self):
         assert saferepr(D_D_TEXT, 100).endswith("...', ...}}")
 
+    def test_maxlen_closes_every_open_container(self):
+        assert saferepr([[[1, 2, 3] * 5] * 3], 10) == "[[[1, 2, 3..., ...]]]"
+
+    def test_maxlen_leaves_the_rest_unvisited(self):
+        # The closing brackets used to be found by walking everything after
+        # the cut, so a million-item list took a million steps to print its
+        # first twenty characters.
+        pulled = 0
+
+        class counting(list):
+            def __iter__(self):
+                nonlocal pulled
+                for item in list.__iter__(self):
+                    pulled += 1
+                    yield item
+
+        assert saferepr(counting(range(100_000)), 20) == "[0, 1, 2, 3, 4, 5, 6..., ...]"
+        assert pulled < 20
+
     def test_maxlevels(self):
         saferepr(D_ALL, maxlevels=1)
 

@@ -352,6 +352,12 @@ commit it came from.
   fallback that yielded a value raised `AttributeError` at the end of the block,
   and one that yielded `None` ran its cleanup before the block. The fallback is
   now exited after the block (upstream d1f8d8f9f)
+- `saferepr` found the closing brackets of a truncated repr by walking
+  everything after the cut, so it cost as much as a full repr however small
+  `maxlen` was. Every task message carries the `argsrepr` and `kwargsrepr` it
+  builds, and a task sent with a million-item list spent 95 ms printing the
+  first 1024 characters of it. The brackets still open are now tracked as they
+  open, and the output is the same
 
 #### Testing
 

@@ -148,13 +148,18 @@ def _repr(obj):
 
 def _saferepr(o, maxlen=None, maxlevels=3, seen=None):
     stack = deque([iter([o])])
-    for token, it in reprstream(stack, seen=seen, maxlevels=maxlevels):
+    closers: list[_literal] = []
+    for token, _ in reprstream(stack, seen=seen, maxlevels=maxlevels, closers=closers):
         if maxlen is not None and maxlen <= 0:
             yield ", ..."
-            # move rest back to stack, so that we can include
-            # dangling parens.
-            stack.append(it)
-            break
+            # maxlen exceeded: close the containers still open, innermost
+            # first. Walking the rest of the stream to find those tokens made
+            # a truncated repr cost as much as a full one, so a list of a
+            # million items took a million steps to print its first thousand
+            # characters.
+            for closer in reversed(closers):
+                yield closer.value
+            return
         if isinstance(token, _literal):
             val = token.value
         elif isinstance(token, _key):
@@ -166,11 +171,6 @@ def _saferepr(o, maxlen=None, maxlevels=3, seen=None):
         yield val
         if maxlen is not None:
             maxlen -= len(val)
-    for rest1 in stack:
-        # maxlen exceeded, process any dangling parens.
-        for rest2 in rest1:
-            if isinstance(rest2, _literal) and not rest2.truncate:
-                yield rest2.value
 
 
 def _reprseq(val, lit_start, lit_end, builtin_type, chainer):
@@ -184,9 +184,18 @@ def _reprseq(val, lit_start, lit_end, builtin_type, chainer):
 
 
 def reprstream(
-    stack: deque, seen: set | None = None, maxlevels: int = 3, level: int = 0, isinstance: Callable = isinstance
+    stack: deque,
+    seen: set | None = None,
+    maxlevels: int = 3,
+    level: int = 0,
+    isinstance: Callable = isinstance,
+    closers: list | None = None,
 ) -> Iterator[Any]:
-    """Streaming repr, yielding tokens."""
+    """Streaming repr, yielding tokens.
+
+    ``closers``, if given, is kept holding the closing token of every
+    container opened and not yet closed, outermost first.
+    """
     seen = seen or set()
     append = stack.append
     popleft = stack.popleft
@@ -204,6 +213,8 @@ def reprstream(
                 continue
             elif isinstance(val, _literal):
                 level += val.direction
+                if closers is not None and val.direction < 0:
+                    closers.pop()
                 yield val, it
             elif isinstance(val, _key):
                 yield val, it
@@ -256,4 +267,6 @@ def reprstream(
                 # the rest of our iterable onto the new it: this way
                 # it works similar to a linked list.
                 append(chain([lit_start], val, [_dirty(objid), lit_end], it))
+                if closers is not None:
+                    closers.append(lit_end)
                 break
