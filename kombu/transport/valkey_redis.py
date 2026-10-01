@@ -2279,12 +2279,9 @@ class Channel:
 
         await self._restore_prefetch_buffer()
 
-        # An ack takes its message off _delivered before the batch carrying it
-        # reaches Redis, so the requeue below cannot see it. Let the batches
-        # land rather than leave finished tasks for the visibility sweep to run
-        # again.
-        if self._ack_flushes:
-            await asyncio.gather(*self._ack_flushes, return_exceptions=True)
+        # The acks on their way must land, and gather would cancel them along with a cancelled close.
+        while self._ack_flushes:
+            await asyncio.wait(set(self._ack_flushes))
 
         # Requeue unacked messages. The snapshot is iterated across awaits and
         # basic_ack runs on the same loop, so a tag can be acked mid-drain;

@@ -1159,6 +1159,31 @@ class TestClose:
         assert sent == [["t1"]]
         ch._requeue_by_tag.assert_not_called()
 
+    async def test_a_cancelled_close_leaves_the_acks_on_their_way_alone(self):
+        ch = _make_channel()
+        ch._requeue_by_tag = AsyncMock()
+        release = asyncio.Event()
+        sent = []
+
+        async def script(**kwargs):
+            await release.wait()
+            sent.append(kwargs["args"])
+
+        ch._ack_script = AsyncMock(side_effect=script)
+        ch._delivered["t1"] = ("q1", MagicMock())
+        ack = asyncio.create_task(ch.basic_ack("t1"))
+        await asyncio.sleep(0)
+        closing = asyncio.create_task(ch.close())
+        await asyncio.sleep(0)
+
+        closing.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await closing
+        release.set()
+        await ack
+
+        assert sent == [["t1"]]
+
 
 # ---------------------------------------------------------------------------
 # Transport
