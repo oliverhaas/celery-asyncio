@@ -492,7 +492,8 @@ def _environment(rows: list[dict]) -> list[str]:
             continue
         gil = "free-threaded" if v.get("free_threading") else "GIL"
         parts = [f"CPython {v.get('python', '?')} ({gil})"]
-        parts += [str(v[k]) for k in ("celery", "kombu", "redis", "uvloop") if v.get(k)]
+        # kombu ships inside celery-asyncio, so the fork reports one version for both.
+        parts += list(dict.fromkeys(str(v[k]) for k in ("celery", "kombu", "redis", "uvloop") if v.get(k)))
         lines.append(f"- `{venv}`: " + ", ".join(parts))
     broker = _versions.broker_version()
     if broker:
