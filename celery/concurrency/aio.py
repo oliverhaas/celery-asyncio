@@ -499,6 +499,11 @@ class TaskPool(BasePool):
         if executor is not None:
             executor.shutdown(wait=False, cancel_futures=True)
 
+    @property
+    def stuck_threads(self) -> int:
+        """How many threads that a hard time limit gave up on are still running."""
+        return sum(job.stuck for job in list(self._active_futures.values()))
+
     def restart(self) -> None:
         self.on_stop()
         self.on_start()

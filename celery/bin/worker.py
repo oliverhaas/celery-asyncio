@@ -3,6 +3,7 @@
 """Program used to start a Celery worker instance."""
 
 import asyncio
+import atexit
 import os
 import sys
 
@@ -147,6 +148,26 @@ def detach(
             app.log.setup_logging_subsystem("ERROR", logfile, hostname=hostname)
             logger.critical("Can't exec %r", " ".join([path] + argv), exc_info=True)
             return EX_FAILURE
+
+
+def exit_past_stuck_threads(pool, exitcode):
+    """Exit now if threads that a hard time limit gave up on are still running.
+
+    The interpreter joins them at exit, which holds the exit, and any restart, until they return.
+    """
+    stuck = getattr(pool, "stuck_threads", 0)
+    if not stuck:
+        return
+    logger.warning("Exiting past %d stuck thread(s)", stuck)
+    atexit._run_exitfuncs()
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None:
+            stream.flush()
+    if exitcode is None:
+        exitcode = EX_OK
+    elif not isinstance(exitcode, int):
+        exitcode = EX_FAILURE
+    os._exit(exitcode)
 
 
 @click.command(cls=CeleryDaemonCommand, context_settings={"allow_extra_args": True})
@@ -371,6 +392,7 @@ def worker(
             **kwargs,
         )
         asyncio.run(worker.start())
+        exit_past_stuck_threads(worker.pool, worker.exitcode)
         ctx.exit(worker.exitcode)
     except SecurityError as e:
         ctx.obj.error(e.args[0])

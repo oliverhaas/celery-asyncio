@@ -1069,8 +1069,10 @@ class test_sync_task_stop(AioPoolCase):
             stopping.join(5)
 
             assert not stopping.is_alive()
+            assert pool.stuck_threads == 1
         finally:
             release.set()
+        assert wait_until(lambda: pool.stuck_threads == 0)
 
 
 class test_SyncJob:

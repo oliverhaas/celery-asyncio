@@ -1,6 +1,6 @@
 import os
 import sys
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -8,7 +8,7 @@ from click.testing import CliRunner
 from celery.app.log import Logging
 from celery.apps.worker import Worker
 from celery.bin.celery import celery
-from celery.bin.worker import strip_detach_options
+from celery.bin.worker import exit_past_stuck_threads, strip_detach_options
 
 from .proj.app import app as proj_app
 
@@ -112,6 +112,27 @@ def test_pool_sizing_flags_reach_the_worker(flag, attribute, cli_runner: CliRunn
     worker = run_worker(cli_runner, [flag, "3"])
 
     assert getattr(worker, attribute) == 3
+
+
+@pytest.mark.usefixtures("logging_already_set_up")
+def test_the_worker_exits_past_stuck_threads(cli_runner: CliRunner, restore_app_conf):
+    with patch("celery.bin.worker.exit_past_stuck_threads") as exit_past:
+        worker = run_worker(cli_runner, [])
+
+    exit_past.assert_called_once_with(worker.pool, worker.exitcode)
+
+
+@pytest.mark.parametrize(("exitcode", "status"), [(3, 3), (None, 0), ("broken", 1)])
+def test_exits_past_threads_a_hard_time_limit_left_running(exitcode, status):
+    with (
+        patch("atexit._run_exitfuncs") as run_exitfuncs,
+        patch("os._exit", side_effect=SystemExit) as exit_,
+        pytest.raises(SystemExit),
+    ):
+        exit_past_stuck_threads(Mock(stuck_threads=1), exitcode)
+
+    run_exitfuncs.assert_called_once_with()
+    exit_.assert_called_once_with(status)
 
 
 @pytest.mark.parametrize("removed", ["-O", "--optimization", "--disable-prefetch"])

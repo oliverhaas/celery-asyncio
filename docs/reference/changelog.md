@@ -186,6 +186,10 @@ commit it came from.
   `acks_late` task went back to the queue and ran again although it had
   succeeded. The shutdown now waits for the running sync tasks to finish and
   report, except for a thread past its hard time limit
+- A thread past its hard time limit held the worker until it returned: the
+  interpreter joins the pool's threads at exit, so neither the restart that the
+  limit set off nor a shutdown could finish. The worker now runs its exit
+  handlers and exits, or restarts, without waiting for such a thread
 
 #### Beat and schedules
 
