@@ -2290,6 +2290,23 @@ commit it came from.</p>
   however long that takes. On a quiet stream that outlived the socket timeout
   and failed as a lost connection. The wait is now rounded up to whole
   milliseconds. The regression came with 6.0.0a6</li>
+<li>When the worker lost its broker connection, the asyncio pool kept the tasks
+  it had been handed but not started yet, while closing the connection returned
+  their messages to the queue. Each of those tasks ran twice, once from the pool
+  and once on redelivery. The pool now drops the tasks it has not started
+  before the connection is closed</li>
+<li>A warm shutdown cancelled every async task in the pool, including one whose
+  body had already returned or raised and that was storing its outcome. The
+  task was then reported as <code>REVOKED</code>: over a stored result that logged a
+  "Dropped duplicate result write" error, dozens per shutdown under load, and
+  before the result was stored it could replace the real outcome. A task whose
+  body is done is now left to report it</li>
+<li>The worker loop took up to a thousand messages in a row before it came back
+  to its timers, its shutdown and restart checks and the transport's read for
+  control commands and events. A delivery can take 20 ms while CPU-bound tasks
+  hold the GIL, so on the GIL build a busy worker went about 20 s at a time
+  without reading a control command. The loop now also comes back when the next
+  timer entry is due, and after a second at most</li>
 </ul>
 <h4 id="beat-and-schedules">Beat and schedules<a class="headerlink" href="#beat-and-schedules" title="Permanent link">&para;</a></h4>
 <ul>
@@ -2586,14 +2603,17 @@ commit it came from.</p>
 </ul>
 <h3 id="changed">Changed<a class="headerlink" href="#changed" title="Permanent link">&para;</a></h3>
 <ul>
+<li>Left unset, <code>-c</code> (<code>worker_concurrency</code>) is the asyncio pool's slots,
+  <code>worker_loop_workers × worker_loop_concurrency + worker_sync_workers</code>, rather
+  than the CPU count. The pool never read it for its size, so all it set was the
+  prefetch count, which followed the machine rather than the pool</li>
 <li>With <code>task_acks_late</code> on Valkey or Redis, a prefetch count below what the pool
   runs at once now leaves the rest of the pool idle, as it already did on AMQP.
-  The count is <code>-c</code> times <code>worker_prefetch_multiplier</code>, and <code>-c</code> defaults to the
-  CPU count rather than the pool's size, so set it to at least
-  <code>worker_loop_workers × worker_loop_concurrency + worker_sync_workers</code></li>
-<li><code>--prefetch-multiplier 1</code> with <code>task_acks_late</code> and <code>-c</code> at the pool's size
-  now does on Valkey and Redis what the removed <code>--disable-prefetch</code> did: the
-  worker only takes a message when a slot is free</li>
+  The count is <code>-c</code> times <code>worker_prefetch_multiplier</code>, so only a <code>-c</code> below the
+  pool's slots can cause it</li>
+<li><code>--prefetch-multiplier 1</code> with <code>task_acks_late</code> and the default <code>-c</code> now does
+  on Valkey and Redis what the removed <code>--disable-prefetch</code> did: the worker only
+  takes a message when a slot is free</li>
 <li>The static-analysis hack in <code>celery/__init__.py</code> is a <code>TYPE_CHECKING</code> guard
   (upstream ceb5f9655)</li>
 <li><code>EventReceiver</code> documents its first argument under the name it actually has

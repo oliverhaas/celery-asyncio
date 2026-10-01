@@ -1662,11 +1662,11 @@ the certificate paths in the URL query or in <code>broker_transport_options</cod
 <h3 id="settings-that-mean-something-different">Settings that mean something different<a class="headerlink" href="#settings-that-mean-something-different" title="Permanent link">&para;</a></h3>
 <p><code>worker_prefetch_multiplier</code> still applies, and the count it gives caps the
 messages a worker holds unacknowledged on every broker, same as upstream. What
-differs is the concurrency it multiplies: <code>worker_concurrency</code> (<code>-c</code>, the CPU
-count by default), which the asyncio pool does not read for its size. With
-<code>task_acks_late</code>, set <code>-c</code> to at least
-<code>worker_loop_workers × worker_loop_concurrency + worker_sync_workers</code>, or the
-prefetch count leaves part of the pool idle. The default multiplier is 4.</p>
+differs is the concurrency it multiplies: <code>worker_concurrency</code> (<code>-c</code>), which the
+asyncio pool does not read for its size. Left unset, it is the pool's slots,
+<code>worker_loop_workers × worker_loop_concurrency + worker_sync_workers</code>, so the
+count follows the pool as it does upstream. With <code>task_acks_late</code>, a <code>-c</code> below
+the slots can leave part of the pool idle. The default multiplier is 4.</p>
 <h2 id="worker-startup">Worker startup<a class="headerlink" href="#worker-startup" title="Permanent link">&para;</a></h2>
 <p>The CLI is the same:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Before</span>
@@ -1684,8 +1684,8 @@ always expand to <code>0</code> and to the empty string.</p>
 <li><code>-O</code> / <code>--optimization</code>: the <code>fair</code> profile only ever described the prefork
   pool, and nothing read the value.</li>
 <li><code>--disable-prefetch</code>: use <code>--prefetch-multiplier 1</code> with <code>task_acks_late</code>,
-  and <code>-c</code> at the pool's size. The worker then holds no more messages than it
-  can run, so it only takes one when a slot is free.</li>
+  and leave <code>-c</code> at its default, the pool's size. The worker then holds no more
+  messages than it can run, so it only takes one when a slot is free.</li>
 <li><code>--autoscale</code>: it only ever pinned concurrency to the low end of the range,
   since the asyncio pool cannot grow or shrink.</li>
 </ul>
