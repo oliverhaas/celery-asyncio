@@ -181,17 +181,19 @@ class RedisBackend(BaseKeyValueStoreBackend, AsyncBackendMixin):
     #: Check-then-SET for any number of results in one round trip. For each key,
     #: ARGV holds the payload, the TTL in seconds (0 for none), the number of
     #: states the write must not overwrite and those states. Returns, for each
-    #: key, the stored state when it is one of them, else SETs and returns nil.
-    #: JSON only (cjson).
+    #: key, the stored state when it is one of them, else SETs and returns nil,
+    #: or the error of its GET or SET when that failed. JSON only (cjson).
     _STORE_RESULTS_LUA = """\
 local won = {}
 local a = 1
 for i = 1, #KEYS do
     local n = tonumber(ARGV[a + 2])
     local status = false
-    local existing = redis.call('GET', KEYS[i])
+    local existing = redis.pcall('GET', KEYS[i])
+    if type(existing) == 'table' then
+        status = existing
     -- Finding its own payload means this write landed and is now retried.
-    if existing and existing ~= ARGV[a] then
+    elseif existing and existing ~= ARGV[a] then
         local ok, decoded = pcall(cjson.decode, existing)
         if ok and type(decoded) == 'table' then
             for j = a + 3, a + 2 + n do
@@ -204,10 +206,14 @@ for i = 1, #KEYS do
     end
     if not status then
         local expires = tonumber(ARGV[a + 1])
+        local reply
         if expires and expires > 0 then
-            redis.call('SETEX', KEYS[i], expires, ARGV[a])
+            reply = redis.pcall('SETEX', KEYS[i], expires, ARGV[a])
         else
-            redis.call('SET', KEYS[i], ARGV[a])
+            reply = redis.pcall('SET', KEYS[i], ARGV[a])
+        end
+        if reply.err then
+            status = reply
         end
     end
     won[i] = status
@@ -580,11 +586,21 @@ return won
         (existing,) = self._store_result_script(
             keys=[key], args=[encoded, self._expires_seconds(), len(protected_states), *protected_states]
         )
-        return existing
+        return self._raise_failed_write(existing)
 
     def _expires_seconds(self):
         """The TTL the store script takes, 0 for none."""
         return int(self.expires) if self.expires else 0
+
+    @staticmethod
+    def _raise_failed_write(outcome):
+        """Raise the error the store script returned for one key, else return the outcome.
+
+        The client turns an error reply nested in the script's reply into an exception.
+        """
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
     @staticmethod
     def _log_dropped_write(task_id, existing, state):
@@ -928,7 +944,7 @@ return won
         order they were made, so two writes to one key behave as they would
         one after the other. Each caller returns once its own write has
         landed, with the stored state that won over it if one did, and sees
-        the error if the call failed.
+        the error if the call or its own write failed.
 
         Every loop worker shares this backend and runs its own event loop, so
         each loop keeps its own batch.
@@ -950,7 +966,7 @@ return won
         batch.size += len(encoded)
         # Shielded: a task that is cancelled while waiting must not cancel
         # the writes of everyone else in the batch.
-        return (await asyncio.shield(batch.done))[index]
+        return self._raise_failed_write((await asyncio.shield(batch.done))[index])
 
     def _stores_flushed(self, loop, batch, flush):
         """Release a batch however its task ended, cancelled before it ran included."""

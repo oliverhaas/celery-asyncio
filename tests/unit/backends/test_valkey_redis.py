@@ -1471,6 +1471,15 @@ class test_RedisBackend_store_result(basetest_RedisBackend):
         assert "Dropped duplicate result write" not in caplog.text
         assert self.b.get_task_meta(task_id, cache=False)["status"] == state
 
+    def test_a_write_the_script_failed_raises(self, caplog):
+        pytest.importorskip("redis")
+        error = exceptions.ResponseError("WRONGTYPE Operation against a key holding the wrong kind of value")
+        self.b.__dict__["_store_result_script"] = Mock(return_value=[error])
+
+        with pytest.raises(exceptions.ResponseError, match="WRONGTYPE"):
+            self.b.store_result(uuid(), 42, states.SUCCESS)
+        assert "Dropped duplicate result write" not in caplog.text
+
     def test_a_value_too_large_is_refused_with_the_task_named(self):
         task_id = uuid()
         with patch.object(self.Backend, "_MAX_STR_VALUE_SIZE", 10), pytest.raises(BackendStoreError) as exc_info:
@@ -1665,6 +1674,19 @@ class test_RedisBackend_astore_batched:
 
         assert [type(r) for r in results] == [ConnectionError, ConnectionError]
         assert self.b._store_batches == {}
+
+    async def test_a_write_the_script_failed_fails_only_its_own_task(self):
+        pytest.importorskip("redis")
+        error = exceptions.ResponseError("WRONGTYPE Operation against a key holding the wrong kind of value")
+        self._spy_script(return_value=[None, error])
+
+        results = await asyncio.gather(
+            self.b.astore_result(uuid(), 1, states.SUCCESS),
+            self.b.astore_result(uuid(), 2, states.SUCCESS),
+            return_exceptions=True,
+        )
+
+        assert results == [1, error]
 
     async def test_a_batch_holds_at_most_max_store_batch_writes(self):
         from celery.backends.valkey_redis import MAX_STORE_BATCH
