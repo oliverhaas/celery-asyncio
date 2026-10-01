@@ -173,6 +173,9 @@ async def asynloop(
                 # delay = time until next scheduled entry (or max_interval)
                 drain_timeout = min(delay, 1.0)
                 break
+        # The inner drain stops by then too. Under the GIL a delivery can take
+        # 20 ms, too long for timers and the control-command read to wait out a batch.
+        deadline = time.monotonic() + drain_timeout
 
         try:
             # Block until at least one message arrives (or timeout).
@@ -180,7 +183,7 @@ async def asynloop(
             # Got one, now drain remaining available messages non-blocking
             # to fill the concurrency pipeline.
             batch = 0
-            while blueprint.state == RUN and batch < _MAX_DRAIN_BATCH:
+            while blueprint.state == RUN and batch < _MAX_DRAIN_BATCH and time.monotonic() < deadline:
                 try:
                     await connection.drain_events(timeout=0)
                     batch += 1

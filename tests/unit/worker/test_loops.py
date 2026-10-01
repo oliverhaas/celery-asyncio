@@ -1,3 +1,4 @@
+import asyncio
 import time
 from collections import deque
 
@@ -40,6 +41,31 @@ class ScriptedConnection:
         if isinstance(step, BaseException):
             raise step
         step()
+
+
+class BacklogConnection:
+    """Always has another message ready, and takes ``seconds`` to hand each one over.
+
+    Each blocking drain starts a pass, and ``polls`` counts the non-blocking
+    drains within it. The blocking drain after ``passes`` of them ends the loop.
+    """
+
+    def __init__(self, blueprint, seconds=0.0, passes=1):
+        self.blueprint = blueprint
+        self.seconds = seconds
+        self.passes = passes
+        self.polls = []
+
+    async def drain_events(self, timeout=None):
+        if timeout != 0:
+            if len(self.polls) == self.passes:
+                self.blueprint.state = CLOSE
+                raise TimeoutError
+            self.polls.append(0)
+        else:
+            self.polls[-1] += 1
+        if self.seconds:
+            await asyncio.sleep(self.seconds)
 
 
 class FakeTaskConsumer:
@@ -202,6 +228,34 @@ class test_asynloop_qos(LoopCase):
         await coro
 
         assert connection.drained == 1
+
+
+class test_asynloop_backlog(LoopCase):
+    async def test_a_due_timer_is_not_held_back_by_a_deep_backlog(self):
+        blueprint = BlueprintState()
+        connection = BacklogConnection(blueprint, seconds=0.001, passes=1000)
+        timer = Timer(max_interval=1.0)
+        fired_after = []
+
+        def tick():
+            fired_after.append(sum(connection.polls))
+            blueprint.state = CLOSE
+
+        timer.call_after(0.05, tick)
+
+        await asynloop(FakeConsumer(self.app, timer=timer), connection, FakeTaskConsumer(), blueprint)
+
+        assert fired_after
+        assert fired_after[0] < loops._MAX_DRAIN_BATCH // 2
+
+    async def test_the_inner_drain_still_takes_a_full_batch_while_time_remains(self):
+        blueprint = BlueprintState()
+        connection = BacklogConnection(blueprint)
+        obj = FakeConsumer(self.app, timer=Timer(max_interval=1.0))
+
+        await asynloop(obj, connection, FakeTaskConsumer(), blueprint)
+
+        assert connection.polls == [loops._MAX_DRAIN_BATCH]
 
 
 class test_enter_draining:

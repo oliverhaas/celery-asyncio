@@ -126,6 +126,12 @@ commit it came from.
   however long that takes. On a quiet stream that outlived the socket timeout
   and failed as a lost connection. The wait is now rounded up to whole
   milliseconds. The regression came with 6.0.0a6
+- The worker loop took up to a thousand messages in a row before it came back
+  to its timers, its shutdown and restart checks and the transport's read for
+  control commands and events. A delivery can take 20 ms while CPU-bound tasks
+  hold the GIL, so on the GIL build a busy worker went about 20 s at a time
+  without reading a control command. The loop now also comes back when the next
+  timer entry is due, and after a second at most
 
 #### Beat and schedules
 
