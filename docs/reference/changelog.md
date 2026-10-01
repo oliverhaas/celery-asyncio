@@ -196,6 +196,12 @@ commit it came from.
   handler first. The `--statedb` file was never saved, so the revoked tasks were
   forgotten, and other handlers, such as a tracing exporter's flush, never ran.
   They now run before the restart
+- A thread past its hard time limit left the sync tasks queued behind it unable
+  to start when no other sync thread was free, as with the default
+  `worker_sync_workers` of 1. The drain before the restart waited for them, so
+  the worker stopped consuming and did not restart until the stuck thread
+  returned. With every sync thread stuck, the drain now waits only for the tasks
+  that have started, and the restart returns the others to the queue
 
 #### Beat and schedules
 

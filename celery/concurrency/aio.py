@@ -504,6 +504,11 @@ class TaskPool(BasePool):
         """How many threads that a hard time limit gave up on are still running."""
         return sum(job.stuck for job in list(self._active_futures.values()))
 
+    @property
+    def sync_threads_all_stuck(self) -> bool:
+        """Whether a hard time limit gave up on every sync thread, so no queued sync task can start."""
+        return self.stuck_threads >= self._sync_worker_count
+
     def restart(self) -> None:
         self.on_stop()
         self.on_start()

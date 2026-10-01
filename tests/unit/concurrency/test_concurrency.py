@@ -1032,6 +1032,28 @@ class test_sync_task_time_limits(AioPoolCase):
         assert pool._stuck_thread_count == 0
 
 
+class test_sync_threads_all_stuck(AioPoolCase):
+    @pytest.mark.parametrize(("sync_workers", "all_stuck"), [(1, True), (2, False)])
+    def test_tells_whether_a_queued_sync_task_can_start(self, sync_workers, all_stuck):
+        release = threading.Event()
+
+        @self.app.task(name="sync.stuck_on_a_thread", shared=False)
+        def stuck_on_a_thread():
+            release.wait(10)
+
+        pool = self.start_pool(sync_workers=sync_workers)
+        rec = Recorder()
+        assert not pool.sync_threads_all_stuck
+        self.apply(pool, "sync.stuck_on_a_thread", rec, timeout=0.2)
+        try:
+            assert rec.done.wait(10)
+            assert pool.sync_threads_all_stuck is all_stuck
+        finally:
+            release.set()
+        assert wait_until(lambda: pool.stuck_threads == 0)
+        assert not pool.sync_threads_all_stuck
+
+
 class test_sync_task_stop(AioPoolCase):
     def test_the_stop_waits_for_a_running_task_to_report(self):
         started = threading.Event()

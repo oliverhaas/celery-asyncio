@@ -116,8 +116,9 @@ class FakeRequest:
 
 
 class FakePool:
-    def __init__(self, stuck_thread_count=0):
+    def __init__(self, stuck_thread_count=0, sync_threads_all_stuck=False):
         self._stuck_thread_count = stuck_thread_count
+        self.sync_threads_all_stuck = sync_threads_all_stuck
 
 
 class LoopCase:
@@ -330,6 +331,26 @@ class test_check_restart_conditions(LoopCase):
 
         assert _check_restart_conditions(obj, FakePool()) is None
         assert restarts == ["all tasks finished during drain"]
+
+    def test_a_drain_with_every_sync_thread_stuck_waits_only_for_the_started_tasks(self, monkeypatch):
+        restarts = []
+        monkeypatch.setattr(loops, "_trigger_restart", restarts.append)
+        obj = self.make_obj()
+        state.is_draining = True
+        running = FakeRequest("running")
+        state.task_reserved(running)
+        state.task_accepted(running)
+        queued = FakeRequest("queued")
+        state.task_reserved(queued)
+        pool = FakePool(sync_threads_all_stuck=True)
+
+        assert _check_restart_conditions(obj, pool) is None
+        assert restarts == []
+
+        state.task_ready(running)
+
+        assert _check_restart_conditions(obj, pool) is None
+        assert restarts == ["all started tasks finished during drain"]
 
 
 class test_asynloop_draining(LoopCase):

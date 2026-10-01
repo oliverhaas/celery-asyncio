@@ -96,10 +96,14 @@ def _check_restart_conditions(obj, pool) -> str | None:
     # Reserved covers both the running tasks and the ones still queued behind
     # the pool's concurrency limit.
     if state.is_draining:
+        # With every sync thread stuck, a queued task cannot start. The
+        # restart's shutdown returns it to the queue.
+        all_stuck = getattr(pool, "sync_threads_all_stuck", False)
         with state._lock:
-            unfinished = bool(state.reserved_requests)
+            unfinished = bool(state.active_requests if all_stuck else state.reserved_requests)
         if not unfinished:
-            _trigger_restart("all tasks finished during drain")
+            reason = "all started tasks finished during drain" if all_stuck else "all tasks finished during drain"
+            _trigger_restart(reason)
         return None
 
     # Build reason parts for conditions that require draining + restart.
