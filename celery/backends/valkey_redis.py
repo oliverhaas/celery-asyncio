@@ -190,7 +190,8 @@ for i = 1, #KEYS do
     local n = tonumber(ARGV[a + 2])
     local status = false
     local existing = redis.call('GET', KEYS[i])
-    if existing then
+    -- Finding its own payload means this write landed and is now retried.
+    if existing and existing ~= ARGV[a] then
         local ok, decoded = pcall(cjson.decode, existing)
         if ok and type(decoded) == 'table' then
             for j = a + 3, a + 2 + n do

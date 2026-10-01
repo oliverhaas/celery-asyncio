@@ -329,7 +329,8 @@ commit it came from.
   upstream does, while an async task's store was already one atomic script
   call. Sync tasks now go through the same script, under the same rule about
   which stored states a write leaves alone. A write the script drops is logged
-  as it is for an async task, a lost connection is retried as before, and a
+  as it is for an async task. A lost connection is retried as before, and a
+  retry that finds its own write already stored is not logged as dropped. A
   result too large for Redis still raises `BackendStoreError` naming the task.
   Trivial sync tasks on four pool threads ran half as fast again, at a third
   less CPU each

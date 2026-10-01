@@ -126,7 +126,7 @@ class Redis(conftest.MockCallbacks):
                 # server, and a test counting the client's GETs must not see it.
                 stored = self.keyspace.get(key)
                 status = None
-                if stored is not None:
+                if stored is not None and stored != payload:
                     try:
                         status = json.loads(stored)["status"]
                     except (ValueError, TypeError, KeyError):  # fmt: skip
@@ -1448,6 +1448,28 @@ class test_RedisBackend_store_result(basetest_RedisBackend):
         with caplog.at_level(logging.ERROR, logger="celery.backends.valkey_redis"):
             self.b.store_result(task_id, KeyError("boom"), states.FAILURE)
         assert f"Dropped duplicate result write for task {task_id}" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("state", "result"), [(states.SUCCESS, "done"), (states.REVOKED, TaskRevokedError("gone"))]
+    )
+    def test_a_retry_of_a_write_that_landed_is_not_logged_as_dropped(self, state, result, caplog):
+        script = self.b._store_result_script
+        replies = []
+
+        def reply_lost_once(**kwargs):
+            replies.append(script(**kwargs))
+            if len(replies) == 1:
+                raise self.b.connection_errors[0]("reply lost")
+            return replies[-1]
+
+        self.b.__dict__["_store_result_script"] = reply_lost_once
+        task_id = uuid()
+        with caplog.at_level(logging.ERROR, logger="celery.backends.valkey_redis"):
+            self.b.store_result(task_id, result, state)
+
+        assert replies == [[None], [None]]
+        assert "Dropped duplicate result write" not in caplog.text
+        assert self.b.get_task_meta(task_id, cache=False)["status"] == state
 
     def test_a_value_too_large_is_refused_with_the_task_named(self):
         task_id = uuid()
