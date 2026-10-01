@@ -2275,6 +2275,13 @@ commit it came from.</p>
   <code>cancel_consumer</code> control command, did nothing, because <code>Queues.deselect</code> and
   the task consumer only matched the real name, so the worker went on consuming
   from the queue. Both now resolve an alias to its queue (upstream 95c1bf2d4)</li>
+<li>On Valkey and Redis every ack was a script call of its own, one round trip
+  per task and the largest single cost of the worker's consumer loop. The acks
+  made in one pass of the event loop now go out in one script call, up to a
+  hundred at a time. Each ack still returns once its message is gone from
+  Redis and still sees the error if that failed, and closing the channel waits
+  for the acks on their way before it requeues what is left. On a local Redis,
+  trivial async tasks ran a quarter faster at a fifth less CPU each</li>
 </ul>
 <h4 id="beat-and-schedules">Beat and schedules<a class="headerlink" href="#beat-and-schedules" title="Permanent link">&para;</a></h4>
 <ul>
@@ -2437,6 +2444,19 @@ commit it came from.</p>
   and a group stores no result under its own id. The group is now turned into a
   chord, as a bare group already was, so <code>get()</code> returns the group's results
   (upstream 01608ff3b, 8aed8200c)</li>
+<li>Sending a task declared its queue again before every publish: two extra
+  round trips per task on Valkey and Redis, a <code>queue.declare</code> and a <code>queue.bind</code>
+  on AMQP. Upstream's <code>maybe_declare</code> remembered what a connection had declared,
+  and the asyncio rewrite had lost that. It now remembers what each channel has
+  declared, so the queue is declared on the first send and again after a
+  reconnect. An auto-delete queue, a queue with <code>x-expires</code> and a queue bound to
+  an auto-delete exchange can be dropped by the broker, so those are still
+  declared every time, as upstream does. On Valkey and Redis a binding can also
+  go missing under a live channel, through a flush, an eviction or the
+  <code>queue_expires</code> option aging it out, so a send that misses a binding its
+  channel declared binds it again and delivers. On Redis a send is back to a
+  single round trip, and <code>delay()</code> and <code>adelay()</code> take about a quarter and a
+  third less time</li>
 </ul>
 <h4 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h4>
 <ul>
@@ -2468,6 +2488,26 @@ commit it came from.</p>
   task <code>PENDING</code>, and a task that reported one through <code>update_state</code> failed
   with <code>EncodeError</code> instead. It is now stored like any other exception
   (upstream 05e0ea423)</li>
+<li>A sync task stored its result on Valkey and Redis in two round trips: the
+  backend read the stored result back and decoded it before it wrote, as
+  upstream does, while an async task's store was already one atomic script
+  call. Sync tasks now go through the same script, under the same rule about
+  which stored states a write leaves alone. A write the script drops is logged
+  as it is for an async task. A lost connection is retried as before, and a
+  retry that finds its own write already stored is not logged as dropped. A
+  result too large for Redis still raises <code>BackendStoreError</code> naming the task.
+  Trivial sync tasks on four pool threads ran half as fast again, at a third
+  less CPU each</li>
+<li>An async task's result store on Valkey and Redis was a script call of its
+  own, one round trip per task and the largest single cost of a loop worker.
+  The results a loop worker stores in one pass of its event loop now go out in
+  one script call, up to a hundred of them and a megabyte of payload, so a
+  large result still goes out on its own. The script applies the writes in
+  order under the same rule as before, each task waits for its own write and
+  sees the error if the call or its own write failed, and a write dropped
+  because a stored state won is still logged. On a local Redis, trivial async
+  tasks on one loop worker ran 44% faster on the GIL build and 51% faster
+  free-threaded</li>
 </ul>
 <h4 id="events">Events<a class="headerlink" href="#events" title="Permanent link">&para;</a></h4>
 <ul>
@@ -2481,6 +2521,22 @@ commit it came from.</p>
   that node's event timestamps by as much. The offset is now exact. Until the
   monitor and the workers all run this version, a monitor in such a zone shifts
   the events of a worker in the same zone by that amount (upstream 208a80365)</li>
+<li>A worker running with <code>-E</code> sent every task event as a publish of its own, and
+  under load lost many of them. Upstream buffers task events whenever it runs
+  its event-loop hub and sends them as one <code>task.multi</code> message per loop
+  iteration; the worker here has no hub, and the condition went with it. So each
+  task-received, task-started and task-succeeded started a publish of its own,
+  a burst of them ran the connection pool out with <code>MaxConnectionsError</code>, and
+  the failed events went into the offline buffer, which nothing flushed until
+  the next reconnect. A monitor then showed those tasks stuck as received or
+  started. Task events are buffered again and flushed once per pass of the
+  worker loop, which also retries what the offline buffer holds, at most once
+  a second, and a reconnect carries the buffered events over to the new
+  dispatcher. A worker shutting down sends the events still buffered and gives
+  the events on their way up to five seconds to reach the broker before it
+  closes the connection, which also lets <code>worker-offline</code> arrive. On a local
+  Redis, trivial async tasks with events on ran twice as fast, and 3000 tasks
+  delivered all of their events where 400 had lost two thirds of them</li>
 </ul>
 <h4 id="utilities">Utilities<a class="headerlink" href="#utilities" title="Permanent link">&para;</a></h4>
 <ul>
@@ -2506,6 +2562,12 @@ commit it came from.</p>
   fallback that yielded a value raised <code>AttributeError</code> at the end of the block,
   and one that yielded <code>None</code> ran its cleanup before the block. The fallback is
   now exited after the block (upstream d1f8d8f9f)</li>
+<li><code>saferepr</code> found the closing brackets of a truncated repr by walking
+  everything after the cut, so it cost as much as a full repr however small
+  <code>maxlen</code> was. Every task message carries the <code>argsrepr</code> and <code>kwargsrepr</code> it
+  builds, and a task sent with a million-item list spent 95 ms printing the
+  first 1024 characters of it. The brackets still open are now tracked as they
+  open, and the output is the same</li>
 </ul>
 <h4 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h4>
 <ul>

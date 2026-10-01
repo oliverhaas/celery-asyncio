@@ -1089,6 +1089,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#kombu.entity.Exchange.can_cache_declaration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        can_cache_declaration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#kombu.entity.Exchange.declare" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1137,6 +1148,17 @@
   
     <nav class="md-nav" aria-label="Queue">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#kombu.entity.Queue.can_cache_declaration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        can_cache_declaration
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#kombu.entity.Queue.from_dict" class="md-nav__link">
@@ -1413,6 +1435,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#kombu.entity.Exchange.can_cache_declaration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        can_cache_declaration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#kombu.entity.Exchange.declare" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1461,6 +1494,17 @@
   
     <nav class="md-nav" aria-label="Queue">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#kombu.entity.Queue.can_cache_declaration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        can_cache_declaration
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#kombu.entity.Queue.from_dict" class="md-nav__link">
@@ -1689,6 +1733,32 @@ publishes into and a consumer reads from.</p>
 
 
 
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="kombu.entity.Exchange.can_cache_declaration" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">can_cache_declaration</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#kombu.entity.Exchange.can_cache_declaration" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">can_cache_declaration</span><span class="p">:</span> <span class="nb">bool</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Whether one declaration holds for as long as the channel does.</p>
+<p>The broker drops an auto-delete exchange once its last queue lets go
+of it, so that one has to be declared every time, as upstream does.</p>
+
+    </div>
+
+</div>
+
 
 
 
@@ -1798,6 +1868,34 @@ We track exchange metadata for routing purposes.</p>
 
 
 
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="kombu.entity.Queue.can_cache_declaration" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">can_cache_declaration</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#kombu.entity.Queue.can_cache_declaration" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">can_cache_declaration</span><span class="p">:</span> <span class="nb">bool</span>
+</span></code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Whether one declaration holds for as long as the channel does.</p>
+<p>The broker deletes an auto-delete queue when its last consumer goes and
+an expiring one once it sits unused, taking the binding with it, so
+those are declared every time, as upstream does. So is a queue bound to
+an exchange that can go away on its own.</p>
+
+    </div>
+
+</div>
 
 
 

@@ -1973,12 +1973,18 @@ and both the queue and exchange is configured with auto deletion.</p>
 
     <div class="doc doc-contents first">
 
-        <p>Declare an exchange or a queue on a channel.</p>
+        <p>Declare an exchange or a queue on a channel, unless the channel already has.</p>
+<p>The declaration is remembered per channel, as upstream remembers it per
+connection. A publisher declares its target queue before every send, and
+declaring again is a broker round trip that learns nothing: two on Redis,
+a queue.declare and a queue.bind on AMQP. A reconnect opens a new channel,
+which declares afresh. An entity the broker can drop on its own, see
+<code>can_cache_declaration</code>, is declared every time.</p>
 <p>Args:
     entity: Exchange or Queue to declare.
     channel: Channel to use for declaration.</p>
 <p>Returns:
-    True.</p>
+    True if the entity was declared, False if the channel already had.</p>
 
 
     </div>
