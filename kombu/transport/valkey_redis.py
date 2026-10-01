@@ -64,6 +64,7 @@ the two can no longer share it; the first bind converts an inherited set in plac
 
 import asyncio
 import base64
+import math
 import re
 import urllib.parse
 import uuid
@@ -1627,11 +1628,12 @@ class Channel:
         if not streams:
             return False
 
-        # block=None is a non-blocking read; block=0 would block forever.
+        # block=None is a non-blocking read; block=0 would block forever, so a
+        # wait under a millisecond rounds up to one rather than down to that.
         result = await self.subclient.xread(
             streams,
             count=1,
-            block=int(timeout * 1000) if timeout > 0 else None,
+            block=math.ceil(timeout * 1000) if timeout > 0 else None,
         )
 
         if not result:

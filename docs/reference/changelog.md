@@ -118,6 +118,14 @@ commit it came from.
   Redis and still sees the error if that failed, and closing the channel waits
   for the acks on their way before it requeues what is left. On a local Redis,
   trivial async tasks ran a quarter faster at a fifth less CPU each
+- On Valkey and Redis a worker could log "Connection to broker lost" and
+  reconnect while the broker was fine, and a busy worker then ran tasks it had
+  already run a second time. The fanout read for control commands and events
+  waits for what is left of the consumer loop's wait, and with less than a
+  millisecond left it was sent as `XREAD BLOCK 0`, which waits for a message
+  however long that takes. On a quiet stream that outlived the socket timeout
+  and failed as a lost connection. The wait is now rounded up to whole
+  milliseconds. The regression came with 6.0.0a6
 
 #### Beat and schedules
 

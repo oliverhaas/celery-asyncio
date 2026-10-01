@@ -2118,6 +2118,25 @@ class TestXreadWait:
         streams_arg = call_args[0][0]
         assert streams_arg[stream_key] == "9999-0"
 
+    async def test_a_drain_with_under_a_millisecond_left_does_not_block_forever(self):
+        ch = _make_channel()
+        ch._exchanges["fanout_ex"] = {"type": "fanout"}
+        ch._fanout_queues["fq1"] = ("fanout_ex", "*")
+        ch.active_fanout_queues.add("fq1")
+        ch._consumers["tag1"] = ("fq1", MagicMock(), True)
+        payload = b'{"body": "x", "properties": {}, "headers": {}}'
+
+        async def xread(streams, count, block):
+            (stream_key,) = streams
+            return [(stream_key.encode(), [(b"1-0", {b"payload": payload})])]
+
+        ch._transport._subclient.xread = AsyncMock(side_effect=xread)
+
+        with patch.object(asyncio.get_running_loop(), "time", return_value=1000.0):
+            assert await ch.drain_events(timeout=0.0004) is True
+
+        assert ch._transport._subclient.xread.call_args.kwargs["block"] == 1
+
     async def test_the_read_position_is_fixed_when_the_queue_binds(self):
         """A bind subscribes; anything published after it has to arrive.
 
