@@ -126,6 +126,11 @@ commit it came from.
   however long that takes. On a quiet stream that outlived the socket timeout
   and failed as a lost connection. The wait is now rounded up to whole
   milliseconds. The regression came with 6.0.0a6
+- When the worker lost its broker connection, the asyncio pool kept the tasks
+  it had been handed but not started yet, while closing the connection returned
+  their messages to the queue. Each of those tasks ran twice, once from the pool
+  and once on redelivery. The pool now drops the tasks it has not started
+  before the connection is closed
 - A warm shutdown cancelled every async task in the pool, including one whose
   body had already returned or raised and that was storing its outcome. The
   task was then reported as `REVOKED`: over a stored result that logged a

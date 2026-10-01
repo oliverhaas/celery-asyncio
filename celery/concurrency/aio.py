@@ -58,7 +58,8 @@ class AsyncApplyResult:
     ``terminate()`` may be called from any thread and cancels the asyncio
     task on the loop that runs it, including before that task exists: a job
     terminated between dispatch and scheduling is cancelled as soon as it is
-    attached.
+    attached. ``discard()`` does the same until the job starts, and nothing
+    after.
     """
 
     def __init__(self, worker: LoopWorker, job_id: str, on_done: Callable[[AsyncApplyResult], None]) -> None:
@@ -68,6 +69,8 @@ class AsyncApplyResult:
         self._mutex = Lock()
         self._task: asyncio.Task | None = None
         self._terminated = False
+        self._started = False
+        self._discarded = False
         #: Set on the loop thread after the task body has returned or raised.
         self.past_body = False
 
@@ -80,15 +83,37 @@ class AsyncApplyResult:
         """
         with self._mutex:
             self._task = task
-            terminated = self._terminated
+            cancelled = self._terminated or self._discarded
         task.add_done_callback(self._release)
-        if terminated:
+        if cancelled:
             task.cancel()
 
     def _release(self, task: asyncio.Task) -> None:
         with self._mutex:
             self._task = None
         self._on_done(self)
+
+    def start(self) -> bool:
+        """Claim the job for running, unless it was discarded first.
+
+        Called on the loop thread once the job has a slot. Under the mutex, so
+        a discard either wins and the job never runs, or finds it started.
+        """
+        with self._mutex:
+            if self._discarded:
+                return False
+            self._started = True
+            return True
+
+    def discard(self) -> None:
+        """Drop the job, from any thread, unless it has started."""
+        with self._mutex:
+            if self._started or self._discarded:
+                return
+            self._discarded = True
+            task = self._task
+        if task is not None:
+            self._worker.cancel_task(task)
 
     def body_done(self) -> None:
         self.past_body = True
@@ -192,6 +217,9 @@ class LoopWorker:
 
         async with self._semaphore:
             if job is not None:
+                if not job.start():
+                    # Discarded by flush() while it waited for a slot.
+                    return
                 # The tracer's task copies this task's context, so the tracer
                 # can tell the job when its body is done; see cancel_all().
                 async_body_done.set(job.body_done)
@@ -401,6 +429,20 @@ class TaskPool(BasePool):
     def restart(self) -> None:
         self.on_stop()
         self.on_start()
+
+    def flush(self) -> None:
+        """Drop the jobs that have not started.
+
+        The consumer calls this when it loses the broker connection. Closing
+        the connection returns their messages to the queue, so starting them
+        here as well would run them twice.
+        """
+        for f in list(self._active_futures):
+            f.cancel()
+        with self._async_jobs_lock:
+            jobs = list(self._async_jobs.values())
+        for job in jobs:
+            job.discard()
 
     def terminate_job(self, job_id: str, signal: Any = None) -> None:
         """Cancel a running async task.

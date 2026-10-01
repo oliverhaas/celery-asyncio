@@ -386,6 +386,11 @@ class Consumer:
     async def on_connection_error_after_connected(self, exc):
         warn(CONNECTION_RETRY, exc_info=True)
 
+        # The restart requeues the prefetched messages, so drop the unstarted jobs
+        # now: the cancellations below can block while the pool keeps starting them.
+        if self.pool and self.pool.flush:
+            self.pool.flush()
+
         if self.app.conf.worker_cancel_long_running_tasks_on_connection_loss:
             with state._lock:
                 active_snapshot = tuple(active_requests)

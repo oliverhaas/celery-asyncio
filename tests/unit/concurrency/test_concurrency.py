@@ -799,6 +799,70 @@ class test_async_task_shutdown(AioPoolCase):
         assert isinstance(rec.failure, Terminated)
 
 
+class test_flush(AioPoolCase):
+    def test_async_jobs_that_have_not_started_are_dropped(self):
+        release = threading.Event()
+        started = []
+
+        @self.app.task(name="aio.holds_the_slot", shared=False)
+        async def holds_the_slot():
+            started.append("first")
+            while not release.is_set():
+                await asyncio.sleep(0.01)
+            return "first"
+
+        @self.app.task(name="aio.waits_for_the_slot", shared=False)
+        async def waits_for_the_slot():
+            started.append("second")
+            return "second"
+
+        pool = self.start_pool(loop_workers=1, loop_concurrency=1)
+        first, second = Recorder(), Recorder()
+        self.apply(pool, "aio.holds_the_slot", first)
+        assert wait_until(lambda: started == ["first"])
+        self.apply(pool, "aio.waits_for_the_slot", second)
+
+        pool.flush()
+        release.set()
+
+        assert first.done.wait(10)
+        assert wait_until(lambda: not pool._async_jobs)
+        assert wait_until(lambda: pool._loop_workers[0]._active_count == 0)
+        assert started == ["first"]
+        assert len(first.results) == 1
+        assert (second.accepted, second.results, second.failures) == ([], [], [])
+
+    def test_sync_jobs_that_have_not_started_are_dropped(self):
+        release = threading.Event()
+        started = []
+
+        @self.app.task(name="aio.holds_the_thread", shared=False)
+        def holds_the_thread():
+            started.append("first")
+            release.wait(10)
+            return "first"
+
+        @self.app.task(name="aio.waits_for_the_thread", shared=False)
+        def waits_for_the_thread():
+            started.append("second")
+            return "second"
+
+        pool = self.start_pool(sync_workers=1)
+        first, second = Recorder(), Recorder()
+        self.apply(pool, "aio.holds_the_thread", first)
+        assert wait_until(lambda: started == ["first"])
+        self.apply(pool, "aio.waits_for_the_thread", second)
+
+        pool.flush()
+        release.set()
+
+        assert first.done.wait(10)
+        assert wait_until(lambda: not pool._active_futures)
+        assert started == ["first"]
+        assert len(first.results) == 1
+        assert (second.accepted, second.results, second.failures) == ([], [], [])
+
+
 class test_async_task_exits(AioPoolCase):
     @pytest.mark.parametrize("exc_type", [SystemExit, KeyboardInterrupt])
     def test_a_task_exiting_leaves_its_loop_worker_running(self, exc_type):
@@ -1002,6 +1066,15 @@ class test_AsyncApplyResult:
 
         on_done.assert_called_once_with(job)
         assert job._task is None
+
+    def test_a_job_discarded_before_it_is_scheduled_is_cancelled_on_arrival(self):
+        job = AsyncApplyResult(Mock(name="worker"), "job-id", Mock(name="on_done"))
+        job.discard()
+
+        task = Mock(name="task")
+        job.attach(task)
+
+        task.cancel.assert_called_once_with()
 
 
 class test_process_signals:

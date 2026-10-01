@@ -579,6 +579,18 @@ class test_Consumer(ConsumerTestCase):
         connection.close.assert_awaited_once_with()
         assert c.connection is None
 
+    async def test_connection_loss_flushes_the_pool_before_the_close_requeues(self):
+        c = self.get_consumer()
+        c.app.conf.worker_cancel_long_running_tasks_on_connection_loss = True
+        order = []
+        c.pool.flush.side_effect = lambda: order.append("flush")
+        connection = c.connection = AsyncMock()
+        connection.close.side_effect = lambda: order.append("close")
+
+        await c.on_connection_error_after_connected(Mock())
+
+        assert order == ["flush", "close"]
+
     async def test_connection_error_after_connected_survives_a_failing_close(self):
         # The connection is already broken, so close() failing is expected and
         # must not stop the reconnect.
