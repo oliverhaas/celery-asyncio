@@ -287,9 +287,12 @@ commit it came from.
   declared, so the queue is declared on the first send and again after a
   reconnect. An auto-delete queue, a queue with `x-expires` and a queue bound to
   an auto-delete exchange can be dropped by the broker, so those are still
-  declared every time, as upstream does. On Redis a send is back to a single
-  round trip, and `delay()` and `adelay()` take about a quarter and a third
-  less time
+  declared every time, as upstream does. On Valkey and Redis a binding can also
+  go missing under a live channel, through a flush, an eviction or the
+  `queue_expires` option aging it out, so a send that misses a binding its
+  channel declared binds it again and delivers. On Redis a send is back to a
+  single round trip, and `delay()` and `adelay()` take about a quarter and a
+  third less time
 
 #### Results
 

@@ -1846,6 +1846,62 @@ class TestBindingLifetime:
         with pytest.raises(InconsistencyError):
             await ch.publish(b'{"body": "hi"}', exchange="never-declared", routing_key="rk")
 
+    @pytest.mark.parametrize("others", [[], [BINDING_SEP.join(["rk2", "rk2", "q2"]).encode()]])
+    async def test_a_publish_binds_again_what_its_channel_declared_and_the_table_lost(self, others, caplog):
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        await ch.queue_bind("q1", "ex1", "rk1")
+        ch.client.zadd.reset_mock()
+        _stub_binding_reads(ch, live=others)
+        ch._put_message = AsyncMock()
+
+        with caplog.at_level(logging.INFO, logger="kombu.transport.valkey_redis"):
+            await ch.publish(b'{"body": "hi"}', exchange="ex1", routing_key="rk1")
+
+        member = BINDING_SEP.join(["rk1", "rk1", "q1"])
+        ch.client.zadd.assert_awaited_once_with("_kombu.binding.ex1", {member: float("inf")})
+        ch._put_message.assert_awaited_once_with("q1", b'{"body": "hi"}')
+        assert "q1" in caplog.text
+
+    async def test_a_topic_publish_restores_only_the_bindings_that_match(self):
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        ch._exchanges["topic_ex"] = {"type": "topic"}
+        await ch.queue_bind("q1", "topic_ex", "user.#")
+        await ch.queue_bind("q3", "topic_ex", "order.*")
+        ch.client.zadd.reset_mock()
+        _stub_binding_reads(ch, live=[BINDING_SEP.join(["user.*", "user.*", "q2"]).encode()])
+        ch._put_message = AsyncMock()
+
+        await ch.publish(b'{"body": "hi"}', exchange="topic_ex", routing_key="user.created")
+
+        assert [c.args[0] for c in ch._put_message.await_args_list] == ["q2", "q1"]
+        member = BINDING_SEP.join(["user.#", "user.#", "q1"])
+        ch.client.zadd.assert_awaited_once_with("_kombu.binding.topic_ex", {member: float("inf")})
+
+    async def test_a_binding_still_in_the_table_is_not_written_again(self):
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        await ch.queue_bind("q1", "ex1", "rk1")
+        ch.client.zadd.reset_mock()
+        _stub_binding_reads(ch, live=[BINDING_SEP.join(["rk1", "rk1", "q1"]).encode()])
+        ch._put_message = AsyncMock()
+
+        await ch.publish(b'{"body": "hi"}', exchange="ex1", routing_key="rk1")
+
+        ch.client.zadd.assert_not_called()
+        ch._put_message.assert_awaited_once_with("q1", b'{"body": "hi"}')
+
+    async def test_a_binding_its_channel_removed_stays_removed(self):
+        ch = _make_channel()
+        _stub_binding_writes(ch)
+        await ch.queue_bind("q1", "ex1", "rk1")
+        await ch.queue_unbind("q1", "ex1", "rk1")
+        _stub_binding_reads(ch)
+
+        with pytest.raises(InconsistencyError):
+            await ch.publish(b'{"body": "hi"}', exchange="ex1", routing_key="rk1")
+
 
 # ---------------------------------------------------------------------------
 # basic_consume / basic_cancel

@@ -506,6 +506,25 @@ class TestBindingLifetime:
 
         await channel.publish(JSON_MESSAGE, exchange=exchange_name, routing_key="nobody.listens")
 
+    async def test_a_publish_restores_a_binding_the_table_lost(self, channel):
+        exchange_name = "test_binding_restore"
+        exchange = Exchange(exchange_name, type="topic")
+        await channel.declare_exchange(exchange)
+        binding_key = channel._binding_key(exchange_name)
+        await channel.declare_queue(Queue("q-restored", exchange=exchange, routing_key="restore.#"))
+        await channel.queue_purge("q-restored")
+        await channel.client.delete(binding_key)
+
+        await channel.publish(JSON_MESSAGE, exchange=exchange_name, routing_key="restore.me")
+
+        message = await channel.get("q-restored", no_ack=True)
+        bindings = await channel._load_bindings(exchange_name)
+        await channel.queue_delete("q-restored")
+        await channel.client.delete(binding_key)
+        assert message is not None
+        assert message.payload == {"v": "x"}
+        assert bindings == [("q-restored", "restore.#")]
+
 
 JSON_MESSAGE = (
     b'{"body": {"v": "x"}, "content-type": "application/json", '

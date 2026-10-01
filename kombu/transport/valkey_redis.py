@@ -56,9 +56,10 @@ Binding lifetime
 stale, which is ``x-expires`` after its last refresh (at least ``MIN_BINDING_LIFETIME``).
 A queue without ``x-expires`` is scored ``+inf`` and its binding only ever goes away on an
 explicit unbind. Declaring, refreshing and publishing all rescore; the publish path drops
-whatever has aged out, so cleanup rides the read path and nothing has to sweep. The key is
-a sorted set rather than the set kombu's own Redis transport writes, so the two can no
-longer share it; the first bind converts an inherited set in place.
+whatever has aged out, so cleanup rides the read path and nothing has to sweep. A channel
+declares each queue once, so a publish that misses a binding its channel declared binds it
+again. The key is a sorted set rather than the set kombu's own Redis transport writes, so
+the two can no longer share it; the first bind converts an inherited set in place.
 """
 
 import asyncio
@@ -875,7 +876,9 @@ class Channel:
     ) -> None:
         if exchange:
             bindings = await self._load_bindings(exchange)
-            if not bindings:
+            queues = [queue for queue, rk in bindings if rk == routing_key]
+            queues += await self._restore_lost_bindings(exchange, queues, lambda rk: rk == routing_key)
+            if not queues and not bindings:
                 # An empty table is inconsistent state here, not nowhere to go:
                 # a direct binding is known by name (topic and fanout may empty
                 # legitimately). InconsistencyError is a connection error, so
@@ -897,9 +900,8 @@ class Channel:
                     f" Probably the key {key!r} has been removed from the database,"
                     f" or every binding in it went stale.",
                 )
-            for queue, rk in bindings:
-                if rk == routing_key:
-                    await self._put_message(queue, message)
+            for queue in queues:
+                await self._put_message(queue, message)
         else:
             # Default exchange: routing_key is the queue name
             await self._put_message(routing_key, message)
@@ -929,9 +931,40 @@ class Channel:
         message: bytes,
     ) -> None:
         bindings = await self._load_bindings(exchange)
-        for queue, pattern in bindings:
-            if _topic_match(routing_key, pattern):
-                await self._put_message(queue, message)
+        queues = [queue for queue, pattern in bindings if _topic_match(routing_key, pattern)]
+        queues += await self._restore_lost_bindings(exchange, queues, partial(_topic_match, routing_key))
+        for queue in queues:
+            await self._put_message(queue, message)
+
+    async def _restore_lost_bindings(
+        self,
+        exchange: str,
+        routed: list[str],
+        matches: Callable[[str], bool],
+    ) -> list[str]:
+        """Bind again each binding this channel declared that ``matches`` and the table lost.
+
+        A channel declares each queue once, so its declare cannot put one back.
+        Returns the queues they route to, skipping the ones in ``routed``.
+        """
+        lost: dict[str, list[str]] = {}
+        for queue, members in self._binding_members.items():
+            if queue in routed:
+                continue
+            for bound, member in members:
+                routing_key = member.split(BINDING_SEP, 1)[0]
+                if bound == exchange and matches(routing_key):
+                    lost.setdefault(queue, []).append(routing_key)
+        for queue, routing_keys in lost.items():
+            for routing_key in routing_keys:
+                await self.queue_bind(queue=queue, exchange=exchange, routing_key=routing_key)
+        if lost:
+            logger.info(
+                "Exchange %r: restored the binding(s) of %s, which this channel declared and the table had lost",
+                exchange,
+                ", ".join(sorted(lost)),
+            )
+        return list(lost)
 
     async def _put_message(self, queue: str, raw_message: bytes) -> None:
         """Publish a message to a queue via sorted set with per-message hash."""
