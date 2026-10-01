@@ -2307,6 +2307,65 @@ commit it came from.</p>
   hold the GIL, so on the GIL build a busy worker went about 20 s at a time
   without reading a control command. The loop now also comes back when the next
   timer entry is due, and after a second at most</li>
+<li>A warm shutdown with <code>worker_soft_shutdown_timeout</code> left at 0, the default,
+  cancelled the running async tasks from the pool. The pool reported each one
+  as <code>REVOKED</code> and acknowledged it, so a late-acknowledged task was lost
+  instead of redelivered. With a timeout set, the tasks still running when it
+  ran out were all stored as <code>RETRY</code>, late-acknowledged ones too, although the
+  broker was about to redeliver them. A warm shutdown now cancels what is
+  still running as a cold shutdown does: an <code>acks_late</code> task is left
+  unacknowledged for the broker to redeliver, and any other task is stored as
+  <code>RETRY</code>. A cancellation that fails to store its <code>RETRY</code> no longer keeps the
+  tasks after it from being cancelled</li>
+<li><code>revoke(terminate=True)</code> cancelled a task even when its body had already
+  returned or raised and the task was storing its outcome or sending its
+  callbacks. Depending on the moment, the task was stored as <code>REVOKED</code> instead
+  of its outcome, its callbacks were cut off, or the late <code>REVOKED</code> was dropped
+  with a "Dropped duplicate result write" error. A sync task cannot be
+  interrupted, yet terminating one reported it as <code>REVOKED</code> while it ran on,
+  until its real result replaced that. The worker now leaves either to report
+  its own outcome, and logs that the task could no longer be stopped</li>
+<li>The worker never shut its consumer down, and left its broker connection for
+  the process exit to close. On Valkey and Redis, the messages it still held,
+  its prefetched tasks and the <code>acks_late</code> tasks a shutdown cancelled, then
+  waited out the visibility timeout before another worker could take them. The
+  consumer is now shut down after the pool stops, which returns them to the
+  queue at once</li>
+<li>A cold shutdown cancelled the running async tasks before it dropped the
+  prefetched ones that had not started, so a slot freed by a cancel started the
+  next of them. The pool's stop then cancelled that task too, stored it as
+  <code>REVOKED</code> and acknowledged it, although it had not run. A task received after
+  the shutdown signal could meet the same end. The prefetched tasks are now
+  dropped first, and nothing starts after a shutdown is signalled, so the broker
+  redelivers them</li>
+<li>A sync task's soft and hard time limits counted from when the worker handed it
+  to the thread pool, not from when a thread started it, so a task that waited
+  for a free thread lost that wait from its time. It could be interrupted with
+  <code>SoftTimeLimitExceeded</code> as it started, or run with no soft limit if it waited
+  more than 2 seconds past it. It could be reported as failed with
+  <code>TimeLimitExceeded</code> before its time was up, and its thread counted as stuck,
+  which restarted the worker. Both limits now count from when the task starts</li>
+<li>A shutdown waited at most 30 seconds for the pool to stop. A sync task still
+  running then lost its ack when the broker connection closed under it, so an
+  <code>acks_late</code> task went back to the queue and ran again although it had
+  succeeded. The shutdown now waits for the running sync tasks to finish and
+  report, except for a thread past its hard time limit</li>
+<li>A thread past its hard time limit held the worker until it returned: the
+  interpreter joins the pool's threads at exit, so neither the restart that the
+  limit set off nor a shutdown could finish. The worker now runs its exit
+  handlers and exits, or restarts, without waiting for such a thread</li>
+<li>A restart, from <code>SIGHUP</code>, <code>worker_max_tasks_per_child</code>,
+  <code>worker_max_memory_per_child</code> or a stuck thread, replaced the process before
+  the exit handlers registered earlier had run, since atexit runs the newest
+  handler first. The <code>--statedb</code> file was never saved, so the revoked tasks were
+  forgotten, and other handlers, such as a tracing exporter's flush, never ran.
+  They now run before the restart</li>
+<li>A thread past its hard time limit left the sync tasks queued behind it unable
+  to start when no other sync thread was free, as with the default
+  <code>worker_sync_workers</code> of 1. The drain before the restart waited for them, so
+  the worker stopped consuming and did not restart until the stuck thread
+  returned. With every sync thread stuck, the drain now waits only for the tasks
+  that have started, and the restart returns the others to the queue</li>
 </ul>
 <h4 id="beat-and-schedules">Beat and schedules<a class="headerlink" href="#beat-and-schedules" title="Permanent link">&para;</a></h4>
 <ul>
@@ -2533,6 +2592,10 @@ commit it came from.</p>
   because a stored state won is still logged. On a local Redis, trivial async
   tasks on one loop worker ran 44% faster on the GIL build and 51% faster
   free-threaded</li>
+<li>Every worker a <code>revoke</code> reaches stores <code>REVOKED</code> for a task it is not
+  running, so revoking a task that had already finished logged a "Dropped
+  duplicate result write" error on Valkey and Redis once per worker. The
+  stored outcome still stands, and such a write is now logged at debug level</li>
 </ul>
 <h4 id="events">Events<a class="headerlink" href="#events" title="Permanent link">&para;</a></h4>
 <ul>

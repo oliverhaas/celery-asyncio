@@ -1422,10 +1422,12 @@
 </span></code></pre></div>
 <h2 id="shutdown-and-restart">Shutdown and restart<a class="headerlink" href="#shutdown-and-restart" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Graceful shutdown</strong>: <code>SIGTERM</code> or <code>SIGINT</code> sets <code>state.should_stop</code>, the consumer loop exits, active tasks finish</li>
-<li><strong>Draining</strong>: stops consuming new messages, rejects/requeues prefetched tasks, waits for active tasks to complete</li>
-<li><strong>Restart</strong>: <code>max_tasks_per_child</code> or <code>max_memory_per_child</code> triggers drain + <code>os.execv</code> restart</li>
-<li><strong>Hard timeout</strong>: stuck sync tasks are cancelled via <code>threading.Timer</code>, stuck threads trigger worker restart</li>
+<li><strong>Signals</strong>: <code>SIGTERM</code> and the first <code>SIGINT</code> start a warm shutdown. <code>SIGQUIT</code> or a second <code>SIGINT</code> starts a cold one, and so does <code>SIGTERM</code> with <code>REMAP_SIGTERM=SIGQUIT</code>. <code>SIGHUP</code> restarts a worker detached from its terminal, after a warm shutdown.</li>
+<li><strong>Warm shutdown</strong>: the worker stops consuming and drops the prefetched tasks that have not started, leaving their messages for the broker to redeliver. Running async tasks get <code>worker_soft_shutdown_timeout</code> seconds to finish (0 by default). The ones still running after that are cancelled as a cold shutdown cancels them.</li>
+<li><strong>Cold shutdown</strong>: the worker drops the prefetched tasks as a warm shutdown does, and cancels the running async tasks at once. An <code>acks_late</code> task is left unacknowledged for the broker to redeliver. Any other task was acknowledged when it started, so it is stored as <code>RETRY</code> and does not run again. A task whose body has returned is left to report its result.</li>
+<li><strong>Sync tasks</strong>: a thread cannot be interrupted, so no shutdown cancels a running sync task. The worker waits for it to return and report its result before it closes the broker connection.</li>
+<li><strong>Draining</strong>: <code>worker_max_tasks_per_child</code>, <code>worker_max_memory_per_child</code> or a stuck thread makes the worker stop consuming and finish the tasks it already holds, prefetched ones included. When every sync thread is stuck, a task that has not started cannot start, so the worker finishes only the started ones and leaves the others for the broker to redeliver. It then runs its exit handlers, which save the <code>--statedb</code> file, and restarts itself with <code>os.execv</code>.</li>
+<li><strong>Hard time limit</strong>: an async task is cancelled. A sync task's thread cannot be, so the task is reported as failed and its thread counted as stuck. Neither the restart that follows nor a shutdown waits for that thread, which the exec or the exit ends.</li>
 </ul>
 
 

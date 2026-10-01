@@ -1383,8 +1383,9 @@
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="o">...</span>
 </span></code></pre></div>
 <ul>
-<li>Async tasks: cancelled via <code>asyncio.timeout</code></li>
-<li>Sync tasks: interrupted via <code>threading.Timer</code></li>
+<li>Async tasks: the soft limit cancels the task at its current <code>await</code>, and the task fails with <code>SoftTimeLimitExceeded</code>. A task that catches the <code>CancelledError</code> runs on until the hard limit cancels it.</li>
+<li>Sync tasks: the soft limit raises <code>SoftTimeLimitExceeded</code> in the task's thread, after a blocking call such as <code>time.sleep</code> returns. A thread cannot be stopped, so at the hard limit the task is reported as failed and the worker restarts to end the thread.</li>
+<li>Both limits count from when the task starts, not from when the worker receives it.</li>
 </ul>
 <h2 id="bound-tasks">Bound tasks<a class="headerlink" href="#bound-tasks" title="Permanent link">&para;</a></h2>
 <p>Bound tasks work the same as upstream Celery:</p>
