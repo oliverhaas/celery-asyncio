@@ -3,9 +3,11 @@
 The matrix in run_all.py compares pools and frameworks across venvs on pinned
 cores. This measures one thing: what a trivial task costs this checkout, in
 worker CPU and in Redis commands, which is what an optimisation of the hot path
-has to move. Everything runs against the Redis in QUICK_BROKER/QUICK_BACKEND,
-whose databases it flushes.
+has to move. It flushes the two Redis databases named by QUICK_BROKER and
+QUICK_BACKEND, which have no default, so point them at databases that hold
+nothing else. Redis counts commands per server, not per database.
 
+    export QUICK_BROKER=redis://localhost:6379/14 QUICK_BACKEND=redis://localhost:6379/15
     python quick_bench.py publish --mode async -n 3000
     python quick_bench.py worker --kind async -n 30000 [--events] [--loglevel info]
     python quick_bench.py worker --kind sync --sync-workers 4 -n 12000
@@ -32,6 +34,12 @@ import redis
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+
+for name in ("QUICK_BROKER", "QUICK_BACKEND"):
+    if not os.environ.get(name):
+        sys.exit(f"{name} is not set: give it the URL of a Redis database this script can flush.")
+if os.environ["QUICK_BROKER"] == os.environ["QUICK_BACKEND"]:
+    sys.exit("QUICK_BROKER and QUICK_BACKEND must name two databases: the results are counted apart from the queue.")
 
 from quick_app import app, noop_async, noop_sync
 
@@ -78,7 +86,6 @@ def publish(args):
     broker.flushdb()
     run(50)
     broker.flushdb()
-    broker.config_resetstat()
     before = commandstats()
     t0 = time.perf_counter()
     run(args.n)

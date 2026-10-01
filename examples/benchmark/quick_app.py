@@ -6,8 +6,8 @@ from celery import Celery
 
 app = Celery(
     "quick_app",
-    broker=os.environ.get("QUICK_BROKER", "redis://localhost:6379/0"),
-    backend=os.environ.get("QUICK_BACKEND", "redis://localhost:6379/1"),
+    broker=os.environ["QUICK_BROKER"],
+    backend=os.environ["QUICK_BACKEND"],
 )
 app.conf.update(
     worker_prefetch_multiplier=16,

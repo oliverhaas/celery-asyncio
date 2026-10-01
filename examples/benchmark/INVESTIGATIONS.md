@@ -283,7 +283,8 @@ threads sit idle between tasks, so framework savings vanish into the idle
 time. [`quick_bench.py`](quick_bench.py) instead runs task bodies that do
 nothing, so whatever it measures is the framework: worker CPU per task (per
 thread, from `/proc`), Redis commands per task, and the publish path on its
-own. It needs one Redis and one venv. On a loopback Redis the kernel runs
+own. It needs one venv and two Redis databases that it flushes, named by
+`QUICK_BROKER` and `QUICK_BACKEND`. On a loopback Redis the kernel runs
 the server's receive path inside the client's `sendmsg`, which inflates the
 cost of a round trip, but not the number of them.
 
