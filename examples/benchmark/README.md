@@ -38,8 +38,9 @@ Classic celery (Python 3.14 and 3.14t best-effort):
 ## Quick start
 
 ```bash
-# 1. Broker
+# 1. Broker. Every run flushes the databases it is given, so use a server of its own.
 docker compose up -d
+export BENCH_BROKER=redis://localhost:6380/0 BENCH_BACKEND=redis://localhost:6380/1 BENCH_COUNTER=redis://localhost:6380/2
 
 # 2. Venvs (creates .venv-async-314, .venv-async-314t, .venv-classic-314, .venv-classic-314t)
 ./setup_venvs.sh

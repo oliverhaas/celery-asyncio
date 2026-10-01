@@ -11,11 +11,13 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import platform
 import re
 import subprocess
 from collections import Counter
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import _versions
 import workload
@@ -494,7 +496,7 @@ def _environment(rows: list[dict]) -> list[str]:
         lines.append(f"- `{venv}`: " + ", ".join(parts))
     broker = _versions.broker_version()
     if broker:
-        lines.append(f"- Broker / backend: {broker} on `localhost:6379`")
+        lines.append(f"- Broker / backend: {broker} on `{urlsplit(os.environ['BENCH_BROKER']).hostname}`")
     lines.append(f"- Host: {platform.platform()}")
     return lines
 

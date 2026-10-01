@@ -29,10 +29,13 @@ COUNTER = "bench:done"
 EXTRA_KEY = "bench:extra"
 # Prices one Redis round-trip by adding one and reading off the slope.
 EXTRA_ROUNDTRIPS = int(os.environ.get("BENCH_EXTRA_ROUNDTRIPS", "0"))
+for _name in ("BENCH_BROKER", "BENCH_COUNTER"):
+    if not os.environ.get(_name):
+        sys.exit(f"{_name} is not set: give it the URL of a Redis database that holds nothing else.")
 # Only used to flush the broker db between runs, always through redis-py, so a
 # valkey:// broker has to come back to a scheme redis-py will parse.
-REDIS_URL = os.environ.get("BENCH_BROKER", "redis://localhost:6379/0").replace("valkey://", "redis://", 1)
-COUNTER_URL = os.environ.get("BENCH_COUNTER", "redis://localhost:6379/2")
+REDIS_URL = os.environ["BENCH_BROKER"].replace("valkey://", "redis://", 1)
+COUNTER_URL = os.environ["BENCH_COUNTER"]
 
 # arq pulls redis[hiredis], which re-enables the GIL on a free-threading build.
 print(

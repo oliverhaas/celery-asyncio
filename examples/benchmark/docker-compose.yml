@@ -2,5 +2,5 @@ services:
   valkey:
     image: valkey/valkey:8
     ports:
-      - "6379:6379"
+      - "6380:6379"
     command: ["valkey-server", "--save", "", "--appendonly", "no"]

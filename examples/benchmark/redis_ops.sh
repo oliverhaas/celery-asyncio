@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Redis commands per task, straight from the server's own counters. The client
 # side cannot see batching or pipelining honestly; INFO commandstats can.
+# Those counters are reset on the server BENCH_BROKER names, so give it a
+# server of its own.
 set -u
 cd "$(dirname "$0")"
 W=results/workload-mixed-10000-s42.json
 stat() { .venv-async-314t/bin/python -c "
-import redis, sys
-r = redis.Redis.from_url('redis://localhost:6379/0')
+import os, redis, sys
+r = redis.Redis.from_url(os.environ['BENCH_BROKER'])
 if sys.argv[1] == 'reset':
     r.config_resetstat()
 else:

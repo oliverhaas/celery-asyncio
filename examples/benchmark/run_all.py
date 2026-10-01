@@ -4,8 +4,11 @@ Iterates over (flavor, python, pool config) combinations, invokes runner.py
 for each one in the matching venv, and writes one JSON file per run under
 results/.
 
-Run from this directory after `docker compose up -d` and `setup_venvs.sh`:
+Run from this directory after `setup_venvs.sh`, with BENCH_BROKER and
+BENCH_BACKEND naming two Redis databases that hold nothing else, since every
+run flushes both:
 
+    export BENCH_BROKER=redis://localhost:6380/0 BENCH_BACKEND=redis://localhost:6380/1
     python run_all.py --tasks 10000
 
 Each cell is an isolated subprocess so a crash in one config doesn't poison
@@ -98,17 +101,18 @@ def matrix() -> list[Run]:
 
 
 def flush_broker() -> None:
-    """Clear the valkey/redis state between runs so leftover queues/results don't cross-contaminate.
+    """Clear the broker and backend databases between runs so leftover queues/results don't cross-contaminate.
 
-    Uses redis-cli against the host broker; works whether the broker is in
-    docker-compose or a local redis-server on :6379.
+    Flushes only the two databases the run is pointed at, through redis-cli,
+    which parses redis:// but not valkey://.
     """
-    subprocess.run(
-        ["redis-cli", "-h", "localhost", "-p", "6379", "FLUSHALL"],
-        cwd=str(ROOT),
-        check=False,
-        capture_output=True,
-    )
+    for name in ("BENCH_BROKER", "BENCH_BACKEND"):
+        subprocess.run(
+            ["redis-cli", "-u", os.environ[name].replace("valkey://", "redis://", 1), "FLUSHDB"],
+            cwd=str(ROOT),
+            check=False,
+            capture_output=True,
+        )
 
 
 def run_one(r: Run, workload: Path, tasks: int, profile: str, duration: float, warmup: float) -> tuple[bool, Path]:
@@ -194,6 +198,9 @@ def main() -> None:
         help="override io_seconds for io-only profile (default 0.1 s)",
     )
     args = ap.parse_args()
+    for name in ("BENCH_BROKER", "BENCH_BACKEND"):
+        if not os.environ.get(name):
+            sys.exit(f"{name} is not set: give it the URL of a Redis database that holds nothing else.")
 
     # Generate workload (one for the entire matrix).
     profile_slug = args.profile.replace("-", "_")

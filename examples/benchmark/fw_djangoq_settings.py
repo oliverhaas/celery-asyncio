@@ -8,6 +8,8 @@ tasks out of that database, which is django-q2's fastest configuration.
 import os
 from pathlib import Path
 
+import fw_common
+
 BASE_DIR = Path(__file__).resolve().parent
 SECRET_KEY = "bench-only-not-a-credential"
 DEBUG = False
@@ -38,7 +40,7 @@ Q_CLUSTER = {
     "bulk": int(os.environ.get("FW_BULK", "10")),
     # Same reason as arq: the 0.2 s default poll is the ceiling, not the pool.
     "poll": float(os.environ.get("FW_POLL", "0.01")),
-    "redis": {"host": "localhost", "port": 6379, "db": 0},
+    "redis": fw_common.REDIS_URL,
 }
 
 LOGGING = {

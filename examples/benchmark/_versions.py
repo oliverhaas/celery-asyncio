@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -108,9 +109,12 @@ def framework_version(venv: str, dist: str, module: str) -> str:
 
 
 def broker_version() -> str | None:
-    """The valkey/redis server the whole matrix published through."""
+    """The valkey/redis server the whole matrix published through, the one BENCH_BROKER names."""
+    url = os.environ.get("BENCH_BROKER")
+    if not url:
+        return None
     proc = subprocess.run(
-        ["redis-cli", "-h", "localhost", "-p", "6379", "INFO", "server"],
+        ["redis-cli", "-u", url.replace("valkey://", "redis://", 1), "INFO", "server"],
         capture_output=True,
         text=True,
         check=False,

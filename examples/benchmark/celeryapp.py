@@ -1,7 +1,7 @@
 """Celery app shared between celery-asyncio and classic celery venvs.
 
-Both flavors import the same `app` and `tasks`. Broker/backend point at the
-local valkey from docker-compose.yml.
+Both flavors import the same `app` and `tasks`, on the Redis databases named by
+BENCH_BROKER and BENCH_BACKEND, which every run flushes.
 
 Set BENCH_UVLOOP=1 in the environment to replace asyncio's default selector
 event loop with uvloop (libuv-backed). This affects both the broker
@@ -40,8 +40,14 @@ print(
 
 from celery import Celery
 
-BROKER_URL = os.environ.get("BENCH_BROKER", "redis://localhost:6379/0")
-RESULT_URL = os.environ.get("BENCH_BACKEND", "redis://localhost:6379/1")
+for _name in ("BENCH_BROKER", "BENCH_BACKEND"):
+    if not os.environ.get(_name):
+        sys.exit(f"{_name} is not set: give it the URL of a Redis database that holds nothing else.")
+if os.environ["BENCH_BROKER"] == os.environ["BENCH_BACKEND"]:
+    sys.exit("BENCH_BROKER and BENCH_BACKEND must name two databases: the results are counted apart from the queue.")
+
+BROKER_URL = os.environ["BENCH_BROKER"]
+RESULT_URL = os.environ["BENCH_BACKEND"]
 
 app = Celery("bench")
 

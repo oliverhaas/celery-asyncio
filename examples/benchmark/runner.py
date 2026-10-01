@@ -35,6 +35,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import _versions
 import psutil
@@ -236,7 +237,10 @@ def main() -> None:
     log_path.unlink(missing_ok=True)
 
     # Sanity-check the broker is up.
-    wait_for_port("localhost", 6379, timeout=5)
+    from celeryapp import BROKER_URL
+
+    broker = urlsplit(BROKER_URL)
+    wait_for_port(broker.hostname or "localhost", broker.port or 6379, timeout=5)
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(Path(__file__).parent) + os.pathsep + env.get("PYTHONPATH", "")

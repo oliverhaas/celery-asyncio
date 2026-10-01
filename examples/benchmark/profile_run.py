@@ -34,6 +34,9 @@ def main() -> None:
     ap.add_argument("--taskset", default="0,1,2,3")
     ap.add_argument("--format", choices=("flamegraph", "speedscope", "both"), default="both")
     args = ap.parse_args()
+    for name in ("BENCH_BROKER", "BENCH_BACKEND"):
+        if not os.environ.get(name):
+            sys.exit(f"{name} is not set: give it the URL of a Redis database that holds nothing else.")
 
     venv = HERE / args.venv
     py_spy = venv / "bin" / "py-spy"
@@ -108,7 +111,9 @@ def main() -> None:
 
     for kind, cmd in runs:
         # Each profile run = flush + start worker under py-spy + publish + wait.
-        subprocess.run(["redis-cli", "-h", "localhost", "-p", "6379", "FLUSHALL"], check=False, capture_output=True)
+        for name in ("BENCH_BROKER", "BENCH_BACKEND"):
+            url = os.environ[name].replace("valkey://", "redis://", 1)
+            subprocess.run(["redis-cli", "-u", url, "FLUSHDB"], check=False, capture_output=True)
         if log_path.exists():
             log_path.unlink()
 
