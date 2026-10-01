@@ -362,9 +362,12 @@ commit it came from.
   the next reconnect. A monitor then showed those tasks stuck as received or
   started. Task events are buffered again and flushed once per pass of the
   worker loop, a flush retries whatever the offline buffer holds, and a
-  reconnect carries the buffered events over to the new dispatcher. On a local
-  Redis, trivial async tasks with events on ran twice as fast, and 3000 tasks
-  delivered all of their events where 400 had lost two thirds of them
+  reconnect carries the buffered events over to the new dispatcher. A worker
+  shutting down sends the events still buffered and gives the events on their
+  way up to five seconds to reach the broker before it closes the connection,
+  which also lets `worker-offline` arrive. On a local Redis, trivial async
+  tasks with events on ran twice as fast, and 3000 tasks delivered all of their
+  events where 400 had lost two thirds of them
 
 #### Utilities
 

@@ -1,5 +1,6 @@
 import asyncio
 import errno
+import logging
 import socket
 from uuid import uuid4
 from collections import deque
@@ -877,6 +878,15 @@ class test_Events:
     def previous_dispatcher(self, step, close=None):
         dispatcher = self.c.event_dispatcher = Mock(name="event_dispatcher")
         dispatcher.connection.close = AsyncMock(side_effect=close)
+        dispatcher.pending_publishes.return_value = set()
+        return dispatcher
+
+    def dispatcher_with_a_buffered_event(self, publish):
+        dispatcher = self.c.event_dispatcher = self.app.events.Dispatcher(Mock(), enabled=False, buffer_group={"task"})
+        dispatcher.producer = Mock(publish=AsyncMock(side_effect=publish))
+        dispatcher.enabled = True
+        dispatcher.connection = Mock(close=AsyncMock())
+        dispatcher.send("task-succeeded", uuid=1)
         return dispatcher
 
     async def test_start_sends_task_events_in_batches(self):
@@ -913,6 +923,39 @@ class test_Events:
         previous.connection.close.assert_awaited_once_with()
         previous.disable.assert_called_once_with()
         assert self.c.event_dispatcher is None
+
+    async def test_shutdown_sends_the_buffered_task_events_before_it_closes(self):
+        step = Events(self.c)
+        sent = []
+
+        async def publish(body, routing_key, **kwargs):
+            await asyncio.sleep(0)
+            sent.append(routing_key)
+
+        dispatcher = self.dispatcher_with_a_buffered_event(publish)
+        dispatcher.connection.close.side_effect = lambda: sent.append("closed")
+
+        await step.shutdown(self.c)
+
+        assert sent == ["task.multi", "closed"]
+
+    async def test_shutdown_gives_up_on_a_publish_that_does_not_finish(self, caplog):
+        step = Events(self.c)
+        step.shutdown_publish_timeout = 0.01
+
+        async def publish(body, routing_key, **kwargs):
+            await asyncio.Event().wait()
+
+        dispatcher = self.dispatcher_with_a_buffered_event(publish)
+
+        with caplog.at_level(logging.WARNING, logger="celery.worker.consumer.events"):
+            await step.shutdown(self.c)
+
+        dispatcher.connection.close.assert_awaited_once_with()
+        (stuck,) = dispatcher.pending_publishes()
+        with pytest.raises(asyncio.CancelledError):
+            await stuck
+        assert "Dropped 1 event publishes" in caplog.text
 
     async def test_a_connection_that_will_not_close_still_disables_the_dispatcher(self):
         step = Events(self.c)

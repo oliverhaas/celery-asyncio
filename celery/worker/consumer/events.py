@@ -2,6 +2,8 @@
 # https://github.com/celery/celery
 """Worker Event Dispatcher Bootstep - async implementation."""
 
+import asyncio
+
 from celery import bootsteps
 from celery.utils.log import get_logger
 
@@ -16,6 +18,9 @@ class Events(bootsteps.StartStopStep):
     """Service used for sending monitoring events."""
 
     requires = (Connection,)
+
+    #: Seconds a worker shutting down gives its event publishes to finish.
+    shutdown_publish_timeout = 5.0
 
     def __init__(self, c, task_events=True, without_heartbeat=False, without_gossip=False, **kwargs):
         self.groups = None if task_events else ["worker"]
@@ -67,4 +72,19 @@ class Events(bootsteps.StartStopStep):
             return dispatcher
 
     async def shutdown(self, c):
+        dispatcher = c.event_dispatcher
+        if dispatcher is not None:
+            # Buffered task events wait for the next pass of the loop, and there is none.
+            dispatcher.flush(errors=False)
+            await self._wait_for_publishes(dispatcher)
         await self._close(c)
+
+    async def _wait_for_publishes(self, dispatcher):
+        publishes = [asyncio.wrap_future(publish) for publish in dispatcher.pending_publishes()]
+        if not publishes:
+            return
+        _, unfinished = await asyncio.wait(publishes, timeout=self.shutdown_publish_timeout)
+        for publish in unfinished:
+            publish.cancel()
+        if unfinished:
+            logger.warning("Dropped %d event publishes that had not finished at shutdown", len(unfinished))

@@ -92,6 +92,7 @@ class EventDispatcher:
         # Bound the outbound buffer to prevent OOM when the broker is down.
         # At ~1KB per event, 10000 events ≈ 10MB worst case.
         self._outbound_buffer = deque(maxlen=10000)
+        self._pending_publishes = set()
         self.serializer = serializer or self.app.conf.event_serializer
         self.on_enabled = set()
         self.on_disabled = set()
@@ -217,6 +218,8 @@ class EventDispatcher:
         else:
             # On a LoopWorker loop, or on a thread with no loop at all.
             scheduled = asyncio.run_coroutine_threadsafe(coro, loop)
+        self._pending_publishes.add(scheduled)
+        scheduled.add_done_callback(self._pending_publishes.discard)
         scheduled.add_done_callback(done)
         # Handed back for a caller that has to know the event is out, such as
         # `Task.send_event`. Fire and forget stays the default.
@@ -319,6 +322,10 @@ class EventDispatcher:
                 events.extend(self._group_buffer.pop(group, ()))
                 self._group_buffer[group] = events
                 other._group_buffer[group] = []
+
+    def pending_publishes(self):
+        """Return the publishes this dispatcher scheduled that have not finished."""
+        return self._pending_publishes.copy()
 
     def close(self):
         """Close the event dispatcher."""
