@@ -383,17 +383,9 @@ def during_soft_shutdown(worker: Worker):
 
 
 def on_cold_shutdown(worker: Worker):
-    """Signal handler for cold shutdown.
+    """Drop the tasks that have not started, cancel the running async tasks and stop the pool.
 
-    Registered for SIGQUIT and SIGINT (Ctrl+C) signals. If REMAP_SIGTERM is set to "SIGQUIT", this handler will also
-    be registered for SIGTERM.
-
-    This handler initiates the cold shutdown procedure. The soft shutdown wait
-    and pool cleanup happen in the async shutdown path (WorkController.stop/terminate),
-    which is triggered by setting state.should_terminate.
-
-    Args:
-        worker (Worker): The worker that received the signal.
+    Called for SIGQUIT, a second SIGINT (Ctrl+C), and SIGTERM when REMAP_SIGTERM is "SIGQUIT".
     """
     safe_say("worker: Hitting Ctrl+C again will terminate all running tasks!", sys.__stdout__)
 
