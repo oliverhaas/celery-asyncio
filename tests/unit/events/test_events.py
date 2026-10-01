@@ -212,6 +212,30 @@ class test_EventDispatcher:
         assert new._group_buffer["task"] == [received, started]
         assert old._group_buffer["task"] == []
 
+    def test_extend_buffer_keeps_an_event_appended_to_the_old_list_afterwards(self):
+        old = self.app.events.Dispatcher(Mock(), enabled=False, buffer_group={"task"})
+        received, succeeded = Event("task-received", uuid=1), Event("task-succeeded", uuid=1)
+        held_by_pool_thread = old._group_buffer["task"]
+        held_by_pool_thread.append(received)
+        new = self.app.events.Dispatcher(Mock(), enabled=False, buffer_group={"task"})
+
+        new.extend_buffer(old)
+        held_by_pool_thread.append(succeeded)
+
+        assert new._group_buffer["task"] == [received, succeeded]
+        assert old._group_buffer["task"] == []
+
+    def test_extend_buffer_puts_the_old_events_first(self):
+        old = self.app.events.Dispatcher(Mock(), enabled=False, buffer_group={"task"})
+        new = self.app.events.Dispatcher(Mock(), enabled=False, buffer_group={"task"})
+        first, second = Event("task-received", uuid=1), Event("task-received", uuid=2)
+        old._group_buffer["task"].append(first)
+        new._group_buffer["task"].append(second)
+
+        new.extend_buffer(old)
+
+        assert new._group_buffer["task"] == [first, second]
+
     def test_group_flush_keeps_events_appended_during_the_publish(self):
         # Appends that land while a publish is in flight belong to the next
         # flush. Clearing the whole list destroyed them silently.

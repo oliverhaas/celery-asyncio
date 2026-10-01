@@ -314,9 +314,11 @@ class EventDispatcher:
         """
         self._outbound_buffer.extend(other._outbound_buffer)
         with other.mutex:
-            for group, events in other._group_buffer.items():
-                self._group_buffer[group].extend(events)
-                events.clear()
+            # A pool thread still in `send()` can append to these lists, or add one.
+            for group, events in other._group_buffer.copy().items():
+                events.extend(self._group_buffer.pop(group, ()))
+                self._group_buffer[group] = events
+                other._group_buffer[group] = []
 
     def close(self):
         """Close the event dispatcher."""
