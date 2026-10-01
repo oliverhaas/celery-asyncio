@@ -3,7 +3,6 @@ import logging
 import os
 import threading
 import time
-from concurrent.futures import Future
 from contextlib import contextmanager
 from itertools import count
 from unittest.mock import Mock, call, patch
@@ -12,7 +11,7 @@ import pytest
 
 from celery import concurrency, signals, states
 from celery.app.trace import trace_task_ret
-from celery.concurrency.aio import ApplyResult, AsyncApplyResult, LoopWorker, SyncSoftTimeout, TaskPool
+from celery.concurrency.aio import ApplyResult, AsyncApplyResult, LoopWorker, SyncJob, SyncSoftTimeout, TaskPool
 from celery.concurrency.base import BasePool, apply_target
 from celery.exceptions import (
     SoftTimeLimitExceeded,
@@ -522,24 +521,6 @@ class test_TaskPool:
         finally:
             pool.on_stop()
 
-    def test_sync_hard_timeout_timer_is_cancelled_when_the_task_finishes(self):
-        pool = TaskPool(app=Mock())
-        future = Future()
-        timer_holder = []
-
-        class _Timer(threading.Timer):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                timer_holder.append(self)
-
-        with patch("threading.Timer", _Timer):
-            pool._schedule_sync_timeout(future, 30.0, None)
-        assert timer_holder[0].is_alive()
-
-        future.set_result(None)
-        timer_holder[0].join(timeout=5)
-        assert not timer_holder[0].is_alive()
-
     def test_get_info(self):
         app = Mock()
         pool = TaskPool(10, app=app, loop_workers=2, loop_concurrency=5, sync_workers=3)
@@ -1020,6 +1001,64 @@ class test_sync_task_time_limits(AioPoolCase):
         assert second.result[0] == 0
         assert self.meta(task_id)["status"] == states.SUCCESS
         assert self.meta(task_id)["result"] == "ok"
+
+    @pytest.mark.parametrize("limit", ["soft_timeout", "timeout"])
+    def test_a_queued_task_is_timed_from_when_it_starts(self, limit):
+        release = threading.Event()
+
+        @self.app.task(name="sync.holds_the_thread", shared=False)
+        def holds_the_thread():
+            release.wait(10)
+
+        @self.app.task(name="sync.queued_behind_it", shared=False)
+        def queued_behind_it():
+            for _ in range(5):
+                time.sleep(0.01)
+            return "ok"
+
+        pool = self.start_pool(sync_workers=1)
+        second = Recorder()
+        try:
+            self.apply(pool, "sync.holds_the_thread", Recorder())
+            task_id = self.apply(pool, "sync.queued_behind_it", second, **{limit: 0.3})
+            assert not second.done.wait(0.6)
+        finally:
+            release.set()
+
+        assert second.done.wait(10)
+        assert second.timeouts == []
+        assert second.result[0] == 0
+        assert self.meta(task_id)["result"] == "ok"
+        assert pool._stuck_thread_count == 0
+
+
+class test_SyncJob:
+    def test_the_limit_timers_stop_when_the_task_finishes(self):
+        timers = []
+
+        class _Timer(threading.Timer):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                timers.append(self)
+
+        job = SyncJob(soft_timeout=30.0, timeout=30.0, timeout_callback=None)
+        with patch("threading.Timer", _Timer):
+            guarded = job.start(Mock(return_value="ok"), Mock(name="on_hard_limit"))
+        assert len(timers) == 2
+        assert all(timer.is_alive() for timer in timers)
+
+        assert guarded() == "ok"
+
+        for timer in timers:
+            timer.join(timeout=5)
+        assert not any(timer.is_alive() for timer in timers)
+
+    def test_the_hard_limit_leaves_a_finished_task_alone(self):
+        job = SyncJob(soft_timeout=None, timeout=30.0, timeout_callback=None)
+        job.finish()
+
+        assert job.give_up() is False
+        assert not job.stuck
 
 
 class test_SyncSoftTimeout:

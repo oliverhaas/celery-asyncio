@@ -174,6 +174,13 @@ commit it came from.
   the shutdown signal could meet the same end. The prefetched tasks are now
   dropped first, and nothing starts after a shutdown is signalled, so the broker
   redelivers them
+- A sync task's soft and hard time limits counted from when the worker handed it
+  to the thread pool, not from when a thread started it, so a task that waited
+  for a free thread lost that wait from its time. It could be interrupted with
+  `SoftTimeLimitExceeded` as it started, or run with no soft limit if it waited
+  more than 2 seconds past it. It could be reported as failed with
+  `TimeLimitExceeded` before its time was up, and its thread counted as stuck,
+  which restarted the worker. Both limits now count from when the task starts
 
 #### Beat and schedules
 

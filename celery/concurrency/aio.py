@@ -373,6 +373,60 @@ class SyncSoftTimeout:
         return _guarded
 
 
+class SyncJob:
+    """A sync task's time limits, which count from when a thread starts the task."""
+
+    def __init__(self, soft_timeout: float | None, timeout: float | None, timeout_callback: Callable | None) -> None:
+        self.soft_timeout = soft_timeout
+        self.timeout = timeout
+        self.timeout_callback = timeout_callback
+        self._soft_state = SyncSoftTimeout() if soft_timeout else None
+        self._timers: list[threading.Timer] = []
+        self._mutex = Lock()
+        self._done = False
+        #: Whether the hard limit gave up on the thread before the task was done.
+        self.stuck = False
+
+    def start(self, target: Callable, on_hard_limit: Callable[[SyncJob], None]) -> Callable:
+        """Start the limits for the calling thread and return ``target`` guarded."""
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        if self.soft_timeout and self._soft_state is not None:
+            self._soft_state.start(threading.get_ident())
+            target = self._soft_state.guard(target)
+            self._timers.append(threading.Timer(self.soft_timeout, self._soft_state.fire, (SoftTimeLimitExceeded,)))
+        if self.timeout:
+            self._timers.append(threading.Timer(self.timeout, on_hard_limit, (self,)))
+        for timer in self._timers:
+            timer.daemon = True
+            timer.start()
+
+        def _guarded(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return target(*args, **kwargs)
+            finally:
+                self.finish()
+
+        return _guarded
+
+    def finish(self) -> None:
+        """Record that the task is done, so that its limits leave it alone."""
+        with self._mutex:
+            self._done = True
+        if self._soft_state is not None:
+            self._soft_state.finish()
+        for timer in self._timers:
+            timer.cancel()
+
+    def give_up(self) -> bool:
+        """Mark the thread stuck, unless the task is done."""
+        with self._mutex:
+            if self._done:
+                return False
+            self.stuck = True
+            return True
+
+
 class TaskPool(BasePool):
     """Multi-loop asyncio + thread pool.
 
@@ -777,11 +831,9 @@ class TaskPool(BasePool):
         timeout: float | None = None,
         **options: Any,
     ) -> ApplyResult:
-        # Shared state so the soft timeout timer can find the thread.
-        soft_state = SyncSoftTimeout() if soft_timeout else None
-
         if self._executor is None:
             raise RuntimeError("pool has not been started")
+        job = SyncJob(soft_timeout, timeout, timeout_callback)
         f = self._executor.submit(
             self._run_in_thread,
             target,
@@ -790,65 +842,25 @@ class TaskPool(BasePool):
             callback,
             accept_callback,
             error_callback,
-            soft_state,
+            job,
         )
         self._active_futures.add(f)
         f.add_done_callback(self._active_futures.discard)
-
-        if soft_timeout and soft_state is not None:
-            self._schedule_sync_soft_timeout(f, soft_state, soft_timeout)
-
-        if timeout:
-            self._schedule_sync_timeout(f, timeout, timeout_callback)
-
         return ApplyResult(f)
 
-    def _schedule_sync_soft_timeout(
-        self,
-        future: Future,
-        soft_state: SyncSoftTimeout,
-        soft_timeout: float,
-    ) -> None:
-        """Schedule a soft timeout for a sync task running in a thread."""
-        from celery.exceptions import SoftTimeLimitExceeded
-
-        def _fire():
-            if future.done():
-                return
-            soft_state.fire(SoftTimeLimitExceeded)
-
-        timer = threading.Timer(soft_timeout, _fire)
-        timer.daemon = True
-        timer.start()
-        # Cancel the timer if the task finishes before soft timeout.
-        future.add_done_callback(lambda _: timer.cancel())
-
-    def _schedule_sync_timeout(
-        self,
-        future: Future,
-        timeout: float,
-        timeout_callback: Callable | None,
-    ) -> None:
-        """Schedule a hard timeout check for a sync task in the thread pool."""
-
-        def _check_timeout():
-            if not future.done():
-                logger.error(
-                    "Hard time limit (%ss) exceeded for sync task in thread pool. "
-                    "Thread cannot be killed; will trigger process restart.",
-                    timeout,
-                )
-                if timeout_callback:
-                    timeout_callback(False, timeout)
-                with self._stuck_lock:
-                    self._stuck_thread_count += 1
-
-        timer = threading.Timer(timeout, _check_timeout)
-        timer.daemon = True
-        timer.start()
-        # Without this the timer thread stays parked for the whole time limit
-        # after the task has already finished.
-        future.add_done_callback(lambda _: timer.cancel())
+    def _on_sync_hard_limit(self, job: SyncJob) -> None:
+        """Report a sync task past its hard limit, whose thread cannot be stopped."""
+        if not job.give_up():
+            return
+        logger.error(
+            "Hard time limit (%ss) exceeded for sync task in thread pool. "
+            "Thread cannot be killed; will trigger process restart.",
+            job.timeout,
+        )
+        with self._stuck_lock:
+            self._stuck_thread_count += 1
+        if job.timeout_callback:
+            job.timeout_callback(False, job.timeout)
 
     def _run_in_thread(
         self,
@@ -857,17 +869,15 @@ class TaskPool(BasePool):
         kwargs: dict,
         callback: Callable | None,
         accept_callback: Callable | None,
-        error_callback: Callable | None = None,
-        soft_state: SyncSoftTimeout | None = None,
+        error_callback: Callable | None,
+        job: SyncJob,
     ) -> Any:
         from celery.exceptions import ExceptionInfo
 
         self.app.set_current()
-        if soft_state is not None:
-            soft_state.start(threading.get_ident())
-            target = soft_state.guard(target)
         uuid = args[1] if len(args) > 1 else None
         try:
+            target = job.start(target, self._on_sync_hard_limit)
             return apply_target(target, args, kwargs, callback, accept_callback, error_callback=error_callback)
         except (SystemExit, KeyboardInterrupt) as exc:
             # apply_target re-raises the two the worker acts on. Nothing reads
@@ -880,8 +890,7 @@ class TaskPool(BasePool):
             self._report_failure(uuid, error_callback, ExceptionInfo())
             return None
         finally:
-            if soft_state is not None:
-                soft_state.finish()
+            job.finish()
 
     def _get_info(self) -> dict[str, Any]:
         info = super()._get_info()
