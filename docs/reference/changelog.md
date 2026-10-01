@@ -161,6 +161,12 @@ commit it came from.
   interrupted, yet terminating one reported it as `REVOKED` while it ran on,
   until its real result replaced that. The worker now leaves either to report
   its own outcome, and logs that the task could no longer be stopped
+- The worker never shut its consumer down, and left its broker connection for
+  the process exit to close. On Valkey and Redis, the messages it still held,
+  its prefetched tasks and the `acks_late` tasks a shutdown cancelled, then
+  waited out the visibility timeout before another worker could take them. The
+  consumer is now shut down after the pool stops, which returns them to the
+  queue at once
 
 #### Beat and schedules
 

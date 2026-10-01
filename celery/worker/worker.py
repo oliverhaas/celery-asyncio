@@ -152,15 +152,18 @@ class WorkController:
     def on_close(self):
         self.app.loader.shutdown_worker()
 
-    def on_stopped(self):
+    async def on_stopped(self):
         self.timer.clear()
-        # Consumer shutdown is handled by the blueprint stop mechanism.
-        # Perform any remaining pending operations synchronously.
-        if self.consumer:
-            self.consumer.perform_pending_operations()
-
-        if self.pidlock:
-            self.pidlock.release()
+        try:
+            if self.consumer:
+                # Closes the broker connection, which returns the unacked messages
+                # to the queue at once, and sends the buffered task events.
+                await self.consumer.shutdown()
+        except Exception:
+            logger.exception("Failed to shut down the consumer")
+        finally:
+            if self.pidlock:
+                self.pidlock.release()
 
     def setup_queues(self, include, exclude=None):
         include = str_to_list(include)

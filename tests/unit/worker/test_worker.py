@@ -104,6 +104,22 @@ class test_WorkController(ConsumerCase):
         await worker.stop()
         worker.pidlock.release.assert_called()
 
+    @patch("celery.worker.worker.logger.exception")
+    @patch("celery.worker.worker.create_pidlock")
+    async def test_stop_goes_on_past_a_failing_consumer_shutdown(self, create_pidlock, log_exception):
+        create_pidlock.return_value = Mock()
+        worker = self.create_worker(pidfile="pidfilelockfilepid")
+        worker.steps = []
+        await worker.start()
+        worker.consumer = mock_consumer()
+        worker.consumer.shutdown.side_effect = RuntimeError("broken")
+
+        await worker.stop()
+
+        worker.pidlock.release.assert_called_once_with()
+        assert worker.blueprint.state == TERMINATE
+        log_exception.assert_called_once_with("Failed to shut down the consumer")
+
     def test_attrs(self):
         worker = self.worker
         assert worker.timer is not None
@@ -281,6 +297,7 @@ class test_WorkController(ConsumerCase):
         for stopstep in worker.steps:
             stopstep.close.assert_called()
             stopstep.stop.assert_called()
+        worker.consumer.shutdown.assert_awaited_once_with()
 
         # Doesn't close pool if no pool.
         await worker.start()

@@ -173,7 +173,9 @@ class Blueprint:
         )
 
         if self.on_stopped:
-            self.on_stopped()
+            result = self.on_stopped()
+            if inspect.isawaitable(result):
+                await result
         self.state = TERMINATE
         self.shutdown_complete.set()
 
