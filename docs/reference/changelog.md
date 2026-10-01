@@ -143,6 +143,16 @@ commit it came from.
   hold the GIL, so on the GIL build a busy worker went about 20 s at a time
   without reading a control command. The loop now also comes back when the next
   timer entry is due, and after a second at most
+- A warm shutdown with `worker_soft_shutdown_timeout` left at 0, the default,
+  cancelled the running async tasks from the pool. The pool reported each one
+  as `REVOKED` and acknowledged it, so a late-acknowledged task was lost
+  instead of redelivered. With a timeout set, the tasks still running when it
+  ran out were all stored as `RETRY`, late-acknowledged ones too, although the
+  broker was about to redeliver them. A warm shutdown now cancels what is
+  still running as a cold shutdown does: an `acks_late` task is left
+  unacknowledged for the broker to redeliver, and any other task is stored as
+  `RETRY`. A cancellation that fails to store its `RETRY` no longer keeps the
+  tasks after it from being cancelled
 - `revoke(terminate=True)` cancelled a task even when its body had already
   returned or raised and the task was storing its outcome or sending its
   callbacks. Depending on the moment, the task was stored as `REVOKED` instead

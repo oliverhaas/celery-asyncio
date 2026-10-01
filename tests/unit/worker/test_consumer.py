@@ -648,6 +648,23 @@ class test_Consumer(ConsumerTestCase):
             active_requests.clear()
             successful_requests.clear()
 
+    @pytest.mark.usefixtures("depends_on_current_app")
+    def test_cancel_active_requests_goes_on_past_a_failing_cancel(self):
+        c = self.get_consumer()
+        failing, other = Mock(id="failing"), Mock(id="other")
+        for request in (failing, other):
+            request.task.acks_late = False
+            active_requests.add(request)
+        failing.cancel.side_effect = ConnectionError("result backend unreachable")
+
+        try:
+            c.cancel_active_requests()
+        finally:
+            active_requests.clear()
+
+        failing.cancel.assert_called_once_with(c.pool, emit_retry=True)
+        other.cancel.assert_called_once_with(c.pool, emit_retry=True)
+
     @pytest.mark.parametrize("broker_connection_retry", [True, False])
     @pytest.mark.parametrize("broker_connection_retry_on_startup", [None, False])
     @pytest.mark.parametrize("first_connection_attempt", [True, False])

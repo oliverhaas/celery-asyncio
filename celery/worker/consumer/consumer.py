@@ -819,7 +819,12 @@ class Consumer:
             for request in requests_to_cancel:
                 # The broker redelivers an acks_late task by itself, so the
                 # RETRY announcement would only race the redelivery.
-                request.cancel(self.pool, emit_retry=not request.task.acks_late)
+                try:
+                    request.cancel(self.pool, emit_retry=not request.task.acks_late)
+                except Exception:
+                    # The announcement goes through the result backend. One that
+                    # fails must not leave the remaining tasks running.
+                    warn("Failed to cancel active request %r at shutdown", request, exc_info=True)
 
 
 class Evloop(bootsteps.StartStopStep):

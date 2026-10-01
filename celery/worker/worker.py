@@ -395,8 +395,8 @@ class WorkController:
     async def wait_for_soft_shutdown(self):
         """Wait for active tasks to finish, up to worker_soft_shutdown_timeout.
 
-        Polls active_requests every 0.5s. If tasks finish early, proceeds
-        immediately. After timeout, force-cancels remaining tasks.
+        Then cancel what is still running as a cold shutdown does. The pool's
+        stop would store it revoked and acknowledge an acks_late task.
         """
         app = self.app
         with state._lock:
@@ -423,17 +423,13 @@ class WorkController:
                     break
                 await asyncio.sleep(0.5)
 
-            # Force-cancel any remaining tasks
-            with state._lock:
-                remaining = tuple(state.active_requests)
-            if remaining:
+        with state._lock:
+            remaining = len(state.active_requests)
+        if remaining and self.consumer is not None:
+            if timeout > 0:
                 logger.warning(
                     "Force-cancelling %d remaining task(s) after %ss timeout",
-                    len(remaining),
+                    remaining,
                     timeout,
                 )
-                for req in remaining:
-                    try:
-                        req.cancel(self.pool)
-                    except Exception as exc:
-                        logger.debug("Error cancelling task %s: %r", req.id, exc)
+            self.consumer.cancel_active_requests()
