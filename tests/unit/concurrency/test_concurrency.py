@@ -403,6 +403,26 @@ class test_LoopWorker:
         finally:
             w.stop()
 
+    def test_a_job_cancelled_before_its_first_step_frees_its_slot(self):
+        w = LoopWorker(concurrency=10, app=Mock(), index=0)
+        w.start()
+        try:
+            ran = []
+            on_done = Mock(name="on_done")
+            job = AsyncApplyResult(w, "job-id", on_done)
+            job.terminate()
+
+            async def coro():
+                ran.append(True)
+
+            w.submit(coro, job=job)
+
+            assert wait_until(lambda: on_done.called)
+            assert wait_until(lambda: w._active_count == 0)
+            assert ran == []
+        finally:
+            w.stop()
+
 
 class test_TaskPool:
     def test_init_defaults(self):
@@ -726,6 +746,57 @@ class test_async_task_time_limits(AioPoolCase):
         assert rec.timeouts == [(False, 0.6)]
         assert rec.results == []
         assert rec.failures == []
+
+
+class test_async_task_shutdown(AioPoolCase):
+    def test_a_job_storing_its_result_is_left_to_finish(self):
+        storing = threading.Event()
+
+        @self.app.task(name="aio.finishes_at_shutdown", shared=False)
+        async def finishes_at_shutdown():
+            return "finished"
+
+        backend_cls = type(self.app.backend)
+        store = backend_cls.amark_as_done
+
+        async def slow_store(backend, *args, **kwargs):
+            storing.set()
+            await asyncio.sleep(0.1)
+            return await store(backend, *args, **kwargs)
+
+        pool = self.start_pool()
+        rec = Recorder()
+        with patch.object(backend_cls, "amark_as_done", slow_store):
+            task_id = self.apply(pool, "aio.finishes_at_shutdown", rec)
+            assert storing.wait(10)
+
+            pool.stop()
+
+        assert rec.failures == []
+        assert len(rec.results) == 1
+        assert self.meta(task_id)["status"] == states.SUCCESS
+
+    def test_a_job_still_running_its_body_is_cancelled(self):
+        started, cancelled = threading.Event(), threading.Event()
+
+        @self.app.task(name="aio.runs_into_shutdown", shared=False)
+        async def runs_into_shutdown():
+            started.set()
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        pool = self.start_pool()
+        rec = Recorder()
+        self.apply(pool, "aio.runs_into_shutdown", rec)
+        assert started.wait(10)
+
+        pool.stop()
+
+        assert cancelled.is_set()
+        assert isinstance(rec.failure, Terminated)
 
 
 class test_async_task_exits(AioPoolCase):

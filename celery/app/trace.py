@@ -158,6 +158,13 @@ async_cancellation_reason: ContextVar[Callable[[], BaseException | None] | None]
     default=None,
 )
 
+#: Set by the pool: called after the task body has returned or raised. The
+#: outcome is decided from then on, and cancelling would only lose its report.
+async_body_done: ContextVar[Callable[[], None] | None] = ContextVar(
+    "async_body_done",
+    default=None,
+)
+
 
 def info(fmt, context):
     """Log 'fmt % context' with severity 'INFO'.
@@ -1073,18 +1080,23 @@ def build_async_tracer(
                     )
 
                 # -*- TRACE -*-
+                body_done = async_body_done.get()
                 try:
-                    if task_before_start:
-                        task_before_start(uuid, args, kwargs)
+                    try:
+                        if task_before_start:
+                            task_before_start(uuid, args, kwargs)
 
-                    if fun is None:
-                        # arun() runs the user's async body, or wraps a sync
-                        # one with sync_to_async.
-                        R = retval = await task.arun(*args, **kwargs)
-                    else:
-                        R = retval = fun(*args, **kwargs)
-                        if inspect.isawaitable(retval):
-                            R = retval = await retval
+                        if fun is None:
+                            # arun() runs the user's async body, or wraps a sync
+                            # one with sync_to_async.
+                            R = retval = await task.arun(*args, **kwargs)
+                        else:
+                            R = retval = fun(*args, **kwargs)
+                            if inspect.isawaitable(retval):
+                                R = retval = await retval
+                    finally:
+                        if body_done is not None:
+                            body_done()
                     state = SUCCESS
                 except Reject as exc:
                     I, R = Info(REJECTED, exc), ExceptionInfo(internal=True)

@@ -126,6 +126,12 @@ commit it came from.
   however long that takes. On a quiet stream that outlived the socket timeout
   and failed as a lost connection. The wait is now rounded up to whole
   milliseconds. The regression came with 6.0.0a6
+- A warm shutdown cancelled every async task in the pool, including one whose
+  body had already returned or raised and that was storing its outcome. The
+  task was then reported as `REVOKED`: over a stored result that logged a
+  "Dropped duplicate result write" error, dozens per shutdown under load, and
+  before the result was stored it could replace the real outcome. A task whose
+  body is done is now left to report it
 - The worker loop took up to a thousand messages in a row before it came back
   to its timers, its shutdown and restart checks and the transport's read for
   control commands and events. A delivery can take 20 ms while CPU-bound tasks

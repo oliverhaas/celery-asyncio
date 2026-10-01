@@ -68,6 +68,8 @@ class AsyncApplyResult:
         self._mutex = Lock()
         self._task: asyncio.Task | None = None
         self._terminated = False
+        #: Set on the loop thread after the task body has returned or raised.
+        self.past_body = False
 
     def attach(self, task: asyncio.Task) -> None:
         """Bind the asyncio task running this job (called on the loop thread).
@@ -87,6 +89,9 @@ class AsyncApplyResult:
         with self._mutex:
             self._task = None
         self._on_done(self)
+
+    def body_done(self) -> None:
+        self.past_body = True
 
     def cancel(self) -> None:
         self.terminate()
@@ -119,7 +124,7 @@ class LoopWorker:
         self._active_count = 0
         self._active_count_lock = Lock()
         self._ready = threading.Event()
-        self._tasks: set[asyncio.Task] = set()
+        self._tasks: dict[asyncio.Task, AsyncApplyResult | None] = {}
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -169,21 +174,28 @@ class LoopWorker:
 
     def _schedule_task(self, coro_factory: Callable, args: tuple, job: AsyncApplyResult | None) -> None:
         loop = asyncio.get_running_loop()
-        task = loop.create_task(self._run_with_semaphore(coro_factory, args))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        task = loop.create_task(self._run_with_semaphore(coro_factory, args, job))
+        self._tasks[task] = job
+        task.add_done_callback(self._task_done)
         if job is not None:
             job.attach(task)
 
-    async def _run_with_semaphore(self, coro_factory: Callable, args: tuple) -> None:
-        try:
-            async with self._semaphore:
-                await coro_factory(*args)
-        finally:
-            # Outside the semaphore block: a job cancelled while queued never
-            # enters it, and its slot would be counted as busy forever.
-            with self._active_count_lock:
-                self._active_count -= 1
+    def _task_done(self, task: asyncio.Task) -> None:
+        # Not a finally in the coroutine: a task cancelled before its first
+        # step never runs it, and its slot would be counted as busy forever.
+        del self._tasks[task]
+        with self._active_count_lock:
+            self._active_count -= 1
+
+    async def _run_with_semaphore(self, coro_factory: Callable, args: tuple, job: AsyncApplyResult | None) -> None:
+        from celery.app.trace import async_body_done
+
+        async with self._semaphore:
+            if job is not None:
+                # The tracer's task copies this task's context, so the tracer
+                # can tell the job when its body is done; see cancel_all().
+                async_body_done.set(job.body_done)
+            await coro_factory(*args)
 
     def cancel_task(self, task: asyncio.Task) -> None:
         """Cancel a task running on this loop from any thread."""
@@ -198,11 +210,18 @@ class LoopWorker:
             logger.debug("Loop worker %s stopped before a job could be cancelled", self._index)
 
     def cancel_all(self) -> None:
-        for task in list(self._tasks):
-            task.cancel()
+        """Cancel every job that is still in its task body.
+
+        A job past its body is only reporting an outcome that is already
+        decided. Cancelling it there reports it revoked instead, over a result
+        it may already have stored.
+        """
+        for task, job in list(self._tasks.items()):
+            if job is None or not job.past_body:
+                task.cancel()
 
     def stop(self) -> None:
-        """Cancel all tasks, stop the event loop, and join the thread."""
+        """Cancel the jobs still in their body, stop the event loop, and join the thread."""
         if self._loop and not self._loop.is_closed():
             try:
                 self._loop.call_soon_threadsafe(self.cancel_all)

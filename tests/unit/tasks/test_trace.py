@@ -8,6 +8,7 @@ from celery import Task, group, signals, states, uuid
 from celery.app.task import Context
 from celery.app.trace import (
     TraceInfo,
+    async_body_done,
     build_async_tracer,
     build_tracer,
     fast_trace_task,
@@ -977,6 +978,18 @@ class test_async_trace(TraceCase):
         finally:
             signals.task_success.disconnect(on_success)
         assert received == [ret.runtime]
+
+    async def test_the_pool_hears_when_the_body_has_raised(self):
+        events = []
+        self.raises.backend = Mock(name="backend")
+        self.raises.backend.amark_as_failure = AsyncMock(side_effect=lambda *args, **kwargs: events.append("stored"))
+        token = async_body_done.set(lambda: events.append("body done"))
+        try:
+            await self.atrace(self.raises, (KeyError("boom"),), {}, eager=False)
+        finally:
+            async_body_done.reset(token)
+
+        assert events == ["body done", "stored"]
 
     async def test_track_started_stores_the_started_state(self):
         self.add.track_started = True
