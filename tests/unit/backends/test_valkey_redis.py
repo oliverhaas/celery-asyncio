@@ -1450,6 +1450,19 @@ class test_RedisBackend_store_result(basetest_RedisBackend):
         assert f"Dropped duplicate result write for task {task_id}" in caplog.text
 
     @pytest.mark.parametrize(
+        ("state", "result"), [(states.SUCCESS, "done"), (states.REVOKED, TaskRevokedError("first revoke"))]
+    )
+    def test_a_revoke_dropped_by_the_script_is_not_an_error(self, state, result, caplog):
+        task_id = uuid()
+        self.b.store_result(task_id, result, state)
+        with caplog.at_level(logging.DEBUG, logger="celery.backends.valkey_redis"):
+            self.b.store_result(task_id, TaskRevokedError("late"), states.REVOKED)
+
+        assert [r.levelno for r in caplog.records] == [logging.DEBUG]
+        assert f"Ignored a revoke of task {task_id}, which is already {state}" in caplog.text
+        assert self.b.get_task_meta(task_id, cache=False)["status"] == state
+
+    @pytest.mark.parametrize(
         ("state", "result"), [(states.SUCCESS, "done"), (states.REVOKED, TaskRevokedError("gone"))]
     )
     def test_a_retry_of_a_write_that_landed_is_not_logged_as_dropped(self, state, result, caplog):

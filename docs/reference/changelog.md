@@ -387,6 +387,10 @@ commit it came from.
   because a stored state won is still logged. On a local Redis, trivial async
   tasks on one loop worker ran 44% faster on the GIL build and 51% faster
   free-threaded
+- Every worker a `revoke` reaches stores `REVOKED` for a task it is not
+  running, so revoking a task that had already finished logged a "Dropped
+  duplicate result write" error on Valkey and Redis once per worker. The
+  stored outcome still stands, and such a write is now logged at debug level
 
 #### Events
 

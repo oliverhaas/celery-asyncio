@@ -604,6 +604,15 @@ return won
 
     @staticmethod
     def _log_dropped_write(task_id, existing, state):
+        if state == states.REVOKED:
+            # Expected: every worker the revoke reaches records it, and it can
+            # arrive after the task finished; see states_not_to_overwrite().
+            logger.debug(
+                "Ignored a revoke of task %s, which is already %s",
+                bytes_to_str(task_id),
+                bytes_to_str(existing),
+            )
+            return
         # The stored state won: usually a redelivered task re-executing.
         logger.error(
             "Dropped duplicate result write for task %s: stored state %s, attempted state %s",
