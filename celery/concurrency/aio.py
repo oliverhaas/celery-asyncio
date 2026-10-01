@@ -386,6 +386,8 @@ class SyncJob:
         self._done = False
         #: Whether the hard limit gave up on the thread before the task was done.
         self.stuck = False
+        #: Set when the task's outcome is reported, by the task or by its hard limit.
+        self.settled = threading.Event()
 
     def start(self, target: Callable, on_hard_limit: Callable[[SyncJob], None]) -> Callable:
         """Start the limits for the calling thread and return ``target`` guarded."""
@@ -455,7 +457,7 @@ class TaskPool(BasePool):
         self._sync_worker_count = sync_workers
         self._loop_workers: list[LoopWorker] = []
         self._executor: ThreadPoolExecutor | None = None
-        self._active_futures: set[Future] = set()
+        self._active_futures: dict[Future, SyncJob] = {}
         self._async_jobs: dict[str, AsyncApplyResult] = {}
         self._async_jobs_lock = Lock()
         self._stuck_thread_count = 0
@@ -478,17 +480,24 @@ class TaskPool(BasePool):
         )
 
     def on_stop(self) -> None:
-        for f in list(self._active_futures):
+        sync_jobs = list(self._active_futures.items())
+        for f, _ in sync_jobs:
             f.cancel()
-        self._active_futures.clear()
         for w in self._loop_workers:
             w.stop()
         self._loop_workers.clear()
         with self._async_jobs_lock:
             self._async_jobs.clear()
-        if self._executor:
-            self._executor.shutdown(wait=True, cancel_futures=True)
-            self._executor = None
+        # A thread cannot be interrupted, so the running sync tasks get to report.
+        # A stuck one is settled by its hard limit and left to the exit.
+        running = [job for _, job in sync_jobs if not job.settled.is_set()]
+        if running:
+            logger.info("Waiting for %d running sync task(s) to finish", len(running))
+        for job in running:
+            job.settled.wait()
+        executor, self._executor = self._executor, None
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def restart(self) -> None:
         self.on_stop()
@@ -844,23 +853,32 @@ class TaskPool(BasePool):
             error_callback,
             job,
         )
-        self._active_futures.add(f)
-        f.add_done_callback(self._active_futures.discard)
+        self._active_futures[f] = job
+        f.add_done_callback(self._sync_job_done)
         return ApplyResult(f)
+
+    def _sync_job_done(self, future: Future) -> None:
+        job = self._active_futures.pop(future, None)
+        # A stuck job is settled by its hard limit, after the timeout is reported.
+        if job is not None and not job.stuck:
+            job.settled.set()
 
     def _on_sync_hard_limit(self, job: SyncJob) -> None:
         """Report a sync task past its hard limit, whose thread cannot be stopped."""
         if not job.give_up():
             return
-        logger.error(
-            "Hard time limit (%ss) exceeded for sync task in thread pool. "
-            "Thread cannot be killed; will trigger process restart.",
-            job.timeout,
-        )
-        with self._stuck_lock:
-            self._stuck_thread_count += 1
-        if job.timeout_callback:
-            job.timeout_callback(False, job.timeout)
+        try:
+            logger.error(
+                "Hard time limit (%ss) exceeded for sync task in thread pool. "
+                "Thread cannot be killed; will trigger process restart.",
+                job.timeout,
+            )
+            with self._stuck_lock:
+                self._stuck_thread_count += 1
+            if job.timeout_callback:
+                job.timeout_callback(False, job.timeout)
+        finally:
+            job.settled.set()
 
     def _run_in_thread(
         self,

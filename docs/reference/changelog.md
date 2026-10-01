@@ -181,6 +181,11 @@ commit it came from.
   more than 2 seconds past it. It could be reported as failed with
   `TimeLimitExceeded` before its time was up, and its thread counted as stuck,
   which restarted the worker. Both limits now count from when the task starts
+- A shutdown waited at most 30 seconds for the pool to stop. A sync task still
+  running then lost its ack when the broker connection closed under it, so an
+  `acks_late` task went back to the queue and ran again although it had
+  succeeded. The shutdown now waits for the running sync tasks to finish and
+  report, except for a thread past its hard time limit
 
 #### Beat and schedules
 

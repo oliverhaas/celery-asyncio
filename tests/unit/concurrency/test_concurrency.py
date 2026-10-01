@@ -1032,6 +1032,47 @@ class test_sync_task_time_limits(AioPoolCase):
         assert pool._stuck_thread_count == 0
 
 
+class test_sync_task_stop(AioPoolCase):
+    def test_the_stop_waits_for_a_running_task_to_report(self):
+        started = threading.Event()
+
+        @self.app.task(name="sync.running_at_the_stop", shared=False)
+        def running_at_the_stop():
+            started.set()
+            time.sleep(0.3)
+            return "done"
+
+        pool = self.start_pool(sync_workers=1)
+        rec = Recorder()
+        task_id = self.apply(pool, "sync.running_at_the_stop", rec)
+        assert started.wait(10)
+
+        pool.stop()
+
+        assert rec.result[0] == 0
+        assert self.meta(task_id)["result"] == "done"
+
+    def test_the_stop_leaves_a_stuck_task_behind(self):
+        release = threading.Event()
+
+        @self.app.task(name="sync.stuck_at_the_stop", shared=False)
+        def stuck_at_the_stop():
+            release.wait(10)
+
+        pool = self.start_pool(sync_workers=1)
+        rec = Recorder()
+        self.apply(pool, "sync.stuck_at_the_stop", rec, timeout=0.2)
+        try:
+            assert rec.done.wait(10)
+            stopping = threading.Thread(target=pool.stop)
+            stopping.start()
+            stopping.join(5)
+
+            assert not stopping.is_alive()
+        finally:
+            release.set()
+
+
 class test_SyncJob:
     def test_the_limit_timers_stop_when_the_task_finishes(self):
         timers = []

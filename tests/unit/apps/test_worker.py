@@ -128,7 +128,8 @@ class test_stop_pool:
     async def test_stops_the_pool_off_the_calling_thread(self):
         pool = FakePool()
 
-        assert await stop_pool(pool) is True
+        await stop_pool(pool)
+
         assert pool.stopped_on is not threading.current_thread()
 
     async def test_the_loop_keeps_running_while_the_pool_comes_down(self):
@@ -141,17 +142,19 @@ class test_stop_pool:
                 ticks.append(1)
             release.set()
 
-        stopped, _ = await asyncio.gather(stop_pool(FakePool(release), timeout=5), tick())
+        await asyncio.gather(stop_pool(FakePool(release)), tick())
 
-        assert stopped is True
         assert ticks == [1, 1, 1]
 
-    async def test_gives_up_on_a_pool_that_will_not_come_down(self):
+    async def test_waits_for_a_pool_that_takes_its_time(self):
         release = threading.Event()
-        try:
-            assert await stop_pool(FakePool(release), timeout=0.1) is False
-        finally:
-            release.set()
+        stopping = asyncio.ensure_future(stop_pool(FakePool(release)))
+
+        await asyncio.sleep(0.3)
+        assert not stopping.done()
+
+        release.set()
+        await asyncio.wait_for(stopping, 5)
 
 
 class test_Pool_bootstep:
