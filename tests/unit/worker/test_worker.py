@@ -28,6 +28,7 @@ def MockStep(step=None):
 def mock_consumer():
     consumer = AsyncMock(name="consumer")
     consumer.perform_pending_operations = Mock(name="perform_pending_operations")
+    consumer.cancel_active_requests = Mock(name="cancel_active_requests")
     return consumer
 
 
@@ -406,21 +407,10 @@ class test_WorkController(ConsumerCase):
             await worker.wait_for_soft_shutdown()
             mock_sleep.assert_not_called()
 
-    async def test_wait_for_soft_shutdown_without_a_timeout_cancels_the_active_tasks(self):
+    @pytest.mark.parametrize("timeout", [0, 0.01])
+    async def test_wait_for_soft_shutdown_cancels_the_tasks_that_outlast_the_timeout(self, timeout):
         worker = self.worker
-        worker.consumer = Mock(name="consumer")
-        request = Mock(name="task", id="still-running")
-        state.task_accepted(request)
-        try:
-            await worker.wait_for_soft_shutdown()
-        finally:
-            state.task_ready(request)
-
-        worker.consumer.cancel_active_requests.assert_called_once_with()
-
-    async def test_wait_for_soft_shutdown_cancels_the_tasks_that_outlast_the_timeout(self):
-        worker = self.worker
-        worker.app.conf.worker_soft_shutdown_timeout = 0.01
+        worker.app.conf.worker_soft_shutdown_timeout = timeout
         worker.consumer = Mock(name="consumer")
         request = Mock(name="task", id="outlasts-the-timeout")
         state.task_accepted(request)
