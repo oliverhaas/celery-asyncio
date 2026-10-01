@@ -1,5 +1,8 @@
 import asyncio
 import signal
+import subprocess
+import sys
+import textwrap
 import threading
 from unittest.mock import AsyncMock, Mock, call, patch
 
@@ -268,3 +271,31 @@ class test_shutdown_signals(WorkerCase):
             if worker.consumer.pool.stopped_on is not None:
                 break
         assert worker.consumer.pool.stopped_on is not threading.current_thread()
+
+
+class test_restart:
+    def test_runs_the_exit_handlers_registered_before_it(self, tmp_path):
+        script = tmp_path / "restart.py"
+        script.write_text(
+            textwrap.dedent(
+                """
+                import atexit
+                import os
+                import signal
+
+                from celery.apps.worker import install_worker_restart_handler
+
+                if os.environ.get("RESTARTED"):
+                    print("exec", flush=True)
+                else:
+                    os.environ["RESTARTED"] = "1"
+                    atexit.register(print, "saved", flush=True)
+                    install_worker_restart_handler(None)
+                    signal.raise_signal(signal.SIGHUP)
+                """
+            )
+        )
+
+        done = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=60, check=False)
+
+        assert done.stdout.split()[-2:] == ["saved", "exec"], done.stdout + done.stderr

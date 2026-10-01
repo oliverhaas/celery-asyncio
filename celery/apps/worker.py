@@ -9,6 +9,7 @@ as an actual application, like installing signal handlers,
 platform tweaks, and so on.
 """
 
+import atexit
 import logging
 import os
 import platform as _platform
@@ -467,6 +468,10 @@ install_worker_int_handler = partial(
 
 
 def _reload_current_worker():
+    # atexit runs the newest handler first, so the ones registered before this
+    # one, such as the statedb save, would never run past the exec.
+    atexit.unregister(_reload_current_worker)
+    atexit._run_exitfuncs()
     platforms.close_open_fds(
         [
             sys.__stdin__,
@@ -483,8 +488,6 @@ def install_worker_restart_handler(worker, sig="SIGHUP"):
         """Signal handler restarting the current python program."""
         set_in_sighandler(True)
         safe_say(f"Restarting celery worker ({' '.join(sys.argv)})", sys.__stdout__)
-        import atexit
-
         atexit.register(_reload_current_worker)
         from celery.worker import state
 

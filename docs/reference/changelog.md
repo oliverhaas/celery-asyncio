@@ -190,6 +190,12 @@ commit it came from.
   interpreter joins the pool's threads at exit, so neither the restart that the
   limit set off nor a shutdown could finish. The worker now runs its exit
   handlers and exits, or restarts, without waiting for such a thread
+- A restart, from `SIGHUP`, `worker_max_tasks_per_child`,
+  `worker_max_memory_per_child` or a stuck thread, replaced the process before
+  the exit handlers registered earlier had run, since atexit runs the newest
+  handler first. The `--statedb` file was never saved, so the revoked tasks were
+  forgotten, and other handlers, such as a tracing exporter's flush, never ran.
+  They now run before the restart
 
 #### Beat and schedules
 
