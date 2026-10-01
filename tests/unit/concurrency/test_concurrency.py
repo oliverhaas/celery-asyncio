@@ -644,7 +644,7 @@ class test_async_task_termination(AioPoolCase):
         task_id = self.apply(pool, "aio.terminate_me", rec)
         assert marks["started"].wait(10)
 
-        pool.terminate_job(task_id)
+        assert pool.terminate_job(task_id) is True
 
         assert rec.done.wait(10)
         assert marks["cancelled"].is_set()
@@ -723,6 +723,59 @@ class test_async_task_termination(AioPoolCase):
         req.terminate(pool)
 
         assert len(revokes) == 1
+
+    def test_terminating_a_job_storing_its_result_leaves_it_to_finish(self):
+        storing = threading.Event()
+
+        @self.app.task(name="aio.finishes_while_revoked", shared=False)
+        async def finishes_while_revoked():
+            return "finished"
+
+        backend_cls = type(self.app.backend)
+        store = backend_cls.amark_as_done
+
+        async def slow_store(backend, *args, **kwargs):
+            storing.set()
+            await asyncio.sleep(0.1)
+            return await store(backend, *args, **kwargs)
+
+        pool = self.start_pool()
+        message = self.TaskMessage("aio.finishes_while_revoked", args=(), kwargs={})
+        req = Request(message, app=self.app, on_ack=Mock(), on_reject=Mock())
+        done = threading.Event()
+        req.on_success = report_when_done(req.on_success, done)
+        with patch.object(backend_cls, "amark_as_done", slow_store), collect_signal(signals.task_revoked) as revoked:
+            req.execute_using_pool(pool)
+            assert storing.wait(10)
+            req.terminate(pool)
+            assert done.wait(10)
+
+        assert revoked == []
+        assert self.meta(req.id)["status"] == states.SUCCESS
+
+    def test_terminating_a_sync_task_leaves_it_to_finish(self):
+        started, release = threading.Event(), threading.Event()
+
+        @self.app.task(name="aio.sync_revoked_while_running", shared=False)
+        def sync_revoked_while_running():
+            started.set()
+            release.wait(10)
+            return "finished"
+
+        pool = self.start_pool()
+        message = self.TaskMessage("aio.sync_revoked_while_running", args=(), kwargs={})
+        req = Request(message, app=self.app, on_ack=Mock(), on_reject=Mock())
+        done = threading.Event()
+        req.on_success = report_when_done(req.on_success, done)
+        with collect_signal(signals.task_revoked) as revoked:
+            req.execute_using_pool(pool)
+            assert started.wait(10)
+            req.terminate(pool)
+            release.set()
+            assert done.wait(10)
+
+        assert revoked == []
+        assert self.meta(req.id)["status"] == states.SUCCESS
 
 
 class test_async_task_time_limits(AioPoolCase):
@@ -1075,6 +1128,13 @@ class test_AsyncApplyResult:
         job.attach(task)
 
         task.cancel.assert_called_once_with()
+
+    def test_terminate_reports_the_job_cancelled(self):
+        job = AsyncApplyResult(Mock(name="worker"), "job-id", Mock(name="on_done"))
+        job.attach(Mock(name="task"))
+
+        assert job.terminate() is True
+        assert job.terminate() is True
 
 
 class test_process_signals:

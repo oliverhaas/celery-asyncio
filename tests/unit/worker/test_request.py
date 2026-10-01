@@ -703,6 +703,20 @@ class test_Request(RequestCase):
         # Still cancelled, and still announced as such.
         assert job._already_cancelled
 
+    def test_cancel__a_job_the_pool_cannot_stop_reports_its_own_outcome(self):
+        pool = Mock(name="pool")
+        pool.terminate_job.return_value = False
+        job = self.get_request(self.mytask.s(1, f="x"))
+        job.task.backend = Mock(name="backend")
+        job.eventer = Mock(name="eventer")
+        job.time_start = monotonic()
+
+        job.cancel(pool, signal="TERM")
+
+        job.task.backend.mark_as_retry.assert_not_called()
+        job.eventer.send.assert_not_called()
+        assert not job._already_cancelled
+
     def test_revoked_expires_expired(self):
         job = self.get_request(self.mytask.s(1, f="x").set(expires=datetime.now(UTC) - timedelta(days=1)))
         with self.assert_signal_called(

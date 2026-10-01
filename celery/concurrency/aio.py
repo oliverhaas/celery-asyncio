@@ -59,7 +59,7 @@ class AsyncApplyResult:
     task on the loop that runs it, including before that task exists: a job
     terminated between dispatch and scheduling is cancelled as soon as it is
     attached. ``discard()`` does the same until the job starts, and nothing
-    after.
+    after. Neither touches a job whose body is done.
     """
 
     def __init__(self, worker: LoopWorker, job_id: str, on_done: Callable[[AsyncApplyResult], None]) -> None:
@@ -116,19 +116,29 @@ class AsyncApplyResult:
             self._worker.cancel_task(task)
 
     def body_done(self) -> None:
-        self.past_body = True
+        # Under the mutex, so a terminate either lands before this or sees it.
+        with self._mutex:
+            self.past_body = True
 
     def cancel(self) -> None:
         self.terminate()
 
-    def terminate(self, signal: Any = None) -> None:
+    def terminate(self, signal: Any = None) -> bool:
+        """Cancel the job, returning False if its body is already done.
+
+        Such a job is only reporting an outcome that is already decided, so
+        it is left to report it, as at shutdown; see LoopWorker.cancel_all().
+        """
         with self._mutex:
+            if self.past_body:
+                return False
             if self._terminated:
-                return
+                return True
             self._terminated = True
             task = self._task
         if task is not None:
             self._worker.cancel_task(task)
+        return True
 
 
 class LoopWorker:
@@ -444,16 +454,16 @@ class TaskPool(BasePool):
         for job in jobs:
             job.discard()
 
-    def terminate_job(self, job_id: str, signal: Any = None) -> None:
-        """Cancel a running async task.
+    def terminate_job(self, job_id: str, signal: Any = None) -> bool:
+        """Cancel a running async task, returning whether it is cancelled.
 
         Sync tasks run in a thread pool and cannot be interrupted, so a job
-        that is not an async one is left to finish.
+        that is not an async one is left to finish, and so is one whose body
+        is done or that has already finished.
         """
         with self._async_jobs_lock:
             job = self._async_jobs.get(job_id)
-        if job is not None:
-            job.terminate(signal)
+        return job is not None and job.terminate(signal)
 
     def _forget_async_job(self, job: AsyncApplyResult) -> None:
         with self._async_jobs_lock:

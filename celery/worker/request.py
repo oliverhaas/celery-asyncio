@@ -466,10 +466,10 @@ class Request:
             # before this returns, and on_failure reads the flag to tell
             # whether the revoke still has to be announced.
             self._already_revoked = True
-            try:
-                pool.terminate_job(self.id, signal)
-            except NotImplementedError:
-                pass
+            if not self._stop_job(pool, signal):
+                self._already_revoked = False
+                info("Task %s[%s] was not terminated: it can no longer be stopped", self.name, self.id)
+                return
             self._announce_revoked("terminated", True, signal, False)
         else:
             self._terminate_on_ack = pool, signal
@@ -484,16 +484,25 @@ class Request:
             # Set before the job stops, as in terminate(): on_failure would
             # otherwise announce the cancelled job as revoked.
             self._already_cancelled = True
-            try:
-                pool.terminate_job(self.id, signal)
-            except NotImplementedError:
-                pass
+            if not self._stop_job(pool, signal):
+                self._already_cancelled = False
+                return
             self._announce_cancelled(emit_retry=emit_retry)
 
         if self._apply_result is not None:
             obj = self._apply_result()  # is a weakref
             if obj is not None:
                 obj.terminate(signal)
+
+    def _stop_job(self, pool, signal):
+        """Stop the running job, returning False if the pool could not.
+
+        A sync task, or an async one past its body, then reports its own outcome.
+        """
+        try:
+            return pool.terminate_job(self.id, signal) is not False
+        except NotImplementedError:
+            return True
 
     def _announce_cancelled(self, emit_retry=True):
         task_ready(self)

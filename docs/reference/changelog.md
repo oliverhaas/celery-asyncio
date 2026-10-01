@@ -143,6 +143,14 @@ commit it came from.
   hold the GIL, so on the GIL build a busy worker went about 20 s at a time
   without reading a control command. The loop now also comes back when the next
   timer entry is due, and after a second at most
+- `revoke(terminate=True)` cancelled a task even when its body had already
+  returned or raised and the task was storing its outcome or sending its
+  callbacks. Depending on the moment, the task was stored as `REVOKED` instead
+  of its outcome, its callbacks were cut off, or the late `REVOKED` was dropped
+  with a "Dropped duplicate result write" error. A sync task cannot be
+  interrupted, yet terminating one reported it as `REVOKED` while it ran on,
+  until its real result replaced that. The worker now leaves either to report
+  its own outcome, and logs that the task could no longer be stopped
 
 #### Beat and schedules
 
