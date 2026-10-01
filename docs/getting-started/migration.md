@@ -117,11 +117,11 @@ the certificate paths in the URL query or in `broker_transport_options`.
 
 `worker_prefetch_multiplier` still applies, and the count it gives caps the
 messages a worker holds unacknowledged on every broker, same as upstream. What
-differs is the concurrency it multiplies: `worker_concurrency` (`-c`, the CPU
-count by default), which the asyncio pool does not read for its size. With
-`task_acks_late`, set `-c` to at least
-`worker_loop_workers × worker_loop_concurrency + worker_sync_workers`, or the
-prefetch count leaves part of the pool idle. The default multiplier is 4.
+differs is the concurrency it multiplies: `worker_concurrency` (`-c`), which the
+asyncio pool does not read for its size. Left unset, it is the pool's slots,
+`worker_loop_workers × worker_loop_concurrency + worker_sync_workers`, so the
+count follows the pool as it does upstream. With `task_acks_late`, a `-c` below
+the slots can leave part of the pool idle. The default multiplier is 4.
 
 ## Worker startup
 
@@ -146,8 +146,8 @@ always expand to `0` and to the empty string.
 - `-O` / `--optimization`: the `fair` profile only ever described the prefork
   pool, and nothing read the value.
 - `--disable-prefetch`: use `--prefetch-multiplier 1` with `task_acks_late`,
-  and `-c` at the pool's size. The worker then holds no more messages than it
-  can run, so it only takes one when a slot is free.
+  and leave `-c` at its default, the pool's size. The worker then holds no more
+  messages than it can run, so it only takes one when a slot is free.
 - `--autoscale`: it only ever pinned concurrency to the low end of the range,
   since the asyncio pool cannot grow or shrink.
 

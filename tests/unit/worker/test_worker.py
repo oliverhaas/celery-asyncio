@@ -5,6 +5,7 @@ import pytest
 
 from celery.apps.worker import safe_say
 from celery.bootsteps import CLOSE, RUN, TERMINATE, StartStopStep
+from celery.concurrency.base import BasePool
 from celery.exceptions import ImproperlyConfigured, WorkerShutdown, WorkerTerminate
 from celery.platforms import EX_FAILURE
 from celery.utils.nodenames import worker_direct
@@ -386,14 +387,35 @@ class test_WorkController_pool_sizing:
         ("sync_workers", "worker_sync_workers", 1),
     ]
 
-    def create_worker(self, **kw):
-        worker = self.app.WorkController(concurrency=1, loglevel=0, **kw)
+    def create_worker(self, concurrency=1, **kw):
+        worker = self.app.WorkController(concurrency=concurrency, loglevel=0, **kw)
         worker.blueprint.shutdown_complete.set()
         return worker
 
     @pytest.mark.parametrize(("attribute", "setting", "default"), SIZES)
     def test_falls_back_to_the_shipped_default(self, attribute, setting, default):
         assert getattr(self.create_worker(), attribute) == default
+
+    def test_the_prefetch_count_follows_the_pools_slots(self):
+        worker = self.create_worker(
+            concurrency=None, loop_workers=4, loop_concurrency=25, sync_workers=1, prefetch_multiplier=16
+        )
+
+        assert worker.consumer.initial_prefetch_count == 101 * 16
+
+    def test_the_concurrency_setting_wins_over_the_slot_count(self):
+        self.app.conf.worker_concurrency = 8
+
+        assert self.create_worker(concurrency=None, loop_workers=4, loop_concurrency=25).concurrency == 8
+
+    def test_a_pool_of_another_kind_defaults_to_the_cpu_count(self):
+        class OtherPool(BasePool):
+            pass
+
+        with patch.object(worker_module, "cpu_count", return_value=3):
+            worker = self.create_worker(concurrency=None, pool_cls=OtherPool, loop_workers=4, loop_concurrency=25)
+
+        assert worker.concurrency == 3
 
     @pytest.mark.parametrize(("attribute", "setting", "default"), SIZES)
     def test_the_setting_replaces_the_default(self, attribute, setting, default):

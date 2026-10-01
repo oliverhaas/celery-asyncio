@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from celery import bootsteps, signals
 from celery import concurrency as _concurrency
 from celery.bootsteps import RUN, TERMINATE
+from celery.concurrency.aio import TaskPool as AsyncioPool
 from celery.exceptions import ImproperlyConfigured, TaskRevokedError, WorkerTerminate
 from celery.platforms import EX_FAILURE, create_pidlock
 from celery.utils.imports import reload_from_cwd
@@ -97,13 +98,19 @@ class WorkController:
         self.pidfile = pidfile
         self.setup_queues(queues, exclude_queues)
         self.setup_includes(str_to_list(include))
+        self.pool_cls = _concurrency.get_implementation(self.pool_cls)
 
         # Set default concurrency
         if not self.concurrency:
-            try:
-                self.concurrency = cpu_count()
-            except NotImplementedError:
-                self.concurrency = 2
+            if isinstance(self.pool_cls, type) and issubclass(self.pool_cls, AsyncioPool):
+                # For this pool the concurrency only sets the prefetch count,
+                # which must follow what the pool runs, not the machine's CPUs.
+                self.concurrency = self.loop_workers * self.loop_concurrency + self.sync_workers
+            else:
+                try:
+                    self.concurrency = cpu_count()
+                except NotImplementedError:
+                    self.concurrency = 2
 
         # Options
         self.loglevel = mlevel(self.loglevel)
@@ -116,7 +123,6 @@ class WorkController:
         signals.worker_init.send(sender=self)
 
         # Initialize bootsteps
-        self.pool_cls = _concurrency.get_implementation(self.pool_cls)
         self.steps = []
         self.on_init_blueprint()
         self.blueprint = self.Blueprint(

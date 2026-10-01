@@ -61,6 +61,8 @@ run in parallel.
 
 `worker_concurrency` and `-c` are accepted for compatibility with upstream Celery
 and size the prefetch count, but the asyncio pool does not read them for capacity.
+Left unset, the concurrency is the pool's slots,
+`worker_loop_workers × worker_loop_concurrency + worker_sync_workers`.
 
 ## Worker settings
 
@@ -111,8 +113,9 @@ rejects one.
 
 A task acknowledged late holds its slot while it runs. With `task_acks_late`,
 a prefetch count below what the pool can run at once leaves the rest of the
-pool idle, and the count follows `-c`, not the pool's size, so set `-c` to at
-least `worker_loop_workers × worker_loop_concurrency + worker_sync_workers`.
+pool idle. The count follows the pool's slots unless `-c` is set, so only a
+`-c` below `worker_loop_workers × worker_loop_concurrency + worker_sync_workers`
+can cause it.
 
 With `worker_enable_prefetch_count_reduction` on, a worker that reconnects
 while N tasks are still running comes back with the count lowered by one
@@ -198,7 +201,7 @@ Options:
   --loop-workers=N         Number of async loop workers (default: 1)
   --loop-concurrency=N     Max concurrent async tasks per loop worker (default: 10)
   --sync-workers=N         Number of sync worker threads (default: 1)
-  -c / --concurrency=N     Accepted for compatibility; does not size the asyncio pool
+  -c / --concurrency=N     Sizes the prefetch count, not the pool (default: the pool's slots)
   --max-tasks-per-child=N  Restart after N tasks
   --max-memory-per-child=N Restart if RSS exceeds N KiB
   --prefetch-multiplier=N  Prefetch count per concurrency slot (default: 4)

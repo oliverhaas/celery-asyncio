@@ -439,14 +439,17 @@ commit it came from.
 
 ### Changed
 
+- Left unset, `-c` (`worker_concurrency`) is the asyncio pool's slots,
+  `worker_loop_workers × worker_loop_concurrency + worker_sync_workers`, rather
+  than the CPU count. The pool never read it for its size, so all it set was the
+  prefetch count, which followed the machine rather than the pool
 - With `task_acks_late` on Valkey or Redis, a prefetch count below what the pool
   runs at once now leaves the rest of the pool idle, as it already did on AMQP.
-  The count is `-c` times `worker_prefetch_multiplier`, and `-c` defaults to the
-  CPU count rather than the pool's size, so set it to at least
-  `worker_loop_workers × worker_loop_concurrency + worker_sync_workers`
-- `--prefetch-multiplier 1` with `task_acks_late` and `-c` at the pool's size
-  now does on Valkey and Redis what the removed `--disable-prefetch` did: the
-  worker only takes a message when a slot is free
+  The count is `-c` times `worker_prefetch_multiplier`, so only a `-c` below the
+  pool's slots can cause it
+- `--prefetch-multiplier 1` with `task_acks_late` and the default `-c` now does
+  on Valkey and Redis what the removed `--disable-prefetch` did: the worker only
+  takes a message when a slot is free
 - The static-analysis hack in `celery/__init__.py` is a `TYPE_CHECKING` guard
   (upstream ceb5f9655)
 - `EventReceiver` documents its first argument under the name it actually has

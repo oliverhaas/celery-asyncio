@@ -203,7 +203,8 @@ def detach(
     callback=lambda ctx, _, value: value or ctx.obj.app.conf.worker_concurrency,
     cls=CeleryOption,
     help_group="Pool Options",
-    help="Number of child processes processing the queue.  The default is the number of CPUs available on your system.",
+    help="Concurrency the prefetch count is based on. The asyncio pool takes its size from --loop-workers, "
+    "--loop-concurrency and --sync-workers, and this defaults to that size.",
 )
 @click.option(
     "-P",
