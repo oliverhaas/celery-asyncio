@@ -167,6 +167,13 @@ commit it came from.
   waited out the visibility timeout before another worker could take them. The
   consumer is now shut down after the pool stops, which returns them to the
   queue at once
+- A cold shutdown cancelled the running async tasks before it dropped the
+  prefetched ones that had not started, so a slot freed by a cancel started the
+  next of them. The pool's stop then cancelled that task too, stored it as
+  `REVOKED` and acknowledged it, although it had not run. A task received after
+  the shutdown signal could meet the same end. The prefetched tasks are now
+  dropped first, and nothing starts after a shutdown is signalled, so the broker
+  redelivers them
 
 #### Beat and schedules
 

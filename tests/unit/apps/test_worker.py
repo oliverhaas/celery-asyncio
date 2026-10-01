@@ -1,7 +1,7 @@
 import asyncio
 import signal
 import threading
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 from kombu.transport import memory
@@ -111,6 +111,9 @@ class FakePool:
     def __init__(self, block=None):
         self.block = block
         self.stopped_on = None
+
+    def flush(self):
+        pass
 
     def stop(self):
         self.stopped_on = threading.current_thread()
@@ -237,6 +240,17 @@ class test_shutdown_signals(WorkerCase):
 
         with pytest.raises(WorkerTerminate):
             self.raise_signal("SIGQUIT")
+
+    def test_the_cold_shutdown_drops_the_jobs_not_started_before_cancelling(self):
+        worker = self.create_worker()
+        worker.consumer = Mock(name="consumer")
+        calls = Mock(name="calls")
+        worker.consumer.pool.flush = calls.flush
+        worker.consumer.cancel_active_requests = calls.cancel_active_requests
+
+        on_cold_shutdown(worker)
+
+        assert calls.mock_calls == [call.flush(), call.cancel_active_requests()]
 
     async def test_the_cold_shutdown_stops_the_pool_off_the_loop(self):
         worker = self.create_worker()

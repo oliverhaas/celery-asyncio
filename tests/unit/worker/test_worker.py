@@ -7,7 +7,7 @@ from celery.apps.worker import safe_say
 from celery.bootsteps import CLOSE, RUN, TERMINATE, StartStopStep
 from celery.concurrency.base import BasePool
 from celery.exceptions import ImproperlyConfigured, WorkerShutdown, WorkerTerminate
-from celery.platforms import EX_FAILURE
+from celery.platforms import EX_FAILURE, EX_OK
 from celery.utils.nodenames import worker_direct
 from celery.utils.scheduling import Timer
 from celery.worker import components, state
@@ -205,6 +205,18 @@ class test_WorkController(ConsumerCase):
         with pytest.raises(KeyError):
             worker._process_task(task)
         worker.pool.stop()
+
+    def test_process_task_starts_nothing_once_a_shutdown_is_requested(self):
+        worker = self.worker
+        worker.pool = Mock()
+        request = Mock(name="request")
+        state.should_stop = EX_OK
+        try:
+            worker.process_task(request)
+        finally:
+            state.should_stop = None
+
+        request.execute_using_pool.assert_not_called()
 
     async def test_start_catches_base_exceptions(self):
         worker1 = self.create_worker()

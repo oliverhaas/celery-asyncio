@@ -211,6 +211,10 @@ class WorkController:
 
     def _process_task(self, req):
         """Process task by sending it to the pool of workers."""
+        if state.shutdown_requested():
+            # Started now, it would only be cancelled. Unacknowledged, it goes
+            # back to the queue when the connection closes.
+            return
         try:
             req.execute_using_pool(self.pool)
         except TaskRevokedError:

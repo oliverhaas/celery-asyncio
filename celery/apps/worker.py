@@ -412,6 +412,10 @@ def on_cold_shutdown(worker: Worker):
 
     # Cancel all unacked requests and allow the worker to terminate naturally
     if worker.consumer:
+        # Before the cancels: a slot one of them frees would start a queued job,
+        # acknowledge it, and cancel it with the rest.
+        if worker.consumer.pool:
+            worker.consumer.pool.flush()
         worker.consumer.cancel_active_requests()
 
         # Stop the pool so finished tasks still reach on_success(). The pool joins

@@ -163,6 +163,11 @@ def maybe_shutdown():
         raise WorkerShutdown(should_stop)
 
 
+def shutdown_requested() -> bool:
+    """Whether maybe_shutdown() would raise. A flag holds an exit code, which can be 0."""
+    return any(flag is not None and flag is not False for flag in (should_terminate, should_stop))
+
+
 def task_reserved(request):
     """Update global state when a task has been reserved."""
     with _lock:
