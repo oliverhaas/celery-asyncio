@@ -205,7 +205,7 @@ class test_Consumer(ConsumerTestCase):
         c.on_send_event_buffered()
         c.on_send_event_buffered()
         await asyncio.sleep(0)
-        c.event_dispatcher.flush.assert_called_once_with()
+        c.event_dispatcher.flush.assert_called_once()
 
         # The next pass flushes again.
         c.on_send_event_buffered()
@@ -218,7 +218,7 @@ class test_Consumer(ConsumerTestCase):
         loop = asyncio.get_running_loop()
         c.event_dispatcher = Mock(name="evd", _event_loop=loop)
         flushed_on = []
-        c.event_dispatcher.flush.side_effect = lambda: flushed_on.append(asyncio.get_running_loop())
+        c.event_dispatcher.flush.side_effect = lambda **kwargs: flushed_on.append(asyncio.get_running_loop())
 
         await asyncio.to_thread(c.on_send_event_buffered)
         await asyncio.sleep(0)
@@ -229,7 +229,7 @@ class test_Consumer(ConsumerTestCase):
         c = self.get_consumer()
         c.event_dispatcher = Mock(name="evd", _event_loop=asyncio.get_running_loop())
 
-        def flush_and_buffer_one_more():
+        def flush_and_buffer_one_more(**kwargs):
             c.event_dispatcher.flush.side_effect = None
             c.on_send_event_buffered()
 
@@ -239,6 +239,18 @@ class test_Consumer(ConsumerTestCase):
         await asyncio.sleep(0)
 
         assert c.event_dispatcher.flush.call_count == 2
+
+    async def test_failed_events_are_retried_at_most_once_an_interval(self):
+        c = self.get_consumer()
+        c.event_dispatcher = Mock(name="evd", _event_loop=asyncio.get_running_loop())
+        c.events_retry_interval = 0.2
+
+        for wait in (0, 0, 0.25):
+            await asyncio.sleep(wait)
+            c.on_send_event_buffered()
+            await asyncio.sleep(0)
+
+        assert [kwargs["errors"] for _, kwargs in c.event_dispatcher.flush.call_args_list] == [True, False, True]
 
     def test_without_a_dispatcher_loop_nothing_is_scheduled(self):
         c = self.get_consumer()

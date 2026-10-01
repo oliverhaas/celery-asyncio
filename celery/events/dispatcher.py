@@ -268,7 +268,8 @@ class EventDispatcher:
                 buf = self._group_buffer[group]
                 buf.append(event)
                 if len(buf) >= self.buffer_limit:
-                    self.flush()
+                    # Retrying the failed events is up to the regular flush.
+                    self.flush(errors=False)
                 elif self.on_send_buffered:
                     self.on_send_buffered()
             else:

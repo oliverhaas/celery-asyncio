@@ -195,6 +195,18 @@ class test_EventDispatcher:
         eventer.on_send_buffered = None
         eventer.send("task-received", uuid=1)
 
+    def test_a_full_group_buffer_leaves_the_failed_events_alone(self):
+        eventer = self.app.events.Dispatcher(Mock(), enabled=False, buffer_group={"task"}, buffer_limit=1)
+        eventer.producer = MockProducer()
+        eventer.enabled = True
+        eventer._outbound_buffer.append((Event("task-sent", uuid=1), "task.sent"))
+        eventer._publish = Mock(name="_publish")
+
+        eventer.send("task-received", uuid=2)
+
+        assert [args[2] for args, _ in eventer._publish.call_args_list] == ["task.multi"]
+        assert len(eventer._outbound_buffer) == 1
+
     def test_flush_no_groups_no_errors(self):
         eventer = self.app.events.Dispatcher(Mock())
         eventer.flush(errors=False, groups=False)

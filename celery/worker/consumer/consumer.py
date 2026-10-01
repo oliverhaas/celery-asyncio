@@ -203,6 +203,10 @@ class Consumer:
     #: Whether a flush of the buffered task events is already scheduled.
     _events_flush_pending = False
 
+    #: Seconds between two retries of the events whose publish failed.
+    events_retry_interval = 1.0
+    _events_retry_at = 0.0
+
     class Blueprint(bootsteps.Blueprint):
         """Consumer blueprint."""
 
@@ -585,7 +589,15 @@ class Consumer:
         # Cleared before the flush reads the buffer: an event buffered while
         # the flush runs schedules the next one instead of being left behind.
         self._events_flush_pending = False
-        self._flush_events()
+        if not self.event_dispatcher:
+            return
+        # Each failed event is a publish of its own: retrying them all on
+        # every pass of a busy loop swamps a struggling broker.
+        now = time.monotonic()
+        retry = now >= self._events_retry_at
+        if retry:
+            self._events_retry_at = now + self.events_retry_interval
+        self.event_dispatcher.flush(errors=retry)
 
     async def add_task_queue(self, queue, exchange=None, exchange_type=None, routing_key=None, **options):
         cset = self.task_consumer
