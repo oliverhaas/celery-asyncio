@@ -1384,7 +1384,7 @@
 </span></code></pre></div>
 <ul>
 <li>Async tasks: the soft limit cancels the task at its current <code>await</code>, and the task fails with <code>SoftTimeLimitExceeded</code>. A task that catches the <code>CancelledError</code> runs on until the hard limit cancels it.</li>
-<li>Sync tasks: the soft limit raises <code>SoftTimeLimitExceeded</code> in the task's thread, after a blocking call such as <code>time.sleep</code> returns. A thread cannot be stopped, so at the hard limit the task is reported as failed and the worker restarts to end the thread.</li>
+<li>Sync tasks: the soft limit raises <code>SoftTimeLimitExceeded</code> in the task's thread, after a blocking call such as <code>time.sleep</code> returns. The hard limit stops the task the same way and reports it as failed. A thread still blocked 2 seconds later is stuck, and the worker restarts to end it. Neither limit is raised after the task body has returned.</li>
 <li>Both limits count from when the task starts, not from when the worker receives it.</li>
 </ul>
 <h2 id="bound-tasks">Bound tasks<a class="headerlink" href="#bound-tasks" title="Permanent link">&para;</a></h2>
