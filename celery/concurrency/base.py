@@ -112,7 +112,7 @@ class BasePool:
     def maintain_pool(self, *args, **kwargs):
         pass
 
-    def terminate_job(self, job_id, signal=None):
+    def terminate_job(self, job_id, signal=None, interrupt_thread=True):
         raise NotImplementedError(f"{type(self)} does not implement terminate_job")
 
     def restart(self):

@@ -33,6 +33,17 @@ commit it came from.
   registering the same function again stays quiet, and so does a name held by
   a task of another app in a registry shared through `Celery(tasks=...)`
   (upstream ea1db4a55)
+- A running sync task can be stopped, on a best-effort basis, as upstream PR
+  #10491 does for Celery's `threads` pool. `revoke(terminate=True)`, a cold
+  shutdown and, with `worker_cancel_long_running_tasks_on_connection_loss`, a
+  lost broker connection raise an exception in the task's thread, and the task
+  ends as an async one does: stored as `REVOKED` or `RETRY`, or left
+  unacknowledged for the broker to redeliver if it is `acks_late`. The
+  exception is only raised while the task body runs. Python code stops
+  immediately, while a call blocked in C code, such as a socket read, sees it
+  when it returns. A warm shutdown still lets sync tasks finish. The hard time
+  limit stops a sync task the same way, so its thread now counts as stuck,
+  which restarts the worker, only if it is still running 2 seconds later
 
 ### Fixed
 
@@ -148,8 +159,8 @@ commit it came from.
   as `REVOKED` and acknowledged it, so a late-acknowledged task was lost
   instead of redelivered. With a timeout set, the tasks still running when it
   ran out were all stored as `RETRY`, late-acknowledged ones too, although the
-  broker was about to redeliver them. A warm shutdown now cancels what is
-  still running as a cold shutdown does: an `acks_late` task is left
+  broker was about to redeliver them. A warm shutdown now cancels the async
+  tasks still running as a cold shutdown does: an `acks_late` task is left
   unacknowledged for the broker to redeliver, and any other task is stored as
   `RETRY`. A cancellation that fails to store its `RETRY` no longer keeps the
   tasks after it from being cancelled
@@ -157,10 +168,11 @@ commit it came from.
   returned or raised and the task was storing its outcome or sending its
   callbacks. Depending on the moment, the task was stored as `REVOKED` instead
   of its outcome, its callbacks were cut off, or the late `REVOKED` was dropped
-  with a "Dropped duplicate result write" error. A sync task cannot be
-  interrupted, yet terminating one reported it as `REVOKED` while it ran on,
-  until its real result replaced that. The worker now leaves either to report
-  its own outcome, and logs that the task could no longer be stopped
+  with a "Dropped duplicate result write" error. Terminating a sync task
+  reported it as `REVOKED` while it ran on, until its real result replaced
+  that. A task whose body is done is now left to report its own outcome, and
+  the worker logs that the task could no longer be stopped. A sync task still
+  in its body is stopped, as described under Added
 - The worker never shut its consumer down, and left its broker connection for
   the process exit to close. On Valkey and Redis, the messages it still held,
   its prefetched tasks and the `acks_late` tasks a shutdown cancelled, then
@@ -202,6 +214,16 @@ commit it came from.
   the worker stopped consuming and did not restart until the stuck thread
   returned. With every sync thread stuck, the drain now waits only for the tasks
   that have started, and the restart returns the others to the queue
+- A sync task's soft time limit could go off after the task body had returned,
+  while the task stored its result or sent its callbacks, and the task was
+  stored as failed with `SoftTimeLimitExceeded` although its body had
+  succeeded. The limit is now only raised in the task body
+- A sync task that reached its hard time limit while it stored its result was
+  reported as failed with `TimeLimitExceeded` and then as succeeded, and its
+  thread counted as stuck, which restarted the worker. With
+  `task_acks_on_timeout` off, an `acks_late` one was requeued as well and ran
+  again. A task whose body is done is now left to report its outcome, unless
+  its thread is still stuck 2 seconds later
 - An async task that ran another one eagerly with `aapply()` counted as past its
   body when the eager call returned, so `revoke(terminate=True)` and a shutdown
   left it running and logged that it could no longer be stopped

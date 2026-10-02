@@ -22,6 +22,7 @@ from celery.app.trace import (
     log_policy_unexpected,
     reset_worker_optimizations,
     setup_worker_optimizations,
+    sync_body_window,
     trace_task,
     trace_task_ret,
     traceback_clear,
@@ -898,6 +899,43 @@ class test_trace(TraceCase):
             assert signature.return_value.aapply_async.call_args[1]["chain"] == chain[:-1]
 
         assert len(chain) == 2
+
+    @pytest.mark.parametrize("fails", [False, True])
+    def test_the_pool_window_closes_before_the_outcome_is_stored(self, fails):
+        events = []
+        window = Mock(name="window")
+        window.open.side_effect = lambda: events.append("open")
+        window.close.side_effect = lambda: events.append("close")
+
+        @self.app.task(shared=False)
+        def body():
+            events.append("body")
+            if fails:
+                raise KeyError("boom")
+            return 1
+
+        body.backend = Mock(name="backend")
+        store = body.backend.mark_as_failure if fails else body.backend.mark_as_done
+        store.side_effect = lambda *args, **kwargs: events.append("stored")
+        token = sync_body_window.set(window)
+        try:
+            self.trace(body, (), {}, eager=False)
+        finally:
+            sync_body_window.reset(token)
+
+        assert events == ["open", "body", "close", "stored"]
+
+    def test_an_eager_call_leaves_the_pool_window_alone(self):
+        window = Mock(name="window")
+        token = sync_body_window.set(window)
+        try:
+            retval, _ = self.trace(self.add, (2, 2), {})
+        finally:
+            sync_body_window.reset(token)
+
+        assert retval == 4
+        window.open.assert_not_called()
+        window.close.assert_not_called()
 
 
 @pytest.mark.asyncio

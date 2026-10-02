@@ -623,9 +623,11 @@ class test_Consumer(ConsumerTestCase):
         c.cancel_active_requests()
 
         # The broker redelivers an acks_late task, so no RETRY announcement.
-        mock_request_acks_late_not_acknowledged.cancel.assert_called_once_with(c.pool, emit_retry=False)
+        mock_request_acks_late_not_acknowledged.cancel.assert_called_once_with(
+            c.pool, emit_retry=False, interrupt_thread=True
+        )
         mock_request_acks_late_acknowledged.cancel.assert_not_called()
-        mock_request_acks_early.cancel.assert_called_once_with(c.pool, emit_retry=True)
+        mock_request_acks_early.cancel.assert_called_once_with(c.pool, emit_retry=True, interrupt_thread=True)
 
         active_requests.clear()
 
@@ -662,8 +664,22 @@ class test_Consumer(ConsumerTestCase):
         finally:
             active_requests.clear()
 
-        failing.cancel.assert_called_once_with(c.pool, emit_retry=True)
-        other.cancel.assert_called_once_with(c.pool, emit_retry=True)
+        failing.cancel.assert_called_once_with(c.pool, emit_retry=True, interrupt_thread=True)
+        other.cancel.assert_called_once_with(c.pool, emit_retry=True, interrupt_thread=True)
+
+    @pytest.mark.usefixtures("depends_on_current_app")
+    def test_cancel_active_requests_can_spare_the_threads(self):
+        c = self.get_consumer()
+        request = Mock(id="sync-task")
+        request.task.acks_late = False
+        active_requests.add(request)
+
+        try:
+            c.cancel_active_requests(interrupt_threads=False)
+        finally:
+            active_requests.clear()
+
+        request.cancel.assert_called_once_with(c.pool, emit_retry=True, interrupt_thread=False)
 
     @pytest.mark.parametrize("broker_connection_retry", [True, False])
     @pytest.mark.parametrize("broker_connection_retry_on_startup", [None, False])

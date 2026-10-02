@@ -15,6 +15,7 @@ import asyncio
 import ctypes
 import inspect
 import os
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -320,83 +321,79 @@ def _raise_in_thread(thread_id: int, exc: type[BaseException] | None) -> int:
     )
 
 
-class SyncSoftTimeout:
-    """Shared state between a sync task's thread and its soft limit timer.
+class _SyncInterrupt(BaseException):
+    """Raised in a sync task's thread to stop the task.
 
-    Injection and completion have to agree on which one happened first.
-    Without that, the timer can fire into a thread that has already left the
-    task body and the exception lands in the pool's own bookkeeping or in
-    whatever the thread picks up next.
+    A BaseException, so that neither the task's ``except Exception`` nor the
+    tracer's failure handling stops it on the way out to the pool.
     """
 
-    def __init__(self) -> None:
-        self._mutex = Lock()
-        self._ready = threading.Event()
-        self._thread_id: int | None = None
-        self._finished = False
-        self._injected = False
 
-    def start(self, thread_id: int) -> None:
-        """Register the thread running the task."""
-        with self._mutex:
-            self._thread_id = thread_id
-        self._ready.set()
+class _TaskTerminated(_SyncInterrupt):
+    """The task was terminated or cancelled, which its request announces."""
 
-    def finish(self) -> None:
-        """Mark the task complete and drop an injection that has not landed."""
-        with self._mutex:
-            if self._finished:
-                return
-            self._finished = True
-            if self._injected and self._thread_id is not None:
-                _raise_in_thread(self._thread_id, None)
 
-    def fire(self, exc: type[BaseException], wait: float = 2.0) -> bool:
-        """Raise ``exc`` in the task's thread unless the task already finished."""
-        if not self._ready.wait(timeout=wait):
-            return False
-        with self._mutex:
-            if self._finished or self._thread_id is None:
-                return False
-            self._injected = _raise_in_thread(self._thread_id, exc) == 1
-            return self._injected
+class _TaskTimedOut(_SyncInterrupt):
+    """The task ran into its hard time limit, which reports it."""
 
-    def guard(self, target: Callable) -> Callable:
-        """Wrap the task body so completion is recorded as it returns."""
 
-        def _guarded(*args: Any, **kwargs: Any) -> Any:
-            try:
-                return target(*args, **kwargs)
-            finally:
-                self.finish()
-
-        return _guarded
+# Where a sync job is. Only a job in its task body is raised in.
+_STARTING, _IN_BODY, _PAST_BODY, _FINISHED = range(4)
 
 
 class SyncJob:
-    """A sync task's time limits, which count from when a thread starts the task."""
+    """A sync task in the thread pool: its time limits, and what stops it.
 
-    def __init__(self, soft_timeout: float | None, timeout: float | None, timeout_callback: Callable | None) -> None:
+    Another thread stops the task by raising in its thread, and only while
+    the task body runs, which the tracer brackets with open() and close().
+    Anywhere else the exception would land in the result save or in the
+    pool's own code. An interrupt that comes before the body is raised as it
+    starts. One still pending as the body ends is dropped, except that a
+    termination or timeout is raised again there, as it decides the outcome.
+
+    The task's thread never takes the mutex while an exception can be pending
+    for it: one landing just after the lock is acquired leaves it held.
+    """
+
+    def __init__(
+        self,
+        task_id: str | None,
+        soft_timeout: float | None,
+        timeout: float | None,
+        timeout_callback: Callable | None,
+    ) -> None:
+        self.id = task_id
         self.soft_timeout = soft_timeout
         self.timeout = timeout
         self.timeout_callback = timeout_callback
-        self._soft_state = SyncSoftTimeout() if soft_timeout else None
-        self._timers: list[threading.Timer] = []
         self._mutex = Lock()
-        self._done = False
+        self._thread_id: int | None = None
+        self._phase = _STARTING
+        #: What the task is stopped with: a termination, a timeout or the soft limit.
+        self._interrupt: type[BaseException] | None = None
+        #: Whether an exception raised in the thread can still be pending.
+        self._injected = False
+        #: Whether the hard limit decided the outcome, which it then reports.
+        self.timed_out = False
         #: Whether the hard limit gave up on the thread before the task was done.
         self.stuck = False
+        #: Set when the thread is done with the task.
+        self.finished = threading.Event()
         #: Set when the task's outcome is reported, by the task or by its hard limit.
         self.settled = threading.Event()
+        self._timers: list[threading.Timer] = []
+
+    @property
+    def terminated(self) -> bool:
+        return self._interrupt is _TaskTerminated
 
     def start(self, target: Callable, on_hard_limit: Callable[[SyncJob], None]) -> Callable:
         """Start the limits for the calling thread and return ``target`` guarded."""
         from celery.exceptions import SoftTimeLimitExceeded
 
-        if self.soft_timeout and self._soft_state is not None:
-            self._soft_state.start(threading.get_ident())
-            target = self._soft_state.guard(target)
-            self._timers.append(threading.Timer(self.soft_timeout, self._soft_state.fire, (SoftTimeLimitExceeded,)))
+        self._thread_id = threading.get_ident()
+        if self.soft_timeout:
+            self._timers.append(threading.Timer(self.soft_timeout, self.interrupt, (SoftTimeLimitExceeded,)))
         if self.timeout:
             self._timers.append(threading.Timer(self.timeout, on_hard_limit, (self,)))
         for timer in self._timers:
@@ -405,28 +402,90 @@ class SyncJob:
 
         def _guarded(*args: Any, **kwargs: Any) -> Any:
             try:
+                stop = self._interrupt
+                if stop is not None and issubclass(stop, _SyncInterrupt):
+                    # Stopped as it was accepted: the tracer would store STARTED over it.
+                    raise stop
                 return target(*args, **kwargs)
             finally:
                 self.finish()
 
         return _guarded
 
-    def finish(self) -> None:
-        """Record that the task is done, so that its limits leave it alone."""
-        with self._mutex:
-            self._done = True
-        if self._soft_state is not None:
-            self._soft_state.finish()
-        for timer in self._timers:
-            timer.cancel()
+    def interrupt(self, exc: type[BaseException]) -> bool:
+        """Raise ``exc`` in the task body, returning False if the body is done.
 
-    def give_up(self) -> bool:
-        """Mark the thread stuck, unless the task is done."""
+        A termination is raised one time only, and nothing replaces it or a timeout.
+        """
         with self._mutex:
-            if self._done:
+            if self._phase >= _PAST_BODY:
                 return False
-            self.stuck = True
+            if self._interrupt is _TaskTerminated:
+                return exc is _TaskTerminated
+            if self._interrupt is _TaskTimedOut:
+                return False
+            self._interrupt = exc
+            self._inject(exc)
             return True
+
+    def expire(self) -> bool:
+        """Stop the task at its hard limit, returning False if it is done.
+
+        The outcome is a timeout, unless a termination or the end of the body
+        decided it first.
+        """
+        with self._mutex:
+            if self._phase == _FINISHED:
+                return False
+            if self._phase == _PAST_BODY or self._interrupt is _TaskTerminated:
+                return True
+            self.timed_out = True
+            self._interrupt = _TaskTimedOut
+            self._inject(_TaskTimedOut)
+            return True
+
+    def _inject(self, exc: type[BaseException]) -> None:
+        # Raised from the task's own thread, it would land in the pool's code.
+        if self._phase != _IN_BODY or self._thread_id is None or self._thread_id == threading.get_ident():
+            return
+        if _raise_in_thread(self._thread_id, exc):
+            self._injected = True
+
+    def open(self) -> None:
+        """Mark the start of the task body, raising an interrupt that came first."""
+        with self._mutex:
+            if self._interrupt is not None:
+                self._phase = _PAST_BODY
+                raise self._interrupt
+            self._phase = _IN_BODY
+
+    def close(self) -> None:
+        """Mark the end of the task body, raising a termination or timeout it got past."""
+        if self._phase != _IN_BODY:
+            return
+        self._phase = _PAST_BODY
+        self._drop_pending()
+        stop = self._interrupt
+        if stop is not None and issubclass(stop, _SyncInterrupt) and not isinstance(sys.exception(), _SyncInterrupt):
+            raise stop
+
+    def finish(self) -> None:
+        """Record that the thread is done with the task, so that its limits leave it alone."""
+        self._phase = _FINISHED
+        try:
+            self._drop_pending()
+        finally:
+            for timer in self._timers:
+                timer.cancel()
+            self.finished.set()
+
+    def _drop_pending(self) -> None:
+        # An interrupter that saw the earlier phase is done when the mutex is free.
+        while self._mutex.locked():
+            time.sleep(0)
+        if self._injected and self._thread_id is not None:
+            self._injected = False
+            _raise_in_thread(self._thread_id, None)
 
 
 class TaskPool(BasePool):
@@ -442,6 +501,10 @@ class TaskPool(BasePool):
     body_can_be_buffer = True
     signal_safe = False
     task_join_will_block = False
+
+    #: How long a sync task gets to stop after its hard limit has raised in its
+    #: thread. A thread still running after that is stuck and restarts the worker.
+    stuck_thread_grace = 2.0
 
     def __init__(
         self,
@@ -459,7 +522,8 @@ class TaskPool(BasePool):
         self._executor: ThreadPoolExecutor | None = None
         self._active_futures: dict[Future, SyncJob] = {}
         self._async_jobs: dict[str, AsyncApplyResult] = {}
-        self._async_jobs_lock = Lock()
+        self._sync_jobs: dict[str, SyncJob] = {}
+        self._jobs_lock = Lock()
         self._stuck_thread_count = 0
         self._stuck_lock = Lock()
         self._accept_content: set | None = None
@@ -486,10 +550,10 @@ class TaskPool(BasePool):
         for w in self._loop_workers:
             w.stop()
         self._loop_workers.clear()
-        with self._async_jobs_lock:
+        with self._jobs_lock:
             self._async_jobs.clear()
-        # A thread cannot be interrupted, so the running sync tasks get to report.
-        # A stuck one is settled by its hard limit and left to the exit.
+        # The running sync tasks get to report, including those a cold shutdown
+        # stopped. A stuck one is settled by its hard limit and left to the exit.
         running = [job for _, job in sync_jobs if not job.settled.is_set()]
         if running:
             logger.info("Waiting for %d running sync task(s) to finish", len(running))
@@ -522,24 +586,30 @@ class TaskPool(BasePool):
         """
         for f in list(self._active_futures):
             f.cancel()
-        with self._async_jobs_lock:
+        with self._jobs_lock:
             jobs = list(self._async_jobs.values())
         for job in jobs:
             job.discard()
 
-    def terminate_job(self, job_id: str, signal: Any = None) -> bool:
-        """Cancel a running async task, returning whether it is cancelled.
+    def terminate_job(self, job_id: str, signal: Any = None, interrupt_thread: bool = True) -> bool:
+        """Stop a running task, returning whether it is stopped.
 
-        Sync tasks run in a thread pool and cannot be interrupted, so a job
-        that is not an async one is left to finish, and so is one whose body
-        is done or that has already finished.
+        An async task is cancelled. A sync task is stopped on a best-effort
+        basis, by raising in its thread: Python code stops immediately, while a
+        call blocked in C code, such as a socket read, sees it only when it
+        returns. ``interrupt_thread=False`` leaves sync tasks to finish, as a
+        warm shutdown does. A task whose body is done is left to report its
+        outcome, and so is one that has already finished.
         """
-        with self._async_jobs_lock:
+        with self._jobs_lock:
             job = self._async_jobs.get(job_id)
-        return job is not None and job.terminate(signal)
+            sync_job = self._sync_jobs.get(job_id)
+        if job is not None:
+            return job.terminate(signal)
+        return sync_job is not None and interrupt_thread and sync_job.interrupt(_TaskTerminated)
 
     def _forget_async_job(self, job: AsyncApplyResult) -> None:
-        with self._async_jobs_lock:
+        with self._jobs_lock:
             if self._async_jobs.get(job.id) is job:
                 del self._async_jobs[job.id]
 
@@ -575,7 +645,7 @@ class TaskPool(BasePool):
         if self._is_async_task(args) and self._loop_workers:
             worker = self._pick_loop_worker()
             job = AsyncApplyResult(worker, args[1], self._forget_async_job)
-            with self._async_jobs_lock:
+            with self._jobs_lock:
                 self._async_jobs[job.id] = job
             worker.submit(
                 self._run_async_task,
@@ -686,10 +756,7 @@ class TaskPool(BasePool):
             if callback:
                 callback(result)
         except asyncio.CancelledError:
-            from celery.exceptions import ExceptionInfo, Terminated
-
-            exc = Terminated("cancelled")
-            self._report_failure(uuid, error_callback, ExceptionInfo((type(exc), exc, None)))
+            self._report_terminated(uuid, error_callback)
             # Report, then let the cancellation carry on outwards: swallowing it
             # here leaves the task looking like it completed and stalls shutdown.
             raise
@@ -727,6 +794,13 @@ class TaskPool(BasePool):
             state.should_terminate = code
         else:
             state.should_stop = code
+
+    def _report_terminated(self, uuid: str | None, error_callback: Callable | None) -> None:
+        """Report a task that terminate_job() stopped, which the request then tells apart."""
+        from celery.exceptions import ExceptionInfo, Terminated
+
+        exc = Terminated("cancelled")
+        self._report_failure(uuid, error_callback, ExceptionInfo((type(exc), exc, None)))
 
     def _report_failure(self, uuid: str | None, error_callback: Callable | None, exc_info: Any) -> None:
         """Report a failure the tracer did not report itself.
@@ -852,7 +926,10 @@ class TaskPool(BasePool):
     ) -> ApplyResult:
         if self._executor is None:
             raise RuntimeError("pool has not been started")
-        job = SyncJob(soft_timeout, timeout, timeout_callback)
+        job = SyncJob(args[1] if len(args) > 1 else None, soft_timeout, timeout, timeout_callback)
+        if job.id is not None:
+            with self._jobs_lock:
+                self._sync_jobs[job.id] = job
         f = self._executor.submit(
             self._run_in_thread,
             target,
@@ -869,26 +946,53 @@ class TaskPool(BasePool):
 
     def _sync_job_done(self, future: Future) -> None:
         job = self._active_futures.pop(future, None)
-        # A stuck job is settled by its hard limit, after the timeout is reported.
-        if job is not None and not job.stuck:
-            job.settled.set()
+        if job is None:
+            return
+        if job.id is not None:
+            with self._jobs_lock:
+                if self._sync_jobs.get(job.id) is job:
+                    del self._sync_jobs[job.id]
+        job.settled.set()
 
     def _on_sync_hard_limit(self, job: SyncJob) -> None:
-        """Report a sync task past its hard limit, whose thread cannot be stopped."""
-        if not job.give_up():
+        """Stop a sync task at its hard limit, and give up on a thread that does not stop.
+
+        The timeout is reported immediately, unless a termination or the end of
+        the body decided the outcome first. A thread still running after
+        ``stuck_thread_grace`` counts as stuck, which restarts the worker.
+        """
+        if not job.expire():
             return
+        if job.timed_out:
+            self._report_timeout(job)
+        if job.finished.wait(self.stuck_thread_grace):
+            return
+        job.stuck = True
         try:
             logger.error(
-                "Hard time limit (%ss) exceeded for sync task in thread pool. "
-                "Thread cannot be killed; will trigger process restart.",
+                "Sync task %s is still running %ss after its hard time limit (%ss). "
+                "Its thread is stuck; will trigger process restart.",
+                job.id,
+                self.stuck_thread_grace,
                 job.timeout,
             )
             with self._stuck_lock:
                 self._stuck_thread_count += 1
-            if job.timeout_callback:
-                job.timeout_callback(False, job.timeout)
+            if not job.timed_out and not job.terminated:
+                # Its body is done, but nothing reports the outcome while the thread is stuck.
+                self._report_timeout(job)
         finally:
+            # A stuck thread possibly never reports.
             job.settled.set()
+
+    @staticmethod
+    def _report_timeout(job: SyncJob) -> None:
+        if job.timeout_callback is None:
+            return
+        try:
+            job.timeout_callback(False, job.timeout)
+        except Exception:
+            logger.exception("Failed to report the hard time limit of task %s", job.id)
 
     def _run_in_thread(
         self,
@@ -900,13 +1004,30 @@ class TaskPool(BasePool):
         error_callback: Callable | None,
         job: SyncJob,
     ) -> Any:
+        from celery.app.trace import sync_body_window
         from celery.exceptions import ExceptionInfo
 
         self.app.set_current()
         uuid = args[1] if len(args) > 1 else None
+        # The executor runs every task on a thread in the same context.
+        token = sync_body_window.set(job)
         try:
             target = job.start(target, self._on_sync_hard_limit)
-            return apply_target(target, args, kwargs, callback, accept_callback, error_callback=error_callback)
+            return apply_target(
+                target,
+                args,
+                kwargs,
+                callback,
+                accept_callback,
+                error_callback=error_callback,
+                propagate=(_SyncInterrupt,),
+            )
+        except _TaskTerminated:
+            self._report_terminated(uuid, error_callback)
+            return None
+        except _TaskTimedOut:
+            # Already reported by the hard limit.
+            return None
         except (SystemExit, KeyboardInterrupt) as exc:
             # apply_target re-raises the two the worker acts on. Nothing reads
             # the future they would end up in, so they are handed on here.
@@ -918,6 +1039,7 @@ class TaskPool(BasePool):
             self._report_failure(uuid, error_callback, ExceptionInfo())
             return None
         finally:
+            sync_body_window.reset(token)
             job.finish()
 
     def _get_info(self) -> dict[str, Any]:

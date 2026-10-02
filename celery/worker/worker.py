@@ -402,8 +402,8 @@ class WorkController:
     async def wait_for_soft_shutdown(self):
         """Wait for active tasks to finish, up to worker_soft_shutdown_timeout.
 
-        Then cancel what is still running as a cold shutdown does. The pool's
-        stop would store it revoked and acknowledge an acks_late task.
+        Then cancel the async tasks still running as a cold shutdown does: the pool's stop would store
+        them revoked and acknowledge an acks_late task. The sync tasks are left to finish.
         """
         app = self.app
         with state._lock:
@@ -439,4 +439,4 @@ class WorkController:
                     remaining,
                     timeout,
                 )
-            self.consumer.cancel_active_requests()
+            self.consumer.cancel_active_requests(interrupt_threads=False)

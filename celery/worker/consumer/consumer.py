@@ -795,11 +795,12 @@ class Consumer:
         """``repr(self)``."""
         return f"<Consumer: {self.hostname} ({self.blueprint.human_state()})>"
 
-    def cancel_active_requests(self):
+    def cancel_active_requests(self, interrupt_threads=True):
         """Cancel active requests during shutdown.
 
         Cancels every active request that either does not require a late
-        acknowledgment or, if it does, has not been acknowledged yet.
+        acknowledgment or, if it does, has not been acknowledged yet. With
+        ``interrupt_threads=False`` the sync tasks are left to finish.
 
         A task that already succeeded is left alone even when unacknowledged:
         cancelling it would announce a RETRY over its result.
@@ -820,7 +821,11 @@ class Consumer:
                 # The broker redelivers an acks_late task by itself, so the
                 # RETRY announcement would only race the redelivery.
                 try:
-                    request.cancel(self.pool, emit_retry=not request.task.acks_late)
+                    request.cancel(
+                        self.pool,
+                        emit_retry=not request.task.acks_late,
+                        interrupt_thread=interrupt_threads,
+                    )
                 except Exception:
                     # The announcement goes through the result backend. One that
                     # fails must not leave the remaining tasks running.

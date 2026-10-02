@@ -420,7 +420,7 @@ class test_WorkController(ConsumerCase):
         finally:
             state.task_ready(request)
 
-        worker.consumer.cancel_active_requests.assert_called_once_with()
+        worker.consumer.cancel_active_requests.assert_called_once_with(interrupt_threads=False)
         request.cancel.assert_not_called()
 
 

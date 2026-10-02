@@ -64,7 +64,7 @@ async def long_task():
 ```
 
 - Async tasks: the soft limit cancels the task at its current `await`, and the task fails with `SoftTimeLimitExceeded`. A task that catches the `CancelledError` runs on until the hard limit cancels it.
-- Sync tasks: the soft limit raises `SoftTimeLimitExceeded` in the task's thread, after a blocking call such as `time.sleep` returns. A thread cannot be stopped, so at the hard limit the task is reported as failed and the worker restarts to end the thread.
+- Sync tasks: the soft limit raises `SoftTimeLimitExceeded` in the task's thread, after a blocking call such as `time.sleep` returns. The hard limit stops the task the same way and reports it as failed. A thread still blocked 2 seconds later is stuck, and the worker restarts to end it. Neither limit is raised after the task body has returned.
 - Both limits count from when the task starts, not from when the worker receives it.
 
 ## Bound tasks

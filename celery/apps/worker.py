@@ -383,7 +383,7 @@ def during_soft_shutdown(worker: Worker):
 
 
 def on_cold_shutdown(worker: Worker):
-    """Drop the tasks that have not started, cancel the running async tasks and stop the pool.
+    """Drop the tasks that have not started, cancel the running ones and stop the pool.
 
     Called for SIGQUIT, a second SIGINT (Ctrl+C), and SIGTERM when REMAP_SIGTERM is "SIGQUIT".
     """

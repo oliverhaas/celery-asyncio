@@ -478,13 +478,13 @@ class Request:
             if obj is not None:
                 obj.terminate(signal)
 
-    def cancel(self, pool, signal=None, emit_retry=True):
+    def cancel(self, pool, signal=None, emit_retry=True, interrupt_thread=True):
         signal = _signals.signum(signal or TERM_SIGNAME)
         if self.time_start:
             # Set before the job stops, as in terminate(): on_failure would
             # otherwise announce the cancelled job as revoked.
             self._already_cancelled = True
-            if not self._stop_job(pool, signal):
+            if not self._stop_job(pool, signal, interrupt_thread):
                 self._already_cancelled = False
                 return
             self._announce_cancelled(emit_retry=emit_retry)
@@ -494,13 +494,13 @@ class Request:
             if obj is not None:
                 obj.terminate(signal)
 
-    def _stop_job(self, pool, signal):
+    def _stop_job(self, pool, signal, interrupt_thread=True):
         """Stop the running job, returning False if the pool could not.
 
-        A sync task, or an async one past its body, then reports its own outcome.
+        A job past its body, or a sync one left to finish, then reports its own outcome.
         """
         try:
-            return pool.terminate_job(self.id, signal) is not False
+            return pool.terminate_job(self.id, signal, interrupt_thread=interrupt_thread) is not False
         except NotImplementedError:
             return True
 

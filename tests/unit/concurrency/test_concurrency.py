@@ -11,7 +11,15 @@ import pytest
 
 from celery import concurrency, signals, states
 from celery.app.trace import trace_task_ret
-from celery.concurrency.aio import ApplyResult, AsyncApplyResult, LoopWorker, SyncJob, SyncSoftTimeout, TaskPool
+from celery.concurrency.aio import (
+    ApplyResult,
+    AsyncApplyResult,
+    LoopWorker,
+    SyncJob,
+    TaskPool,
+    _TaskTerminated,
+    _TaskTimedOut,
+)
 from celery.concurrency.base import BasePool, apply_target
 from celery.exceptions import (
     SoftTimeLimitExceeded,
@@ -734,29 +742,187 @@ class test_async_task_termination(AioPoolCase):
         assert revoked == []
         assert self.meta(req.id)["status"] == states.SUCCESS
 
-    def test_terminating_a_sync_task_leaves_it_to_finish(self):
-        started, release = threading.Event(), threading.Event()
 
-        @self.app.task(name="aio.sync_revoked_while_running", shared=False)
-        def sync_revoked_while_running():
-            started.set()
-            release.wait(10)
+class test_sync_task_termination(AioPoolCase):
+    def setup_method(self):
+        super().setup_method()
+        self.release = threading.Event()
+
+    def teardown_method(self):
+        self.release.set()
+        super().teardown_method()
+
+    def _busy_task(self, name, **options):
+        marks = {"started": threading.Event(), "completed": threading.Event()}
+
+        @self.app.task(name=name, shared=False, **options)
+        def busy():
+            marks["started"].set()
+            while not self.release.is_set():
+                time.sleep(0.01)
+            marks["completed"].set()
             return "finished"
 
-        pool = self.start_pool()
-        message = self.TaskMessage("aio.sync_revoked_while_running", args=(), kwargs={})
-        req = Request(message, app=self.app, on_ack=Mock(), on_reject=Mock())
+        return marks
+
+    def _request(self, name, on_ack=None, on_reject=None):
+        message = self.TaskMessage(name, args=(), kwargs={})
+        req = Request(message, app=self.app, on_ack=on_ack or Mock(), on_reject=on_reject or Mock())
+        reported = threading.Event()
+        req.on_failure = report_when_done(req.on_failure, reported)
+        return req, reported
+
+    def test_terminating_a_running_task_revokes_it(self):
+        marks = self._busy_task("sync.terminate_me")
+        pool = self.start_pool(sync_workers=1)
+        req, reported = self._request("sync.terminate_me")
+        req.execute_using_pool(pool)
+        assert marks["started"].wait(10)
+
+        with collect_signal(signals.task_failure) as failures, collect_signal(signals.task_revoked) as revoked:
+            req.terminate(pool)
+            assert reported.wait(10)
+
+        assert not marks["completed"].is_set()
+        assert failures == []
+        assert len(revoked) == 1
+        assert self.meta(req.id)["status"] == states.REVOKED
+
+    def test_cancelling_a_running_task_is_a_retry(self):
+        marks = self._busy_task("sync.cancel_me")
+        pool = self.start_pool(sync_workers=1)
+        req, reported = self._request("sync.cancel_me")
+        req.execute_using_pool(pool)
+        assert marks["started"].wait(10)
+
+        with collect_signal(signals.task_revoked) as revoked:
+            req.cancel(pool)
+            assert reported.wait(10)
+
+        assert not marks["completed"].is_set()
+        assert revoked == []
+        assert self.meta(req.id)["status"] == states.RETRY
+
+    def test_cancelling_an_acks_late_task_leaves_its_message_for_redelivery(self):
+        marks = self._busy_task("sync.redeliver_me", acks_late=True)
+        pool = self.start_pool(sync_workers=1)
+        on_ack, on_reject = Mock(name="on_ack"), Mock(name="on_reject")
+        req, reported = self._request("sync.redeliver_me", on_ack=on_ack, on_reject=on_reject)
+        req.execute_using_pool(pool)
+        assert marks["started"].wait(10)
+
+        req.cancel(pool, emit_retry=False)
+
+        assert reported.wait(10)
+        assert not marks["completed"].is_set()
+        on_ack.assert_not_called()
+        on_reject.assert_not_called()
+        assert self.meta(req.id)["status"] == states.PENDING
+
+    def test_a_cancel_that_spares_threads_lets_the_task_finish(self):
+        marks = self._busy_task("sync.outlives_the_cancel")
+        pool = self.start_pool(sync_workers=1)
+        req, _ = self._request("sync.outlives_the_cancel")
         done = threading.Event()
         req.on_success = report_when_done(req.on_success, done)
-        with collect_signal(signals.task_revoked) as revoked:
+        req.execute_using_pool(pool)
+        assert marks["started"].wait(10)
+
+        req.cancel(pool, interrupt_thread=False)
+        self.release.set()
+
+        assert done.wait(10)
+        assert marks["completed"].is_set()
+        assert self.meta(req.id)["status"] == states.SUCCESS
+
+    def test_a_task_terminated_before_it_starts_never_runs(self):
+        marks = self._busy_task("sync.terminated_early")
+        pool = self.start_pool(sync_workers=1)
+        req, reported = self._request("sync.terminated_early")
+
+        req.terminate(pool)
+        req.execute_using_pool(pool)
+
+        assert reported.wait(10)
+        assert not marks["started"].is_set()
+        assert self.meta(req.id)["status"] == states.REVOKED
+
+    def test_a_task_that_swallows_the_termination_is_still_stopped(self):
+        started = threading.Event()
+
+        @self.app.task(name="sync.swallows_it", shared=False)
+        def swallows_it():
+            started.set()
+            try:
+                while not self.release.is_set():
+                    time.sleep(0.01)
+            except BaseException:
+                pass
+            return "swallowed"
+
+        pool = self.start_pool(sync_workers=1)
+        rec = Recorder()
+        task_id = self.apply(pool, "sync.swallows_it", rec)
+        assert started.wait(10)
+
+        assert pool.terminate_job(task_id) is True
+
+        assert rec.done.wait(10)
+        assert rec.results == []
+        assert isinstance(rec.failure, Terminated)
+
+    def test_terminating_a_task_storing_its_result_leaves_it_to_finish(self):
+        storing = threading.Event()
+
+        @self.app.task(name="sync.finishes_while_revoked", shared=False)
+        def finishes_while_revoked():
+            return "finished"
+
+        backend_cls = type(self.app.backend)
+        store = backend_cls.mark_as_done
+
+        def slow_store(backend, *args, **kwargs):
+            storing.set()
+            for _ in range(10):
+                time.sleep(0.01)
+            return store(backend, *args, **kwargs)
+
+        pool = self.start_pool(sync_workers=1)
+        req, _ = self._request("sync.finishes_while_revoked")
+        done = threading.Event()
+        req.on_success = report_when_done(req.on_success, done)
+        with patch.object(backend_cls, "mark_as_done", slow_store), collect_signal(signals.task_revoked) as revoked:
             req.execute_using_pool(pool)
-            assert started.wait(10)
+            assert storing.wait(10)
             req.terminate(pool)
-            release.set()
             assert done.wait(10)
 
         assert revoked == []
         assert self.meta(req.id)["status"] == states.SUCCESS
+
+    def test_the_thread_runs_the_next_task_after_a_termination(self):
+        marks = self._busy_task("sync.terminated_first")
+
+        @self.app.task(name="sync.runs_next", shared=False)
+        def runs_next():
+            return "ok"
+
+        pool = self.start_pool(sync_workers=1)
+        first = Recorder()
+        task_id = self.apply(pool, "sync.terminated_first", first)
+        assert marks["started"].wait(10)
+
+        assert pool.terminate_job(task_id) is True
+        assert first.done.wait(10)
+        assert isinstance(first.failure, Terminated)
+        assert wait_until(lambda: not pool._active_futures)
+        assert pool.terminate_job(task_id) is False
+
+        second = Recorder()
+        next_id = self.apply(pool, "sync.runs_next", second)
+        assert second.done.wait(10)
+        assert second.result[0] == 0
+        assert self.meta(next_id)["result"] == "ok"
 
 
 class test_async_task_time_limits(AioPoolCase):
@@ -971,14 +1137,61 @@ class test_sync_task_time_limits(AioPoolCase):
             release.wait(10)
 
         pool = self.start_pool(sync_workers=1)
+        pool.stuck_thread_grace = 0.1
         rec = Recorder()
         self.apply(pool, "sync.hard_limit", rec, timeout=0.3)
         try:
             assert rec.done.wait(10)
             assert rec.timeouts == [(False, 0.3)]
-            assert pool._stuck_thread_count == 1
+            assert wait_until(lambda: pool._stuck_thread_count == 1)
         finally:
             release.set()
+        assert wait_until(lambda: not pool._active_futures)
+        assert rec.results == []
+        assert rec.failures == []
+
+    def test_a_hard_limit_stops_a_task_running_python_code(self):
+        completed = threading.Event()
+
+        @self.app.task(name="sync.runs_past_its_limit", shared=False)
+        def runs_past_its_limit():
+            for _ in range(3000):
+                time.sleep(0.01)
+            completed.set()
+
+        pool = self.start_pool(sync_workers=1)
+        rec = Recorder()
+        self.apply(pool, "sync.runs_past_its_limit", rec, timeout=0.3)
+
+        assert rec.done.wait(10)
+        assert rec.timeouts == [(False, 0.3)]
+        assert wait_until(lambda: not pool._active_futures)
+        assert not completed.is_set()
+        assert pool._stuck_thread_count == 0
+        assert rec.results == []
+        assert rec.failures == []
+
+    def test_a_soft_limit_does_not_land_while_the_result_is_stored(self):
+        @self.app.task(name="sync.stores_slowly", shared=False)
+        def stores_slowly():
+            return "ok"
+
+        backend_cls = type(self.app.backend)
+        store = backend_cls.mark_as_done
+
+        def slow_store(backend, *args, **kwargs):
+            for _ in range(50):
+                time.sleep(0.01)
+            return store(backend, *args, **kwargs)
+
+        pool = self.start_pool(sync_workers=1)
+        rec = Recorder()
+        with patch.object(backend_cls, "mark_as_done", slow_store):
+            task_id = self.apply(pool, "sync.stores_slowly", rec, soft_timeout=0.2)
+            assert rec.done.wait(10)
+
+        assert rec.result[0] == 0
+        assert self.meta(task_id)["status"] == states.SUCCESS
 
     def test_a_soft_limit_does_not_land_in_the_next_task(self):
         @self.app.task(name="sync.slow_one", shared=False)
@@ -1042,11 +1255,13 @@ class test_sync_threads_all_stuck(AioPoolCase):
             release.wait(10)
 
         pool = self.start_pool(sync_workers=sync_workers)
+        pool.stuck_thread_grace = 0.1
         rec = Recorder()
         assert not pool.sync_threads_all_stuck
         self.apply(pool, "sync.stuck_on_a_thread", rec, timeout=0.2)
         try:
             assert rec.done.wait(10)
+            assert wait_until(lambda: pool.stuck_threads == 1)
             assert pool.sync_threads_all_stuck is all_stuck
         finally:
             release.set()
@@ -1082,6 +1297,7 @@ class test_sync_task_stop(AioPoolCase):
             release.wait(10)
 
         pool = self.start_pool(sync_workers=1)
+        pool.stuck_thread_grace = 0.1
         rec = Recorder()
         self.apply(pool, "sync.stuck_at_the_stop", rec, timeout=0.2)
         try:
@@ -1097,7 +1313,25 @@ class test_sync_task_stop(AioPoolCase):
         assert wait_until(lambda: pool.stuck_threads == 0)
 
 
+def from_another_thread(fn, *args):
+    result = []
+    thread = threading.Thread(target=lambda: result.append(fn(*args)))
+    thread.start()
+    thread.join(10)
+    return result[0]
+
+
 class test_SyncJob:
+    @pytest.fixture(autouse=True)
+    def inject(self):
+        with patch("celery.concurrency.aio._raise_in_thread", return_value=1) as inject:
+            yield inject
+
+    def started_job(self):
+        job = SyncJob("job-1", soft_timeout=None, timeout=None, timeout_callback=None)
+        job.start(Mock(name="target"), Mock(name="on_hard_limit"))
+        return job
+
     def test_the_limit_timers_stop_when_the_task_finishes(self):
         timers = []
 
@@ -1106,7 +1340,7 @@ class test_SyncJob:
                 super().__init__(*args, **kwargs)
                 timers.append(self)
 
-        job = SyncJob(soft_timeout=30.0, timeout=30.0, timeout_callback=None)
+        job = SyncJob("job-1", soft_timeout=30.0, timeout=30.0, timeout_callback=None)
         with patch("threading.Timer", _Timer):
             guarded = job.start(Mock(return_value="ok"), Mock(name="on_hard_limit"))
         assert len(timers) == 2
@@ -1117,67 +1351,78 @@ class test_SyncJob:
         for timer in timers:
             timer.join(timeout=5)
         assert not any(timer.is_alive() for timer in timers)
+        assert job.finished.is_set()
 
     def test_the_hard_limit_leaves_a_finished_task_alone(self):
-        job = SyncJob(soft_timeout=None, timeout=30.0, timeout_callback=None)
+        job = self.started_job()
         job.finish()
 
-        assert job.give_up() is False
-        assert not job.stuck
+        assert from_another_thread(job.expire) is False
+        assert not job.timed_out
 
+    def test_an_interrupt_before_the_body_is_raised_as_the_body_starts(self, inject):
+        job = self.started_job()
 
-class test_SyncSoftTimeout:
-    def test_fire_raises_in_the_registered_thread(self):
-        soft = SyncSoftTimeout()
-        outcome = []
+        assert from_another_thread(job.interrupt, _TaskTerminated) is True
+        with pytest.raises(_TaskTerminated):
+            job.open()
+        job.close()
 
-        def body():
-            soft.start(threading.get_ident())
-            try:
-                for _ in range(1000):
-                    time.sleep(0.01)
-            except SoftTimeLimitExceeded:
-                outcome.append("soft limit")
-            finally:
-                soft.finish()
-
-        thread = threading.Thread(target=body)
-        thread.start()
-        try:
-            assert soft.fire(SoftTimeLimitExceeded) is True
-        finally:
-            thread.join(10)
-        assert outcome == ["soft limit"]
-
-    def test_fire_does_nothing_once_the_task_has_finished(self):
-        soft = SyncSoftTimeout()
-        with patch("celery.concurrency.aio._raise_in_thread", return_value=1) as inject:
-            soft.start(4242)
-            soft.finish()
-            assert soft.fire(SoftTimeLimitExceeded) is False
         inject.assert_not_called()
 
-    def test_finishing_clears_an_injection_that_has_not_landed(self):
-        soft = SyncSoftTimeout()
-        with patch("celery.concurrency.aio._raise_in_thread", return_value=1) as inject:
-            soft.start(4242)
-            assert soft.fire(SoftTimeLimitExceeded) is True
-            soft.finish()
-        assert inject.call_args_list == [call(4242, SoftTimeLimitExceeded), call(4242, None)]
+    @pytest.mark.parametrize("end", ["close", "finish"])
+    def test_an_interrupt_that_has_not_landed_is_dropped(self, inject, end):
+        job = self.started_job()
+        job.open()
 
-    def test_fire_gives_up_on_a_task_that_never_starts(self):
-        soft = SyncSoftTimeout()
-        with patch("celery.concurrency.aio._raise_in_thread", return_value=1) as inject:
-            assert soft.fire(SoftTimeLimitExceeded, wait=0.01) is False
+        assert from_another_thread(job.interrupt, SoftTimeLimitExceeded) is True
+        getattr(job, end)()
+
+        thread_id = threading.get_ident()
+        assert inject.call_args_list == [call(thread_id, SoftTimeLimitExceeded), call(thread_id, None)]
+        assert from_another_thread(job.interrupt, _TaskTerminated) is False
+
+    def test_an_interrupt_from_the_task_thread_waits_for_the_body_to_end(self, inject):
+        job = self.started_job()
+        job.open()
+
+        assert job.interrupt(_TaskTerminated) is True
+        with pytest.raises(_TaskTerminated):
+            job.close()
+
         inject.assert_not_called()
 
-    def test_the_guard_records_completion_when_the_task_raises(self):
-        soft = SyncSoftTimeout()
-        soft.start(threading.get_ident())
-        guarded = soft.guard(Mock(side_effect=KeyError("x")))
-        with pytest.raises(KeyError):
-            guarded()
-        assert soft.fire(SoftTimeLimitExceeded) is False
+    def test_a_termination_replaces_a_soft_limit(self, inject):
+        job = self.started_job()
+        job.open()
+
+        assert from_another_thread(job.interrupt, SoftTimeLimitExceeded) is True
+        assert from_another_thread(job.interrupt, _TaskTerminated) is True
+
+        thread_id = threading.get_ident()
+        assert inject.call_args_list == [call(thread_id, SoftTimeLimitExceeded), call(thread_id, _TaskTerminated)]
+
+    def test_a_terminated_task_is_terminated_once_and_does_not_time_out(self, inject):
+        job = self.started_job()
+        job.open()
+
+        assert from_another_thread(job.interrupt, _TaskTerminated) is True
+        assert from_another_thread(job.interrupt, _TaskTerminated) is True
+        assert from_another_thread(job.interrupt, SoftTimeLimitExceeded) is False
+        assert from_another_thread(job.expire) is True
+
+        assert not job.timed_out
+        assert inject.call_args_list == [call(threading.get_ident(), _TaskTerminated)]
+
+    def test_a_task_past_its_hard_limit_can_no_longer_be_terminated(self, inject):
+        job = self.started_job()
+        job.open()
+
+        assert from_another_thread(job.expire) is True
+        assert from_another_thread(job.interrupt, _TaskTerminated) is False
+
+        assert job.timed_out
+        assert inject.call_args_list == [call(threading.get_ident(), _TaskTimedOut)]
 
 
 class test_AsyncApplyResult:

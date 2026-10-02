@@ -165,6 +165,13 @@ async_body_done: ContextVar[Callable[[], None] | None] = ContextVar(
     default=None,
 )
 
+#: Set by the pool for a sync task: opened as the task body starts and closed
+#: after it returns or raises. The pool raises in the thread only in between.
+sync_body_window: ContextVar[Any] = ContextVar(
+    "sync_body_window",
+    default=None,
+)
+
 
 def info(fmt, context):
     """Log 'fmt % context' with severity 'INFO'.
@@ -730,20 +737,28 @@ def build_tracer(
                     )
 
                 # -*- TRACE -*-
+                # An eager call inherits the context of the task that made it.
+                body_window = None if eager else sync_body_window.get()
                 try:
-                    if task_before_start:
-                        task_before_start(uuid, args, kwargs)
+                    try:
+                        if body_window is not None:
+                            body_window.open()
+                        if task_before_start:
+                            task_before_start(uuid, args, kwargs)
 
-                    R = retval = fun(*args, **kwargs)
-                    if asyncio.iscoroutine(retval):
-                        # A running loop leaves nowhere to run the body, so
-                        # it goes to a thread that carries this context.
-                        if current_loop() is None:
-                            R = retval = asyncio.run(retval)
-                        else:
-                            context = contextvars.copy_context()
-                            with concurrent.futures.ThreadPoolExecutor(1) as pool:
-                                R = retval = pool.submit(context.run, asyncio.run, retval).result()
+                        R = retval = fun(*args, **kwargs)
+                        if asyncio.iscoroutine(retval):
+                            # A running loop leaves nowhere to run the body, so
+                            # it goes to a thread that carries this context.
+                            if current_loop() is None:
+                                R = retval = asyncio.run(retval)
+                            else:
+                                context = contextvars.copy_context()
+                                with concurrent.futures.ThreadPoolExecutor(1) as pool:
+                                    R = retval = pool.submit(context.run, asyncio.run, retval).result()
+                    finally:
+                        if body_window is not None:
+                            body_window.close()
                     state = SUCCESS
                 except Reject as exc:
                     I, R = Info(REJECTED, exc), ExceptionInfo(internal=True)
