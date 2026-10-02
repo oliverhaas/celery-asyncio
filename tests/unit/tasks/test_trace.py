@@ -991,6 +991,17 @@ class test_async_trace(TraceCase):
 
         assert events == ["body done", "stored"]
 
+    async def test_an_eager_call_leaves_the_pool_hook_alone(self):
+        body_done = Mock(name="body_done")
+        token = async_body_done.set(body_done)
+        try:
+            retval, _ = await self.atrace(self.add, (2, 2), {})
+        finally:
+            async_body_done.reset(token)
+
+        assert retval == 4
+        body_done.assert_not_called()
+
     async def test_track_started_stores_the_started_state(self):
         self.add.track_started = True
         self.add.ignore_result = False

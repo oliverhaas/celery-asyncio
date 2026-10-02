@@ -1080,7 +1080,8 @@ def build_async_tracer(
                     )
 
                 # -*- TRACE -*-
-                body_done = async_body_done.get()
+                # An eager call inherits the context of the task that made it.
+                body_done = None if eager else async_body_done.get()
                 try:
                     try:
                         if task_before_start:

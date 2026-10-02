@@ -202,6 +202,9 @@ commit it came from.
   the worker stopped consuming and did not restart until the stuck thread
   returned. With every sync thread stuck, the drain now waits only for the tasks
   that have started, and the restart returns the others to the queue
+- An async task that ran another one eagerly with `aapply()` counted as past its
+  body when the eager call returned, so `revoke(terminate=True)` and a shutdown
+  left it running and logged that it could no longer be stopped
 
 #### Beat and schedules
 
