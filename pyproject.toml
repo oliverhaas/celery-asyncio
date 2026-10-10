@@ -87,7 +87,7 @@ brotli = ["brotli>=1.0.0"]
 
 [dependency-groups]
 dev = [
-  "mypy==2.3.1",
+  "mypy==2.4.0",
   "pre-commit==4.6.2",
   # tests/unit/app/test_app.py importorskips pydantic at module level, so
   # without it the whole module goes quiet, not just the pydantic tests.
@@ -113,10 +113,10 @@ dev = [
   "msgpack==1.2.3",
   "pyyaml==6.0.3",
   "redis==8.1.0",
-  "ruff==0.16.9",
+  "ruff==0.16.10",
   "tblib==3.2.2",
   "valkey==6.1.1",
-  "ty==0.0.84",
+  "ty==0.0.85",
 ]
 docs = [
   "mkdocs==1.6.1",
