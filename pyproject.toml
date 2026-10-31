@@ -87,15 +87,15 @@ brotli = ["brotli>=1.0.0"]
 
 [dependency-groups]
 dev = [
-  "mypy==2.3.1",
-  "pre-commit==4.6.2",
+  "mypy==2.4.0",
+  "pre-commit==4.7.0",
   # tests/unit/app/test_app.py importorskips pydantic at module level, so
   # without it the whole module goes quiet, not just the pydantic tests.
-  "pydantic==2.13.5",
-  "pytest==9.1.1",
-  "pytest-asyncio==1.4.0",
+  "pydantic==2.14.1",
+  "pytest==9.2.0",
+  "pytest-asyncio==1.4.1",
   "pytest-cov==7.1.0",
-  "pytest-mock==3.16.0",
+  "pytest-mock==3.17.0",
   "pytest-timeout==2.4.0",
   "pytest-xdist==3.8.0",
   "pytest-flakefinder==1.1.0",
@@ -107,20 +107,20 @@ dev = [
   # the suite instead of skipped. ephem covers the solar schedules in
   # tests/unit/app/test_schedules.py, tblib the remote-traceback path in
   # tests/unit/tasks/test_result.py.
-  "aio-pika==10.1.0",
-  "brotli==1.2.0",
+  "aio-pika==10.2.1",
+  "brotli==1.2.1",
   "ephem==4.2.1",
-  "msgpack==1.2.3",
+  "msgpack==1.2.4",
   "pyyaml==6.0.3",
   "redis==8.1.0",
-  "ruff==0.16.9",
+  "ruff==0.17.3",
   "tblib==3.2.2",
-  "valkey==6.1.1",
-  "ty==0.0.84",
+  "valkey==6.2.0",
+  "ty==0.0.93",
 ]
 docs = [
   "mkdocs==1.6.1",
-  "mkdocs-material==9.7.7",
+  "mkdocs-material==9.8.0",
   "mike==2.2.0",
   "mkdocstrings-python>=2.0.3",
 ]
